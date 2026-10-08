@@ -1,5 +1,7 @@
 export type RGB = [number, number, number]
 
+export const TAU = Math.PI * 2
+
 export function clamp(value: number, min: number, max: number) {
   return value < min ? min : value > max ? max : value
 }
@@ -25,6 +27,39 @@ export function hash(n: number) {
 export function hash2(x: number, y: number) {
   const s = Math.sin(x * 127.1 + y * 311.7) * 43758.5453123
   return s - Math.floor(s)
+}
+
+// A stable 0..1 value for a string.
+export function hashString(text: string) {
+  let h = 2166136261
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i)
+    h = Math.imul(h, 16777619)
+  }
+  return (h >>> 0) / 4294967295
+}
+
+export function hsv(h: number, s: number, v: number): RGB {
+  h = ((h % 1) + 1) % 1
+  const i = Math.floor(h * 6)
+  const f = h * 6 - i
+  const p = v * (1 - s)
+  const q = v * (1 - f * s)
+  const t = v * (1 - (1 - f) * s)
+  switch (i % 6) {
+    case 0:
+      return [v, t, p]
+    case 1:
+      return [q, v, p]
+    case 2:
+      return [p, v, t]
+    case 3:
+      return [p, q, v]
+    case 4:
+      return [t, p, v]
+    default:
+      return [v, p, q]
+  }
 }
 
 export function noise1(x: number, seed = 0) {

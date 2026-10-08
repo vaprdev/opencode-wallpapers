@@ -35,13 +35,24 @@ Update with `git pull` in the clone.
 
 | Command | Effect |
 | --- | --- |
-| `/wallpaper` | Open a picker with every wallpaper, off, and where to show it |
+| `/wallpaper` | Open a picker with every wallpaper, off, activity level, and where to show it |
 | `/wallpaper aquarium` | Switch to a wallpaper by id |
 | `/wallpaper off` | Turn the wallpaper off |
+| `/wallpaper calm` | Scenery with rare events (default) |
+| `/wallpaper lively` | A few creatures |
+| `/wallpaper teeming` | The full cast |
 | `/wallpaper panels` | Show it only inside panels: sidebar, prompt, notices (default) |
 | `/wallpaper behind` | Show it behind everything, including the conversation |
 
 The same actions are in the command palette under **Wallpapers**. Your choice persists across restarts.
+
+## Activity
+
+Every wallpaper has three activity levels, which set how much is going on behind your work:
+
+| Wallpaper | Calm | Lively | Teeming |
+| --- | --- | --- | --- |
+| `aquarium` | Water, light and the whale | Adds a fish and an octopus | Adds a shark, diver, turtle and kelp |
 
 ## Terminals
 
@@ -64,15 +75,16 @@ per character cell. Wallpapers update at 15 frames per second.
 ## Add a wallpaper
 
 1. Create `wallpapers/<id>.ts`. Extend `Canvas` from `src/canvas.ts`, implement `step(dt)` and `render()`, and export
-   a `Wallpaper` with an id, name, description, scrim colors, and `create`. `wallpapers/aquarium.ts` is the example.
+   a `Wallpaper` with an id, name, description, scrim colors, what each activity level shows, and `create(activity)`.
+   `wallpapers/aquarium.ts` is the example.
 2. Add it to `wallpapers/index.ts`.
 3. Check it:
 
 ```sh
 bun install
 bun run typecheck
-bun dev/check.ts <id>            # errors, frame cost, and flicker on a mock screen
-bun dev/snap.ts <id> 5 30 60     # scene PNGs at those times
+bun dev/check.ts <id>            # errors, frame cost, and flicker at every activity level
+bun dev/snap.ts <id> teeming 30  # scene PNGs at an activity level and times
 bun dev/preview.ts <id> 20       # terminal-cell rendering behind text, as a PNG
 bun dev/pixel-check.ts <id>      # real-pixel mode against a mock kitty renderer
 ```

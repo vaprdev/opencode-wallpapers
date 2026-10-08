@@ -123,6 +123,28 @@ export abstract class Canvas {
     }
   }
 
+  // An anti-aliased filled ellipse, mixed over the scene; handy for parts that narrow as a creature turns edge-on.
+  protected ellipse(cx: number, cy: number, rx: number, ry: number, r: number, g: number, b: number, a: number) {
+    const { W, H, hdr } = this
+    const x0 = Math.max(0, Math.floor(cx - rx - 1))
+    const x1 = Math.min(W - 1, Math.ceil(cx + rx + 1))
+    const y0 = Math.max(0, Math.floor(cy - ry - 1))
+    const y1 = Math.min(H - 1, Math.ceil(cy + ry + 1))
+    const m = Math.min(rx, ry)
+    for (let y = y0; y <= y1; y++) {
+      const dy = (y + 0.5 - cy) / ry
+      for (let x = x0; x <= x1; x++) {
+        const dx = (x + 0.5 - cx) / rx
+        const cov = clamp((1 - Math.sqrt(dx * dx + dy * dy)) * m + 0.5, 0, 1) * a
+        if (cov <= 0) continue
+        const i = (y * W + x) * 3
+        hdr[i] += (r - hdr[i]) * cov
+        hdr[i + 1] += (g - hdr[i + 1]) * cov
+        hdr[i + 2] += (b - hdr[i + 2]) * cov
+      }
+    }
+  }
+
   // Bloom, vignette and ACES tone mapping from hdr into pixels.
   protected finish(exposure = 1.25) {
     this.bloom()
