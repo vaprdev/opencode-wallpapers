@@ -1,5 +1,5 @@
 import { Canvas } from "../src/canvas"
-import type { Activity, Wallpaper } from "../src/engine"
+import type { Activity, Settings, Time, Wallpaper } from "../src/engine"
 import { TAU, clamp, fbm1, hash, hash2, hashString, hsv, lerp, noise1, rand, smoothstep, type RGB } from "../src/math"
 
 // Depth of the water surface as a fraction of the height.
@@ -129,8 +129,14 @@ class Aquarium extends Canvas {
 
   // Each creature keeps to its own home area so they never pile up: shark along the top, fish lower left, octopus
   // lower right, diver upper left, turtle along the bottom. Areas are laid out before the first resize, at A = 1.
-  constructor(private readonly activity: Activity) {
+  private readonly activity: Activity
+  private readonly timeOfDay: Time
+
+  constructor(settings: Settings) {
     super()
+    const activity = settings.activity
+    this.activity = activity
+    this.timeOfDay = settings.time
     if (activity === "teeming") this.fish.push(this.makeFish("ambient:shark", "shark", [0.3, 1, 0.17, 0.33], { len: 0.64, z: 0.55 }))
     if (activity !== "calm") {
       this.fish.push(this.makeFish("ambient:fish", "fish", [0, 0.44, 0.48, 0.72], { len: 0.26, z: 0.35, hue: 0.07, sat: 0.85 }))
@@ -258,7 +264,47 @@ class Aquarium extends Canvas {
     for (const f of fish) if (f.z < 0.5) this.drawCreature(f)
     this.drawParticles()
     this.drawSnow(false)
+    if (this.timeOfDay === "sunset") this.gradeSunset()
+    if (this.timeOfDay === "night") this.gradeNight()
     this.finish()
+  }
+
+  // Golden hour: everything warms, and the shallows glow with low orange light.
+  private gradeSunset() {
+    const { W, H, hdr } = this
+    for (let y = 0; y < H; y++) {
+      const glow = Math.exp(-y / (0.22 * H))
+      for (let x = 0; x < W; x++) {
+        const o = (y * W + x) * 3
+        hdr[o] = hdr[o] * 1.3 + glow * 0.45
+        hdr[o + 1] = hdr[o + 1] * 0.78 + glow * 0.16
+        hdr[o + 2] = hdr[o + 2] * 0.5 + glow * 0.04
+      }
+    }
+  }
+
+  // Moonlit water: the scene dims to deep blue, then light sources draw on top. The moon glows through the surface,
+  // marine snow becomes glowing plankton, and the diver's torch cuts through the dark.
+  private gradeNight() {
+    const { W, H, hdr } = this
+    const mx = 0.3 * this.A * H
+    const my = SURFACE * H
+    for (let y = 0; y < H; y++)
+      for (let x = 0; x < W; x++) {
+        const o = (y * W + x) * 3
+        const moon = Math.exp(-Math.hypot(x - mx, (y - my) * 1.6) / (0.16 * H))
+        hdr[o] = hdr[o] * 0.12 + moon * 0.3
+        hdr[o + 1] = hdr[o + 1] * 0.2 + moon * 0.4
+        hdr[o + 2] = hdr[o + 2] * 0.34 + moon * 0.55
+      }
+    for (const p of this.snow) {
+      const pulse = Math.pow(0.5 + 0.5 * Math.sin(this.time * 1.5 + p.s * 50), 3)
+      const k = (0.12 + p.s * 0.45) * pulse
+      const green = p.s > 0.5
+      if (p.s > 0.75) this.disc(p.x * H, p.y * H, 1.2, 0.1 * k * 4, (green ? 0.9 : 0.6) * k * 4, (green ? 0.6 : 1) * k * 4, 0.5)
+      this.add(p.x * H, p.y * H, 0.1 * k, (green ? 0.9 : 0.6) * k, (green ? 0.6 : 1) * k)
+    }
+    if (this.diver) this.drawTorch(this.diver, 6)
   }
 
   protected override layout() {
@@ -1104,12 +1150,38 @@ class Aquarium extends Canvas {
     return 0.46 * this.H * CREATURE_SCALE * (1.12 - 0.45 * dv.z)
   }
 
+  // The torch beam, faint and warm, from the hand forward; it dims as the diver turns edge-on.
+  private drawTorch(dv: Diver, strength: number) {
+    const beam = Math.pow(Math.abs(dv.face), 2)
+    if (beam <= 0.02) return
+    const [hx, hy] = this.diverPoint(dv, 0.3, 0.07)
+    const [tx, ty] = this.diverPoint(dv, 1.3, 0.2)
+    const len = Math.hypot(tx - hx, ty - hy)
+    const ux = (tx - hx) / len
+    const uy = (ty - hy) / len
+    const x0 = Math.max(0, Math.floor(Math.min(hx, tx) - len * 0.35))
+    const x1 = Math.min(this.W - 1, Math.ceil(Math.max(hx, tx) + len * 0.35))
+    const y0 = Math.max(0, Math.floor(Math.min(hy, ty) - len * 0.35))
+    const y1 = Math.min(this.H - 1, Math.ceil(Math.max(hy, ty) + len * 0.35))
+    for (let y = y0; y <= y1; y++)
+      for (let x = x0; x <= x1; x++) {
+        const dx = x + 0.5 - hx
+        const dy = y + 0.5 - hy
+        const along = dx * ux + dy * uy
+        if (along <= 0 || along > len) continue
+        const across = Math.abs(-dx * uy + dy * ux)
+        const width = along * 0.3 + 1
+        if (across > width) continue
+        const k = (1 - along / len) * Math.pow(1 - across / width, 2) * 0.14 * beam * strength
+        this.add(x, y, k * 1, k * 0.95, k * 0.75)
+      }
+  }
+
   private drawDiver(dv: Diver) {
     const L = this.diverLength(dv)
     if (L < 3) return
     // Body parts narrow with the turn and the torch dims edge-on, so turning around stays one smooth motion.
     const squash = Math.max(0.3, Math.abs(dv.face))
-    const beam = Math.pow(Math.abs(dv.face), 2)
     const fog = this.fogAt(dv.y * this.H)
     const fogK = 0.08 + dv.z * 0.42
     const tint = (c: RGB): RGB => [c[0] + (fog[0] - c[0]) * fogK, c[1] + (fog[1] - c[1]) * fogK, c[2] + (fog[2] - c[2]) * fogK]
@@ -1130,30 +1202,7 @@ class Aquarium extends Canvas {
     const finColor: RGB = [0.1, 0.75, 0.85]
     const kick = Math.sin(dv.phase) * 0.05
 
-    // torch beam, faint and warm, from the hand forward
-    if (beam > 0.02) {
-      const [hx, hy] = this.diverPoint(dv, 0.3, 0.07)
-      const [tx, ty] = this.diverPoint(dv, 1.3, 0.2)
-      const len = Math.hypot(tx - hx, ty - hy)
-      const ux = (tx - hx) / len
-      const uy = (ty - hy) / len
-      const x0 = Math.max(0, Math.floor(Math.min(hx, tx) - len * 0.35))
-      const x1 = Math.min(this.W - 1, Math.ceil(Math.max(hx, tx) + len * 0.35))
-      const y0 = Math.max(0, Math.floor(Math.min(hy, ty) - len * 0.35))
-      const y1 = Math.min(this.H - 1, Math.ceil(Math.max(hy, ty) + len * 0.35))
-      for (let y = y0; y <= y1; y++)
-        for (let x = x0; x <= x1; x++) {
-          const dx = x + 0.5 - hx
-          const dy = y + 0.5 - hy
-          const along = dx * ux + dy * uy
-          if (along <= 0 || along > len) continue
-          const across = Math.abs(-dx * uy + dy * ux)
-          const width = along * 0.3 + 1
-          if (across > width) continue
-          const k = (1 - along / len) * Math.pow(1 - across / width, 2) * 0.14 * beam
-          this.add(x, y, k * 1, k * 0.95, k * 0.75)
-        }
-    }
+    this.drawTorch(dv, 1)
 
     // far leg and fin
     limb(-0.12, 0.02, -0.33, 0.04 - kick, 0.045, 0.035, suitFar)
@@ -1323,10 +1372,22 @@ export const aquarium: Wallpaper = {
     lively: "Adds a fish and an octopus",
     teeming: "Adds a shark, diver, turtle and kelp",
   },
-  scrim: [
-    [16, 40, 60],
-    [10, 28, 48],
-    [6, 16, 34],
-  ],
-  create: (activity) => new Aquarium(activity),
+  scrim: {
+    day: [
+      [16, 40, 60],
+      [10, 28, 48],
+      [6, 16, 34],
+    ],
+    sunset: [
+      [44, 30, 36],
+      [22, 20, 36],
+      [8, 10, 24],
+    ],
+    night: [
+      [4, 10, 22],
+      [3, 7, 16],
+      [2, 4, 10],
+    ],
+  },
+  create: (settings) => new Aquarium(settings),
 }

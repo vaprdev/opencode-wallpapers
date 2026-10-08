@@ -1,5 +1,5 @@
 import { Canvas } from "../src/canvas"
-import type { Activity, Wallpaper } from "../src/engine"
+import type { Activity, Settings, Time, Wallpaper } from "../src/engine"
 import { TAU, clamp, fbm1, hash, lerp, rand, smoothstep, type RGB } from "../src/math"
 
 // The scene runs slower than real time, which keeps it calm behind text.
@@ -8,18 +8,181 @@ const TIME_SCALE = 0.35
 const CREATURE_SPEED = 0.25
 // Height of the horizon as a fraction of the screen.
 const HORIZON = 0.6
-// The setting sun: x as a fraction of the width, y and radius as fractions of the height.
-const SUN = { x: 0.6, y: 0.53, r: 0.065 }
-// Warm light from the low sun that edges every silhouette.
-const RIM: RGB = [1, 0.42, 0.14]
 
-const SKY: [number, RGB][] = [
-  [0, [0.012, 0.01, 0.04]],
-  [0.25, [0.05, 0.02, 0.085]],
-  [0.42, [0.2, 0.055, 0.12]],
-  [0.52, [0.55, 0.16, 0.12]],
-  [HORIZON, [0.95, 0.4, 0.14]],
-]
+// Everything that changes with the time of day. "rim" lighting backlights silhouettes from a low sun or moon;
+// "front" lighting shades rounded forms and casts shadows, for a high daytime sun.
+interface Look {
+  style: "rim" | "front"
+  light: RGB
+  sky: [number, RGB][]
+  // The sun or moon: x as a fraction of the width, y and r as fractions of the height.
+  orb: { x: number; y: number; r: number; core: RGB; glow: RGB; near: number; wide: number; moon: boolean }
+  stars: number
+  milkyWay: boolean
+  clouds: { puffy: boolean; top: RGB; bottom: RGB; alpha: number }
+  farMesa: RGB
+  nearMesa: RGB
+  floor: [RGB, RGB]
+  backDune: RGB
+  frontDune: RGB
+  cactus: RGB
+  bone: RGB
+  horn: RGB
+  hornTip: RGB
+  socket: RGB
+  pear: RGB
+  fruit: RGB
+  barrel: RGB
+  flower: RGB
+  coyote: RGB
+  snake: [body: RGB, band: RGB, rattle: RGB]
+  twig: RGB
+  // The big bird and the flock: an eagle and vultures by day, an owl and bats at night.
+  night: boolean
+  plumage: RGB
+  plumageLight: RGB
+  flock: RGB
+  dust: RGB
+}
+
+const LOOKS: Record<Time, Look> = {
+  day: {
+    style: "front",
+    light: [1, 0.95, 0.85],
+    sky: [
+      [0, [0.05, 0.17, 0.45]],
+      [0.3, [0.13, 0.33, 0.65]],
+      [0.5, [0.32, 0.5, 0.7]],
+      [HORIZON, [0.55, 0.62, 0.68]],
+    ],
+    orb: { x: 0.78, y: 0.13, r: 0.035, core: [5, 4.6, 3.8], glow: [1, 0.95, 0.8], near: 0.45, wide: 0.15, moon: false },
+    stars: 0,
+    milkyWay: false,
+    clouds: { puffy: true, top: [1.1, 1.1, 1.1], bottom: [0.55, 0.62, 0.75], alpha: 0.9 },
+    farMesa: [0.62, 0.36, 0.26],
+    nearMesa: [0.62, 0.27, 0.13],
+    floor: [
+      [0.66, 0.52, 0.38],
+      [0.6, 0.42, 0.26],
+    ],
+    backDune: [0.7, 0.5, 0.3],
+    frontDune: [0.76, 0.54, 0.3],
+    cactus: [0.16, 0.32, 0.12],
+    bone: [0.86, 0.8, 0.68],
+    horn: [0.72, 0.62, 0.45],
+    hornTip: [0.25, 0.18, 0.1],
+    socket: [0.1, 0.07, 0.05],
+    pear: [0.2, 0.38, 0.14],
+    fruit: [0.65, 0.1, 0.3],
+    barrel: [0.18, 0.34, 0.13],
+    flower: [0.95, 0.75, 0.15],
+    coyote: [0.5, 0.4, 0.28],
+    snake: [
+      [0.6, 0.46, 0.28],
+      [0.3, 0.2, 0.1],
+      [0.75, 0.68, 0.55],
+    ],
+    twig: [0.6, 0.45, 0.28],
+    night: false,
+    plumage: [0.22, 0.13, 0.07],
+    plumageLight: [0.9, 0.88, 0.82],
+    flock: [0.08, 0.06, 0.06],
+    dust: [0.12, 0.1, 0.07],
+  },
+  sunset: {
+    style: "rim",
+    light: [1, 0.42, 0.14],
+    sky: [
+      [0, [0.012, 0.01, 0.04]],
+      [0.25, [0.05, 0.02, 0.085]],
+      [0.42, [0.2, 0.055, 0.12]],
+      [0.52, [0.55, 0.16, 0.12]],
+      [HORIZON, [0.95, 0.4, 0.14]],
+    ],
+    orb: { x: 0.6, y: 0.53, r: 0.065, core: [3.2, 1.7, 0.6], glow: [1, 0.42, 0.14], near: 0.5, wide: 0.25, moon: false },
+    stars: 45,
+    milkyWay: false,
+    clouds: { puffy: false, top: [0.1, 0.035, 0.09], bottom: [0.75, 0.24, 0.2], alpha: 0.55 },
+    farMesa: [0.07, 0.03, 0.06],
+    nearMesa: [0.07, 0.025, 0.04],
+    floor: [
+      [0.4, 0.14, 0.07],
+      [0.1, 0.04, 0.03],
+    ],
+    backDune: [0.075, 0.03, 0.025],
+    frontDune: [0.04, 0.017, 0.014],
+    cactus: [0.02, 0.05, 0.025],
+    bone: [0.62, 0.5, 0.4],
+    horn: [0.48, 0.38, 0.26],
+    hornTip: [0.12, 0.08, 0.05],
+    socket: [0.03, 0.015, 0.01],
+    pear: [0.03, 0.055, 0.025],
+    fruit: [0.5, 0.06, 0.08],
+    barrel: [0.03, 0.06, 0.03],
+    flower: [0.8, 0.6, 0.1],
+    coyote: [0.02, 0.01, 0.012],
+    snake: [
+      [0.3, 0.19, 0.1],
+      [0.12, 0.07, 0.04],
+      [0.55, 0.45, 0.32],
+    ],
+    twig: [0.3, 0.17, 0.08],
+    night: false,
+    plumage: [0.06, 0.035, 0.022],
+    plumageLight: [0.62, 0.57, 0.5],
+    flock: [0.03, 0.02, 0.02],
+    dust: [0.12, 0.07, 0.035],
+  },
+  night: {
+    style: "rim",
+    light: [0.55, 0.7, 1],
+    sky: [
+      [0, [0.004, 0.006, 0.02]],
+      [0.3, [0.01, 0.018, 0.05]],
+      [0.5, [0.025, 0.04, 0.09]],
+      [HORIZON, [0.05, 0.07, 0.13]],
+    ],
+    orb: { x: 0.3, y: 0.16, r: 0.035, core: [1.6, 1.65, 1.8], glow: [0.5, 0.6, 0.85], near: 0.25, wide: 0.1, moon: true },
+    stars: 160,
+    milkyWay: true,
+    clouds: { puffy: false, top: [0.02, 0.025, 0.045], bottom: [0.12, 0.14, 0.2], alpha: 0.5 },
+    farMesa: [0.03, 0.04, 0.08],
+    nearMesa: [0.012, 0.016, 0.035],
+    floor: [
+      [0.05, 0.06, 0.1],
+      [0.015, 0.018, 0.035],
+    ],
+    backDune: [0.025, 0.03, 0.055],
+    frontDune: [0.012, 0.014, 0.028],
+    cactus: [0.01, 0.02, 0.02],
+    bone: [0.32, 0.36, 0.42],
+    horn: [0.24, 0.25, 0.28],
+    hornTip: [0.04, 0.04, 0.05],
+    socket: [0.01, 0.01, 0.015],
+    pear: [0.012, 0.022, 0.02],
+    fruit: [0.15, 0.03, 0.06],
+    barrel: [0.012, 0.024, 0.02],
+    flower: [0.3, 0.28, 0.12],
+    coyote: [0.012, 0.012, 0.02],
+    snake: [
+      [0.1, 0.1, 0.12],
+      [0.04, 0.04, 0.05],
+      [0.22, 0.22, 0.25],
+    ],
+    twig: [0.12, 0.12, 0.15],
+    night: true,
+    plumage: [0.08, 0.075, 0.08],
+    plumageLight: [0.16, 0.15, 0.15],
+    flock: [0.02, 0.02, 0.03],
+    dust: [0, 0, 0],
+  },
+}
+
+// Daylight comes from the upper right, slightly in front of the scene.
+const DAYLIGHT = (() => {
+  const l = Math.hypot(0.45, 0.6, 0.65)
+  return [0.45 / l, -0.6 / l, 0.65 / l]
+})()
 
 interface Mesa {
   c: number
@@ -79,35 +242,47 @@ interface Coyote {
 
 class Desert extends Canvas {
   private time = 0
+  private readonly activity: Activity
+  private readonly look: Look
   private background = new Float32Array(0)
   private frontTop = new Float32Array(0)
   private nearTop = new Float32Array(0)
-  private sunX = 0
-  private sunY = 0
+  private orbX = 0
+  private orbY = 0
   private coyoteX = 0
-  private stars = Array.from({ length: 45 }, () => ({ x: Math.random(), y: Math.random() * 0.3, b: 0.4 + Math.random() * 0.6, phase: Math.random() * TAU }))
+  private stars: { x: number; y: number; b: number; phase: number }[]
   private dust = Array.from({ length: 60 }, () => ({ x: Math.random() * 4, y: 0.3 + Math.random() * 0.7, s: Math.random() }))
-  private clouds: Cloud[] = Array.from({ length: 5 }, () => ({
-    x: Math.random() * 2,
-    y: 0.12 + Math.random() * 0.24,
-    speed: 0.003 + Math.random() * 0.004,
-    puffs: Array.from({ length: 5 }, () => ({ dx: (Math.random() - 0.5) * 0.22, dy: (Math.random() - 0.5) * 0.015, rx: 0.06 + Math.random() * 0.08, ry: 0.008 + Math.random() * 0.01 })),
-  }))
+  private clouds: Cloud[]
   private tumbleweed = { x: -9, dir: 1, next: 14, spin: 0, hop: 0 }
   private twigs = buildTwigs()
-  private eagle: Bird | undefined
-  private vultures: Bird[] = []
+  private bigBird: Bird | undefined
+  private flock: Bird[] = []
   private snake: Snake | undefined
   private coyote: Coyote | undefined
 
-  constructor(private readonly activity: Activity) {
+  constructor(settings: Settings) {
     super()
-    if (activity !== "calm") {
-      this.eagle = { angle: 0, speed: 0.5, cx: 0.55, cy: 0.2, rx: 0.3, ry: 0.05, phase: 0 }
+    this.activity = settings.activity
+    this.look = LOOKS[settings.time]
+    const look = this.look
+    const top = look.milkyWay ? 0.5 : 0.3
+    this.stars = Array.from({ length: look.stars }, () => ({ x: Math.random(), y: Math.random() * top, b: 0.4 + Math.random() * 0.6, phase: Math.random() * TAU }))
+    this.clouds = Array.from({ length: look.clouds.puffy ? 4 : 5 }, () => ({
+      x: Math.random() * 2,
+      y: look.clouds.puffy ? 0.1 + Math.random() * 0.2 : 0.12 + Math.random() * 0.24,
+      speed: 0.003 + Math.random() * 0.004,
+      puffs: look.clouds.puffy
+        ? Array.from({ length: 6 }, (_, i) => ({ dx: (i / 5 - 0.5) * 0.16 + (Math.random() - 0.5) * 0.03, dy: -Math.sin((i / 5) * Math.PI) * 0.02 + (Math.random() - 0.5) * 0.01, rx: 0.03 + Math.random() * 0.025, ry: 0.022 + Math.random() * 0.014 }))
+        : Array.from({ length: 5 }, () => ({ dx: (Math.random() - 0.5) * 0.22, dy: (Math.random() - 0.5) * 0.015, rx: 0.06 + Math.random() * 0.08, ry: 0.008 + Math.random() * 0.01 })),
+    }))
+    if (settings.activity !== "calm") {
+      this.bigBird = { angle: 0, speed: 0.5, cx: 0.55, cy: 0.2, rx: 0.3, ry: 0.05, phase: 0 }
       this.snake = { x: 0.5, y: 0.9, vx: 0, vy: 0, wx: 0.5, wy: 0.9, wanderT: 0, phase: 0, trail: [] }
     }
-    if (activity === "teeming") {
-      this.vultures = [0, 2.1, 4.2].map((angle, i) => ({ angle, speed: 0.4 + i * 0.05, cx: 0.25, cy: 0.16, rx: 0.08 + i * 0.035, ry: 0.025, phase: i }))
+    if (settings.activity === "teeming") {
+      this.flock = look.night
+        ? [0, 1.6, 3.1, 4.7].map((angle, i) => ({ angle, speed: 0.9 + i * 0.12, cx: 0.72, cy: 0.3, rx: 0.06 + i * 0.03, ry: 0.04, phase: i * 1.7 }))
+        : [0, 2.1, 4.2].map((angle, i) => ({ angle, speed: 0.4 + i * 0.05, cx: 0.25, cy: 0.16, rx: 0.08 + i * 0.035, ry: 0.025, phase: i }))
       this.coyote = { howl: 0, t: -1, next: 8 }
     }
   }
@@ -132,8 +307,8 @@ class Desert extends Canvas {
     this.hdr.set(this.background)
     this.drawStars()
     this.drawClouds()
-    for (const v of this.vultures) this.drawBird(v, 0.3, false, 0.06)
-    if (this.eagle) this.drawBird(this.eagle, 0.8, true, 0.018)
+    for (const b of this.flock) this.look.night ? this.drawBat(b) : this.drawBird(b, 0.3, "vulture")
+    if (this.bigBird) this.drawBird(this.bigBird, 0.8, this.look.night ? "owl" : "eagle")
     if (this.coyote) this.drawCoyote(this.coyote)
     if (this.snake) this.drawSnake(this.snake)
     this.drawTumbleweed()
@@ -143,9 +318,9 @@ class Desert extends Canvas {
 
   // Everything that never moves is painted once per size into `background`, then copied in each frame.
   protected override layout() {
-    const { W, H, A } = this
-    this.sunX = SUN.x * W
-    this.sunY = SUN.y * H
+    const { W, H, A, look } = this
+    this.orbX = look.orb.x * W
+    this.orbY = look.orb.y * H
     this.drawSky()
     const far = mesas(A, 3, 7, [0.06, 0.16], [0.04, 0.09])
     const near = mesas(A, 2, 19, [0.05, 0.12], [0.06, 0.13])
@@ -156,13 +331,14 @@ class Desert extends Canvas {
       farTop[x] = (HORIZON - profile(far, u)) * H
       this.nearTop[x] = (HORIZON + 0.01 - profile(near, u)) * H
     }
+    const horizon = look.sky[look.sky.length - 1][1]
     this.fillBelow(farTop, (x, y, d) => {
-      if (y > HORIZON * this.H + 1) return undefined
-      const haze = 0.35 + 0.4 * (1 - d / 40)
-      return mixRim([lerp(0.07, 0.6, haze * 0.4), lerp(0.03, 0.22, haze * 0.4), lerp(0.06, 0.12, haze * 0.4)], d, 1.5, this.sunGlow(x) * 0.6)
+      if (y > HORIZON * H + 1) return undefined
+      const haze = (0.35 + 0.4 * (1 - d / 40)) * (look.style === "front" ? 0.45 : 0.4)
+      return this.surface(mix(look.farMesa, horizon, haze), farTop, x, d, 1.5, 0.6, true)
     })
     this.drawFloor()
-    this.fillBelow(this.nearTop, (x, y, d) => (y > (HORIZON + 0.02) * this.H ? undefined : mixRim([0.07, 0.025, 0.04], d, 1.6, this.sunGlow(x) * 0.8)))
+    this.fillBelow(this.nearTop, (x, y, d) => (y > (HORIZON + 0.02) * H ? undefined : this.surface(look.nearMesa, this.nearTop, x, d, 1.6, 0.8, true)))
     const backTop = new Float32Array(W)
     this.frontTop = new Float32Array(W)
     for (let x = 0; x < W; x++) {
@@ -170,19 +346,26 @@ class Desert extends Canvas {
       backTop[x] = (0.7 + 0.035 * Math.sin(u * 3.1 + 1) + 0.02 * Math.sin(u * 7.3)) * H
       this.frontTop[x] = (0.83 + 0.045 * Math.sin(u * 2.2 + 2.5) + 0.015 * Math.sin(u * 5.7 + 1)) * H
     }
-    this.fillBelow(backTop, (x, _y, d) => mixRim([0.075 - d * 0.0004, 0.03 - d * 0.0002, 0.025], d, 2.2, this.sunGlow(x) * 0.55))
-    this.fillBelow(this.frontTop, (x, y, d) => {
+    this.fillBelow(backTop, (x, _y, d) => this.surface(scale(look.backDune, 1 - d * 0.005), backTop, x, d, 2.2, 0.55, false))
+    this.fillBelow(this.frontTop, (x, _y, d) => {
       const ripple = 0.9 + 0.1 * Math.sin(x * 0.5 + d * 0.9 + fbm1(x * 0.05, 3) * 4)
-      return mixRim([0.04 * ripple, 0.017 * ripple, 0.014 * ripple], d, 2.5, this.sunGlow(x) * 0.5)
+      return this.surface(scale(look.frontDune, ripple), this.frontTop, x, d, 2.5, 0.5, false)
     })
     if (this.activity === "teeming") {
-      this.drawSaguaro(0.47 * A * H, backTop[Math.round(0.47 * W)] + 2, 0.14 * H, 0.5)
-      this.drawSaguaro(0.92 * A * H, backTop[Math.min(W - 1, Math.round(0.92 * W))] + 2, 0.11 * H, 0.5)
+      for (const fx of [0.47, 0.92]) {
+        const gy = backTop[Math.min(W - 1, Math.round(fx * W))] + 2
+        this.shadow(fx * A * H, gy, 0.05 * H)
+        this.drawSaguaro(fx * A * H, gy, (fx < 0.5 ? 0.14 : 0.11) * H, 0.5)
+      }
     }
+    this.shadow(0.13 * A * H, this.ground(0.13), 0.12 * H)
     this.drawSaguaro(0.13 * A * H, this.ground(0.13) + 3, 0.34 * H, 0)
+    this.shadow(0.8 * A * H, this.ground(0.8), 0.08 * H)
     this.drawSkull(0.8 * A * H, this.ground(0.8), 0.07 * H)
     if (this.activity === "teeming") {
+      this.shadow(0.33 * A * H, this.ground(0.33), 0.05 * H)
       this.drawPricklyPear(0.33 * A * H, this.ground(0.33) + 2, H)
+      this.shadow(0.62 * A * H, this.ground(0.62), 0.035 * H)
       this.drawBarrel(0.62 * A * H, this.ground(0.62) + 1, H)
     }
     // The coyote sits on the tallest near mesa.
@@ -197,49 +380,77 @@ class Desert extends Canvas {
     return this.frontTop[clamp(Math.round(fx * this.W), 0, this.W - 1)]
   }
 
-  // How strongly a column catches the sun's light, highest beneath the sun.
-  private sunGlow(x: number) {
-    return 0.35 + 0.65 * Math.exp(-Math.abs(x - this.sunX) / (0.45 * this.H))
+  // How strongly a column catches a low sun or moon, highest beneath it.
+  private glowAt(x: number) {
+    return 0.35 + 0.65 * Math.exp(-Math.abs(x - this.orbX) / (0.45 * this.H))
   }
 
-  // Depth-graded dusk sky, a wide glow around the sun, and the sun itself.
+  // Shades a mesa or dune pixel `depth` below its top edge. At sunset and night the edge glows with backlight; by day,
+  // slopes facing the sun are brighter, and cliffs show their rock layers.
+  private surface(base: RGB, top: Float32Array, x: number, depth: number, rimWidth: number, rimStrength: number, strata: boolean): RGB {
+    const { light } = this.look
+    if (this.look.style === "rim") {
+      const k = Math.exp(-depth / rimWidth) * rimStrength * this.glowAt(x) * 0.6
+      return [base[0] + light[0] * k, base[1] + light[1] * k, base[2] + light[2] * k]
+    }
+    const slope = (top[Math.min(this.W - 1, x + 1)] - top[Math.max(0, x - 1)]) / 2
+    const face = strata ? (slope < -0.6 ? 0.6 : slope > 0.6 ? 1.1 : 0.85) : 0.85 + clamp(slope * 1.5, -0.3, 0.3)
+    const layers = strata ? 0.9 + 0.1 * Math.sin(depth * 0.7 + fbm1(x * 0.08, 2) * 3) : 1
+    const edge = 1 + 0.35 * Math.exp(-depth / 1.2)
+    const k = face * layers * edge
+    return [base[0] * k, base[1] * k, base[2] * k]
+  }
+
+  // Depth-graded sky, a glow around the sun or moon, the orb itself, and at night the Milky Way.
   private drawSky() {
-    const { W, H, hdr } = this
-    const R = SUN.r * H
+    const { W, H, hdr, look } = this
+    const { orb } = look
+    const R = orb.r * H
     for (let y = 0; y < H; y++) {
       const v = y / H
-      const i = SKY.findIndex(([at]) => at >= v)
-      const [a, from] = SKY[Math.max(0, i - 1)]
-      const [b, to] = SKY[i < 0 ? SKY.length - 1 : i]
+      const i = look.sky.findIndex(([at]) => at >= v)
+      const [a, from] = look.sky[Math.max(0, i - 1)]
+      const [b, to] = look.sky[i < 0 ? look.sky.length - 1 : i]
       const k = b > a ? smoothstep(a, b, v) : 1
       for (let x = 0; x < W; x++) {
-        const d = Math.hypot(x - this.sunX, y - this.sunY) / H
-        const glow = 0.5 * Math.exp(-d / 0.12) + 0.25 * Math.exp(-d / 0.35)
+        const d = Math.hypot(x - this.orbX, y - this.orbY) / H
+        const glow = orb.near * Math.exp(-d / (orb.r * 1.8)) + orb.wide * Math.exp(-d / 0.35)
         const o = (y * W + x) * 3
-        hdr[o] = lerp(from[0], to[0], k) + glow * 1.0
-        hdr[o + 1] = lerp(from[1], to[1], k) + glow * 0.42
-        hdr[o + 2] = lerp(from[2], to[2], k) + glow * 0.14
+        hdr[o] = lerp(from[0], to[0], k) + glow * orb.glow[0]
+        hdr[o + 1] = lerp(from[1], to[1], k) + glow * orb.glow[1]
+        hdr[o + 2] = lerp(from[2], to[2], k) + glow * orb.glow[2]
+        if (look.milkyWay) {
+          // A faint, mottled band rising from lower left to upper right.
+          const band = Math.abs(v - (0.45 - (x / W) * 0.35)) / 0.07
+          const m = Math.exp(-band * band) * (0.5 + 0.5 * fbm1(x * 0.05 + v * 9, 4)) * 0.05
+          hdr[o] += m * 0.8
+          hdr[o + 1] += m * 0.85
+          hdr[o + 2] += m
+        }
         const r = d * H
         const cov = clamp(R - r + 0.5, 0, 1)
         if (cov <= 0) continue
         const limb = 0.85 + 0.15 * Math.sqrt(Math.max(0, 1 - (r / R) ** 2))
-        this.blend(o, 3.2 * limb, 1.7 * limb, 0.6 * limb, cov)
+        // The moon gets a few darker maria.
+        const maria = orb.moon ? 1 - 0.18 * smoothstep(0.55, 0.75, fbm1((x - this.orbX) * 0.25 + 3, 7) + fbm1((y - this.orbY) * 0.25 + 1, 9) * 0.6) : 1
+        this.blend(o, orb.core[0] * limb * maria, orb.core[1] * limb * maria, orb.core[2] * limb * maria, cov)
       }
     }
   }
 
-  // Distant desert floor between the horizon and the dunes, brightest under the sun.
+  // Distant desert floor between the horizon and the dunes, catching a low sun beneath it.
   private drawFloor() {
-    const { W, H, hdr } = this
+    const { W, H, hdr, look } = this
+    const [near, far] = look.floor
     for (let y = Math.floor(HORIZON * H); y < H; y++) {
       const k = smoothstep(HORIZON, 0.72, y / H)
-      const shine = Math.exp(-(y / H - HORIZON) / 0.05)
+      const shine = look.style === "rim" ? Math.exp(-(y / H - HORIZON) / 0.05) * 0.3 : 0
       for (let x = 0; x < W; x++) {
         const o = (y * W + x) * 3
-        const sun = Math.exp(-Math.abs(x - this.sunX) / (0.3 * H)) * shine
-        hdr[o] = lerp(0.4, 0.1, k) + sun * 0.3
-        hdr[o + 1] = lerp(0.14, 0.04, k) + sun * 0.12
-        hdr[o + 2] = lerp(0.07, 0.03, k) + sun * 0.04
+        const sun = Math.exp(-Math.abs(x - this.orbX) / (0.3 * H)) * shine
+        hdr[o] = lerp(near[0], far[0], k) + sun * look.light[0]
+        hdr[o + 1] = lerp(near[1], far[1], k) + sun * look.light[1]
+        hdr[o + 2] = lerp(near[2], far[2], k) + sun * look.light[2]
       }
     }
   }
@@ -255,6 +466,25 @@ class Desert extends Canvas {
         this.blend((y * W + x) * 3, c[0], c[1], c[2], clamp(y + 1 - t, 0, 1))
       }
     }
+  }
+
+  // By day, a soft shadow on the ground falling to the lower left of something standing at (x, gy).
+  private shadow(x: number, gy: number, length: number) {
+    if (this.look.style !== "front") return
+    const { W, H, hdr } = this
+    const cx = x - length * 0.55
+    const rx = length * 0.7
+    const ry = Math.max(1.5, length * 0.12)
+    for (let y = Math.max(0, Math.floor(gy - ry)); y <= Math.min(H - 1, Math.ceil(gy + ry)); y++)
+      for (let px = Math.max(0, Math.floor(cx - rx)); px <= Math.min(W - 1, Math.ceil(cx + rx)); px++) {
+        const q = ((px + 0.5 - cx) / rx) ** 2 + ((y + 0.5 - gy) / ry) ** 2
+        if (q >= 1) continue
+        const k = 1 - 0.45 * (1 - q) ** 0.7
+        const o = (y * W + px) * 3
+        hdr[o] *= k
+        hdr[o + 1] *= k
+        hdr[o + 2] *= k
+      }
   }
 
   private stepTumbleweed(dt: number) {
@@ -277,14 +507,10 @@ class Desert extends Canvas {
   }
 
   private stepCreatures(dt: number) {
-    const e = this.eagle
-    if (e) {
-      e.angle += e.speed * dt
-      e.phase += dt
-    }
-    for (const v of this.vultures) {
-      v.angle += v.speed * dt
-      v.phase += dt
+    for (const b of [this.bigBird, ...this.flock]) {
+      if (!b) continue
+      b.angle += b.speed * dt
+      b.phase += dt
     }
     const s = this.snake
     if (s) this.stepSnake(s, dt)
@@ -329,10 +555,12 @@ class Desert extends Canvas {
     if (s.trail.length > 200) s.trail.splice(0, s.trail.length - 200)
   }
 
-  // Draws parts as one silhouette: each pixel takes the nearest part's color, and only the outline facing the sun
-  // catches its light, so joints between parts stay seamless.
-  private silhouette(parts: Part[], rim = 1) {
+  // Draws parts as one shape: each pixel takes the nearest part's color, so joints stay seamless. With rim lighting
+  // only the outline facing the sun or moon catches light; with front lighting each part is shaded as a rounded
+  // form. light scales the effect (0 draws flat color).
+  private silhouette(parts: Part[], light = 1) {
     if (!parts.length) return
+    const { look } = this
     let x0 = Infinity
     let y0 = Infinity
     let x1 = -Infinity
@@ -345,9 +573,9 @@ class Desert extends Canvas {
       x1 = Math.max(x1, ax + pad, bx + pad)
       y1 = Math.max(y1, ay + pad, by + pad)
     }
-    const sl = Math.hypot(this.sunX - (x0 + x1) / 2, this.sunY - (y0 + y1) / 2) || 1
-    const sx = (this.sunX - (x0 + x1) / 2) / sl
-    const sy = (this.sunY - (y0 + y1) / 2) / sl
+    const sl = Math.hypot(this.orbX - (x0 + x1) / 2, this.orbY - (y0 + y1) / 2) || 1
+    const sx = (this.orbX - (x0 + x1) / 2) / sl
+    const sy = (this.orbY - (y0 + y1) / 2) / sl
     for (let y = Math.max(0, Math.floor(y0)); y <= Math.min(this.H - 1, Math.ceil(y1)); y++)
       for (let x = Math.max(0, Math.floor(x0)); x <= Math.min(this.W - 1, Math.ceil(x1)); x++) {
         const px = x + 0.5
@@ -356,6 +584,7 @@ class Desert extends Canvas {
         let part = parts[0]
         let nx = 0
         let ny = 0
+        let e = 0
         let across = 0
         for (const p of parts) {
           if (p.kind === "capsule") {
@@ -373,6 +602,7 @@ class Desert extends Canvas {
             part = p
             nx = ox / dist
             ny = oy / dist
+            e = dist / Math.max(r, 0.5)
             across = (ox * dy - oy * dx) / Math.sqrt(len2) / Math.max(r, 0.5)
             continue
           }
@@ -382,7 +612,8 @@ class Desert extends Canvas {
           const oy = py - p.cy
           const lx = ox * ca + oy * sa
           const ly = -ox * sa + oy * ca
-          const d = (Math.sqrt((lx / p.rx) ** 2 + (ly / p.ry) ** 2) - 1) * Math.min(p.rx, p.ry)
+          const radial = Math.sqrt((lx / p.rx) ** 2 + (ly / p.ry) ** 2)
+          const d = (radial - 1) * Math.min(p.rx, p.ry)
           if (d >= best) continue
           const gx = lx / (p.rx * p.rx)
           const gy = ly / (p.ry * p.ry)
@@ -391,20 +622,30 @@ class Desert extends Canvas {
           part = p
           nx = (gx * ca - gy * sa) / gl
           ny = (gx * sa + gy * ca) / gl
+          e = radial
           across = lx / p.rx
         }
         const cov = clamp(0.5 - best, 0, 1)
         if (cov <= 0) continue
         const k = part.ribs ? 0.8 + 0.2 * Math.cos(across * Math.PI * part.ribs) : 1
-        const lit = rim * clamp((best + 2.2) / 2.2, 0, 1) * Math.max(0, nx * sx + ny * sy) * 0.8
         const c = part.color
-        this.blend((y * this.W + x) * 3, c[0] * k + RIM[0] * lit, c[1] * k + RIM[1] * lit, c[2] * k + RIM[2] * lit, cov)
+        const o = (y * this.W + x) * 3
+        if (look.style === "front") {
+          // Treat the shape as rounded: the normal tilts from facing the viewer at the center to sideways at the edge.
+          const r = Math.min(1, e)
+          const lit = Math.max(0, nx * r * DAYLIGHT[0] + ny * r * DAYLIGHT[1] + Math.sqrt(1 - r * r) * DAYLIGHT[2])
+          const shade = k * (1 - light + light * (0.45 + 0.75 * lit))
+          this.blend(o, c[0] * shade, c[1] * shade, c[2] * shade, cov)
+          continue
+        }
+        const lit = light * clamp((best + 2.2) / 2.2, 0, 1) * Math.max(0, nx * sx + ny * sy) * 0.8
+        this.blend(o, c[0] * k + look.light[0] * lit, c[1] * k + look.light[1] * lit, c[2] * k + look.light[2] * lit, cov)
       }
   }
 
-  // A saguaro: a ribbed trunk with two upturned arms. haze fades distant ones into the dunes behind them.
+  // A saguaro: a ribbed trunk with two upturned arms. haze fades distant ones toward the dunes behind them.
   private drawSaguaro(x: number, gy: number, h: number, haze: number) {
-    const c: RGB = [lerp(0.02, 0.07, haze), lerp(0.05, 0.03, haze), 0.025]
+    const c = mix(this.look.cactus, this.look.backDune, haze * 0.6)
     const r = h * 0.085
     this.silhouette(
       [
@@ -420,8 +661,7 @@ class Desert extends Canvas {
 
   // A bleached cow skull seen from the front, resting on its snout, with long horns sweeping out and up.
   private drawSkull(x: number, gy: number, s: number) {
-    const bone: RGB = [0.62, 0.5, 0.4]
-    const dark: RGB = [0.03, 0.015, 0.01]
+    const { bone, horn, hornTip, socket } = this.look
     const cy = gy - s * 0.85
     for (const side of [-1, 1]) {
       const p0 = [x + side * s * 0.38, cy - s * 0.3]
@@ -432,56 +672,58 @@ class Desert extends Canvas {
         Array.from({ length: 12 }, (_, i) => {
           const [ax, ay] = at(i / 12)
           const [bx, by] = at((i + 1) / 12)
-          return cap(ax, ay, bx, by, s * lerp(0.09, 0.015, i / 12), s * lerp(0.09, 0.015, (i + 1) / 12), i > 9 ? [0.12, 0.08, 0.05] : [0.48, 0.38, 0.26])
+          return cap(ax, ay, bx, by, s * lerp(0.09, 0.015, i / 12), s * lerp(0.09, 0.015, (i + 1) / 12), i > 9 ? hornTip : horn)
         }),
         0.6,
       )
     }
     this.silhouette([ell(x, cy - s * 0.15, s * 0.42, s * 0.3, 0, bone), cap(x, cy, x, cy + s * 0.75, s * 0.3, s * 0.16, bone), ell(x, cy + s * 0.8, s * 0.18, s * 0.1, 0, bone)], 0.6)
     for (const side of [-1, 1]) {
-      this.silhouette([ell(x + side * s * 0.2, cy - s * 0.05, s * 0.11, s * 0.13, side * 0.3, dark)], 0)
-      this.silhouette([ell(x + side * s * 0.06, cy + s * 0.62, s * 0.045, s * 0.09, 0, dark)], 0)
+      this.silhouette([ell(x + side * s * 0.2, cy - s * 0.05, s * 0.11, s * 0.13, side * 0.3, socket)], 0)
+      this.silhouette([ell(x + side * s * 0.06, cy + s * 0.62, s * 0.045, s * 0.09, 0, socket)], 0)
     }
-    this.silhouette([cap(x, cy - s * 0.42, x, cy - s * 0.22, s * 0.015, s * 0.01, dark)], 0)
+    this.silhouette([cap(x, cy - s * 0.42, x, cy - s * 0.22, s * 0.015, s * 0.01, socket)], 0)
   }
 
-  // A clump of paddle-shaped pads, each with its own outline, a few with red fruit on top.
+  // A clump of paddle-shaped pads, each with its own outline, a few with fruit on top.
   private drawPricklyPear(x: number, gy: number, H: number) {
-    const c: RGB = [0.03, 0.055, 0.025]
     const pads: [number, number, number, number, number][] = [
       [0, -0.035, 0.025, 0.04, 0],
       [-0.032, -0.08, 0.02, 0.032, -0.5],
       [0.03, -0.085, 0.022, 0.034, 0.4],
       [0.002, -0.125, 0.018, 0.028, 0.1],
     ]
-    for (const [dx, dy, rx, ry, a] of pads) this.silhouette([ell(x + dx * H, gy + dy * H, rx * H, ry * H, a, c)])
-    for (const [dx, dy] of [[-0.04, -0.11], [0.042, -0.118], [0.005, -0.153]]) this.silhouette([ell(x + dx * H, gy + dy * H, 0.006 * H, 0.008 * H, 0, [0.5, 0.06, 0.08])], 0.5)
+    for (const [dx, dy, rx, ry, a] of pads) this.silhouette([ell(x + dx * H, gy + dy * H, rx * H, ry * H, a, this.look.pear)])
+    for (const [dx, dy] of [[-0.04, -0.11], [0.042, -0.118], [0.005, -0.153]]) this.silhouette([ell(x + dx * H, gy + dy * H, 0.006 * H, 0.008 * H, 0, this.look.fruit)], 0.5)
   }
 
-  // A squat, ribbed barrel cactus with a crown of yellow flowers.
+  // A squat, ribbed barrel cactus with a crown of flowers.
   private drawBarrel(x: number, gy: number, H: number) {
-    this.silhouette([ell(x, gy - 0.032 * H, 0.03 * H, 0.035 * H, 0, [0.03, 0.06, 0.03], 3)])
-    for (const dx of [-0.012, 0, 0.012]) this.silhouette([ell(x + dx * H, gy - 0.066 * H, 0.005 * H, 0.004 * H, 0, [0.8, 0.6, 0.1])], 0.3)
+    this.silhouette([ell(x, gy - 0.032 * H, 0.03 * H, 0.035 * H, 0, this.look.barrel, 3)])
+    for (const dx of [-0.012, 0, 0.012]) this.silhouette([ell(x + dx * H, gy - 0.066 * H, 0.005 * H, 0.004 * H, 0, this.look.flower)], 0.3)
   }
 
-  // Faint stars high in the sky, twinkling slowly and fading toward the glow.
+  // Stars twinkling slowly and fading toward the horizon glow.
   private drawStars() {
+    const top = this.look.milkyWay ? 0.55 : 0.32
+    const bright = this.look.milkyWay ? 0.6 : 0.35
     for (const s of this.stars) {
-      const k = s.b * (1 - s.y / 0.32) * (0.7 + 0.3 * Math.sin(this.time * 0.8 + s.phase)) * 0.35
+      const k = s.b * (1 - s.y / top) * (0.7 + 0.3 * Math.sin(this.time * 0.8 + s.phase)) * bright
       this.add(s.x * this.W, s.y * this.H, k, k * 0.95, k * 1.15)
     }
   }
 
-  // Thin clouds lit from below by the sun, drifting slowly across.
+  // Clouds drifting slowly across: puffy and sunlit from above by day, thin streaks lit from below otherwise.
   private drawClouds() {
-    const { H, W, hdr } = this
+    const { H, W, hdr, look } = this
+    const { top, bottom, alpha, puffy } = look.clouds
     for (const c of this.clouds)
       for (const p of c.puffs) {
         const cx = (c.x + p.dx) * H
         const cy = (c.y + p.dy) * H
         const rx = p.rx * H
         const ry = p.ry * H
-        const warm = 0.6 + 0.6 * Math.exp(-Math.abs(cx - this.sunX) / (0.5 * H))
+        const warm = puffy ? 1 : 0.6 + 0.6 * Math.exp(-Math.abs(cx - this.orbX) / (0.5 * H))
         for (let y = Math.max(0, Math.floor(cy - ry)); y <= Math.min(H - 1, Math.ceil(cy + ry)); y++)
           for (let x = Math.max(0, Math.floor(cx - rx)); x <= Math.min(W - 1, Math.ceil(cx + rx)); x++) {
             const dx = (x + 0.5 - cx) / rx
@@ -490,18 +732,19 @@ class Desert extends Canvas {
             if (q >= 1) continue
             const under = smoothstep(-1, 1, dy)
             const o = (y * W + x) * 3
-            const a = (1 - q) ** 1.5 * 0.55
-            hdr[o] += (lerp(0.1, 0.75, under) * warm - hdr[o]) * a
-            hdr[o + 1] += (lerp(0.035, 0.24, under) * warm - hdr[o + 1]) * a
-            hdr[o + 2] += (lerp(0.09, 0.2, under) * warm - hdr[o + 2]) * a
+            const a = (puffy ? Math.min(1, (1 - q) * 3) : (1 - q) ** 1.5) * alpha
+            hdr[o] += (lerp(top[0], bottom[0], under) * warm - hdr[o]) * a
+            hdr[o + 1] += (lerp(top[1], bottom[1], under) * warm - hdr[o + 1]) * a
+            hdr[o + 2] += (lerp(top[2], bottom[2], under) * warm - hdr[o + 2]) * a
           }
       }
   }
 
-  // A soaring bird seen from the front, wings spread and banking as it circles. scale is relative to an eagle;
-  // a bald eagle gets its white head and tail; dihedral is how far the wingtips lift.
-  private drawBird(b: Bird, scale: number, bald: boolean, dihedral: number) {
-    const { A, H } = this
+  // A soaring bird seen from the front, wings spread and banking as it circles. A bald eagle has a white head and
+  // tail and fingered wingtips; a vulture is small and dark with lifted wingtips; an owl has broad rounded wings, a
+  // round face with ear tufts, and glowing eyes.
+  private drawBird(b: Bird, scale: number, kind: "eagle" | "vulture" | "owl") {
+    const { A, H, look } = this
     const ex = (b.cx * A + b.rx * Math.cos(b.angle)) * H
     const ey = (b.cy + b.ry * Math.sin(b.angle)) * H
     const roll = 0.18 * Math.sin(b.angle)
@@ -509,37 +752,78 @@ class Desert extends Canvas {
     const sr = Math.sin(roll)
     const S = H * scale
     const T = (u: number, v: number): [number, number] => [ex + (u * cr - v * sr) * S, ey + (u * sr + v * cr) * S]
-    const brown: RGB = bald ? [0.06, 0.035, 0.022] : [0.03, 0.02, 0.02]
-    const white: RGB = bald ? [0.62, 0.57, 0.5] : brown
+    const main = kind === "vulture" ? look.flock : look.plumage
+    const pale = kind === "vulture" ? look.flock : look.plumageLight
+    const dihedral = kind === "vulture" ? 0.06 : 0.018
+    const chord = kind === "owl" ? 0.024 : 0.02
     const flex = 0.006 * Math.sin(b.phase * 1.3)
     const parts: Part[] = []
     for (const side of [-1, 1]) {
       const spine = (t: number): [number, number] => [side * (0.028 + 0.125 * t), -dihedral * t * t + flex * t * t]
-      for (let i = 0; i < 6; i++) parts.push(cap(...T(...spine(i / 6)), ...T(...spine((i + 1) / 6)), 0.02 * (1 - 0.3 * (i / 6)) * S, 0.02 * (1 - 0.3 * ((i + 1) / 6)) * S, brown))
-      // Fingered primary feathers splaying from the wingtip.
+      for (let i = 0; i < 6; i++) parts.push(cap(...T(...spine(i / 6)), ...T(...spine((i + 1) / 6)), chord * (1 - 0.3 * (i / 6)) * S, chord * (1 - 0.3 * ((i + 1) / 6)) * S, main))
       const [tu, tv] = spine(0.92)
+      if (kind === "owl") {
+        parts.push(ell(...T(tu, tv), 0.022 * S, 0.016 * S, roll, main))
+        continue
+      }
+      // Fingered primary feathers splaying from the wingtip.
       const [pu, pv] = spine(0.8)
       const base = Math.atan2(tv - pv, tu - pu)
       for (const spread of [-0.5, -0.25, 0, 0.22, 0.42]) {
         const a = base + spread * side
-        parts.push(cap(...T(tu, tv), ...T(tu + Math.cos(a) * 0.03, tv + Math.sin(a) * 0.03), 0.005 * S, 0.0015 * S, brown))
+        parts.push(cap(...T(tu, tv), ...T(tu + Math.cos(a) * 0.03, tv + Math.sin(a) * 0.03), 0.005 * S, 0.0015 * S, main))
       }
     }
-    parts.push(cap(...T(0, -0.006), ...T(0, 0.04), 0.014 * S, 0.01 * S, brown))
-    parts.push(cap(...T(0, 0.035), ...T(0, 0.058), 0.008 * S, 0.014 * S, white))
-    parts.push(cap(...T(0, -0.016), ...T(0, -0.006), 0.011 * S, 0.011 * S, white))
-    if (bald) parts.push(cap(...T(0, -0.009), ...T(0, -0.004), 0.004 * S, 0.002 * S, [0.85, 0.55, 0.08]))
+    parts.push(cap(...T(0, -0.006), ...T(0, 0.04), 0.014 * S, 0.01 * S, main))
+    if (kind === "owl") {
+      parts.push(cap(...T(0, 0.035), ...T(0, 0.05), 0.01 * S, 0.012 * S, main))
+      parts.push(ell(...T(0, -0.02), 0.018 * S, 0.016 * S, roll, pale))
+      for (const side of [-1, 1]) parts.push(cap(...T(side * 0.009, -0.031), ...T(side * 0.014, -0.045), 0.004 * S, 0.001 * S, main))
+      this.silhouette(parts, 0.7)
+      for (const side of [-1, 1]) this.add(...T(side * 0.006, -0.022), 1.2, 0.8, 0.15)
+      return
+    }
+    parts.push(cap(...T(0, 0.035), ...T(0, 0.058), 0.008 * S, 0.014 * S, pale))
+    parts.push(cap(...T(0, -0.016), ...T(0, -0.006), 0.011 * S, 0.011 * S, pale))
+    if (kind === "eagle") parts.push(cap(...T(0, -0.009), ...T(0, -0.004), 0.004 * S, 0.002 * S, [0.85, 0.55, 0.08]))
     this.silhouette(parts, 0.7)
   }
 
-  // A coyote sitting on top of a mesa, facing the sun, that now and then lifts its head to howl.
+  // A small bat fluttering in loose circles, membrane wings beating quickly.
+  private drawBat(b: Bird) {
+    const { A, H, look } = this
+    const bx = (b.cx * A + b.rx * Math.cos(b.angle)) * H
+    const by = (b.cy + b.ry * Math.sin(b.angle) + Math.sin(b.phase * 7) * 0.008) * H
+    const S = H * 0.1
+    const flap = Math.sin(this.time * 9 + b.phase * 3)
+    const c = look.flock
+    const parts: Part[] = [ell(bx, by, 0.07 * S, 0.12 * S, 0, c), ell(bx, by - 0.12 * S, 0.055 * S, 0.05 * S, 0, c)]
+    for (const side of [-1, 1]) {
+      // Each wing bends at the elbow; two membranes hang below the arm bones, leaving a scalloped trailing edge and a
+      // pointed tip. The tip sweeps up and down with the beat.
+      const sh: [number, number] = [bx + side * 0.04 * S, by - 0.05 * S]
+      const tip: [number, number] = [bx + side * 0.55 * S, by + (-0.02 + flap * 0.3) * S]
+      const el: [number, number] = [lerp(sh[0], tip[0], 0.42), lerp(sh[1], tip[1], 0.42) - (0.1 - flap * 0.04) * S]
+      for (const [p, q, depth] of [[sh, el, 0.11], [el, tip, 0.085]] as const) {
+        const angle = Math.atan2(q[1] - p[1], q[0] - p[0])
+        const half = Math.hypot(q[0] - p[0], q[1] - p[1]) / 2
+        parts.push(ell((p[0] + q[0]) / 2 - Math.sin(angle) * depth * S * 0.6, (p[1] + q[1]) / 2 + Math.abs(Math.cos(angle)) * depth * S * 0.6, half, depth * S, angle, c))
+      }
+      parts.push(cap(...sh, ...el, 0.025 * S, 0.018 * S, c))
+      parts.push(cap(...el, ...tip, 0.018 * S, 0.004 * S, c))
+      parts.push(cap(bx + side * 0.03 * S, by - 0.14 * S, bx + side * 0.05 * S, by - 0.22 * S, 0.025 * S, 0.004 * S, c))
+    }
+    this.silhouette(parts, 0.35)
+  }
+
+  // A coyote sitting on top of a mesa, facing the sun or moon, that now and then lifts its head to howl.
   private drawCoyote(c: Coyote) {
     const x = this.coyoteX + 0.5
     const gy = this.nearTop[this.coyoteX] + 0.5
     const S = 0.1 * this.H
-    const face = this.sunX > x ? 1 : -1
+    const face = this.orbX > x ? 1 : -1
     const P = (u: number, v: number): [number, number] => [x + u * face * S, gy + v * S]
-    const k: RGB = [0.02, 0.01, 0.012]
+    const k = this.look.coyote
     // The head turns from looking ahead to pointing at the sky; R places points in the head's frame.
     const a = lerp(-0.2, -1.2, c.howl)
     const head = [0.21, -0.66]
@@ -583,8 +867,8 @@ class Desert extends Canvas {
       }
       walked += seg
     }
-    const body: RGB = [0.3, 0.19, 0.1]
-    const band: RGB = [0.12, 0.07, 0.04]
+    if (points.length < 2) return
+    const [body, band, rattle] = this.look.snake
     const at = (i: number): [number, number] => {
       const [x, y] = points[i]
       const [px, py] = points[Math.min(points.length - 1, i + 1)]
@@ -594,12 +878,8 @@ class Desert extends Canvas {
       const wave = 0.006 * smoothstep(0, 0.03, s0) * Math.sin(s0 * 60 - s.phase)
       return [(x + (-(py - qy) / tl) * wave) * H, (y + ((px - qx) / tl) * wave) * H]
     }
-    if (points.length < 2) return
     const r = (j: number) => 0.0075 * (1 - ((j * step) / length) ** 1.5 * 0.7) * H
-    const parts = points.slice(1).map((_, i) => {
-      const tail = i > points.length - 5
-      return cap(...at(i + 1), ...at(i), r(i + 1), r(i), tail ? [0.55, 0.45, 0.32] : Math.floor((i * step) / 0.02) % 2 ? band : body)
-    })
+    const parts = points.slice(1).map((_, i) => cap(...at(i + 1), ...at(i), r(i + 1), r(i), i > points.length - 5 ? rattle : Math.floor((i * step) / 0.02) % 2 ? band : body))
     const [hx, hy] = at(0)
     const [nx, ny] = at(1)
     const heading = Math.atan2(hy - ny, hx - nx)
@@ -608,38 +888,52 @@ class Desert extends Canvas {
     this.add(hx + Math.cos(heading) * 0.005 * H, hy - 0.002 * H, 0.02, 0.02, 0.02)
   }
 
-  // A ball of tangled twigs rolling and hopping across the front dune.
+  // A ball of tangled twigs rolling and hopping across the front dune, its side toward the light brighter.
   private drawTumbleweed() {
     const t = this.tumbleweed
     if (t.x < -5) return
     const H = this.H
     const R = 0.035 * H
     const cx = t.x * H
-    const cy = this.ground(t.x / this.A) - R + 1 - Math.abs(Math.sin(t.hop)) * 0.012 * H
+    const hop = Math.abs(Math.sin(t.hop)) * 0.012 * H
+    const gy = this.ground(t.x / this.A)
+    this.shadow(cx + R * 0.8, gy, R * (2 - hop / (0.012 * H)))
+    const cy = gy - R + 1 - hop
     const cs = Math.cos(t.spin)
     const sn = Math.sin(t.spin)
-    const sl = Math.hypot(this.sunX - cx, this.sunY - cy) || 1
+    const sl = Math.hypot(this.orbX - cx, this.orbY - cy) || 1
+    const c = this.look.twig
     for (const [u, v] of this.twigs) {
       const ru = u * cs - v * sn
       const rv = u * sn + v * cs
-      const lit = Math.max(0, (ru * (this.sunX - cx) + rv * (this.sunY - cy)) / sl)
-      this.disc(cx + ru * R, cy + rv * R, 0.6, 0.3 + lit * 0.5, 0.17 + lit * 0.2, 0.08 + lit * 0.05, 0.9)
+      const lit = Math.max(0, (ru * (this.orbX - cx) + rv * (this.orbY - cy)) / sl)
+      const k = 0.75 + lit * 0.7
+      this.disc(cx + ru * R, cy + rv * R, 0.6, c[0] * k, c[1] * k, c[2] * k, 0.9)
     }
   }
 
-  // Dust motes drifting on the breeze, glinting near the sun.
+  // Dust motes drifting on the breeze, glinting near a low sun.
   private drawDust() {
-    const H = this.H
+    const { H, look } = this
+    const glint = look.style === "rim" ? 3 : 0
     for (const d of this.dust) {
       const x = d.x * H
       const y = d.y * H
-      const k = (0.05 + d.s * 0.07) * (1 + 3 * Math.exp(-Math.hypot(x - this.sunX, y - this.sunY) / (0.15 * H)))
-      this.add(x, y, k, k * 0.6, k * 0.3)
+      const k = (0.4 + d.s * 0.6) * (1 + glint * Math.exp(-Math.hypot(x - this.orbX, y - this.orbY) / (0.15 * H)))
+      this.add(x, y, look.dust[0] * k, look.dust[1] * k, look.dust[2] * k)
     }
   }
 }
 
-// Mesa silhouettes for one layer: flat tops with steep sides, spread across the width. Sizes are in screen heights.
+function mix(a: RGB, b: RGB, t: number): RGB {
+  return [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)]
+}
+
+function scale(c: RGB, k: number): RGB {
+  return [c[0] * k, c[1] * k, c[2] * k]
+}
+
+// Mesa outlines for one layer: flat tops with steep sides, spread across the width. Sizes are in screen heights.
 function mesas(A: number, perWidth: number, seed: number, width: [number, number], height: [number, number]): Mesa[] {
   const count = Math.max(2, Math.round(A * perWidth))
   return Array.from({ length: count }, (_, i) => ({
@@ -654,12 +948,6 @@ function mesas(A: number, perWidth: number, seed: number, width: [number, number
 function profile(list: Mesa[], u: number) {
   const top = list.reduce((max, m) => Math.max(max, m.h * (1 - smoothstep(m.w, m.w + m.slope, Math.abs(u - m.c)))), 0)
   return top + (fbm1(u * 40, 5) - 0.5) * 0.004 * (top > 0 ? 1 : 0.5)
-}
-
-// A rim of sun-colored light along a silhouette's top edge, fading over `width` pixels below it.
-function mixRim(base: RGB, depth: number, width: number, strength: number): RGB {
-  const k = Math.exp(-depth / width) * strength * 0.6
-  return [base[0] + RIM[0] * k, base[1] + RIM[1] * k, base[2] + RIM[2] * k]
 }
 
 // Points along tangled curves inside a unit circle: the tumbleweed's twigs.
@@ -683,16 +971,28 @@ function buildTwigs() {
 export const desert: Wallpaper = {
   id: "desert",
   name: "Desert",
-  description: "A sunset over mesas and dunes, with a saguaro, a cow skull, and a tumbleweed now and then",
+  description: "Mesas and dunes with a saguaro, a cow skull, and a tumbleweed now and then",
   activity: {
-    calm: "Sunset, mesas, a saguaro and a skull",
-    lively: "Adds a soaring eagle and a rattlesnake",
-    teeming: "Adds vultures, a howling coyote and more cacti",
+    calm: "Mesas, a saguaro and a skull",
+    lively: "Adds a soaring eagle (an owl at night) and a rattlesnake",
+    teeming: "Adds vultures (bats at night), a howling coyote and more cacti",
   },
-  scrim: [
-    [14, 10, 30],
-    [40, 16, 24],
-    [16, 8, 8],
-  ],
-  create: (activity) => new Desert(activity),
+  scrim: {
+    day: [
+      [20, 38, 64],
+      [52, 40, 32],
+      [44, 28, 16],
+    ],
+    sunset: [
+      [14, 10, 30],
+      [40, 16, 24],
+      [16, 8, 8],
+    ],
+    night: [
+      [4, 6, 16],
+      [6, 8, 20],
+      [4, 4, 10],
+    ],
+  },
+  create: (settings) => new Desert(settings),
 }

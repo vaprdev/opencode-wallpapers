@@ -1,7 +1,7 @@
 // Exercises real-pixel mode (WALLPAPER_PIXELS=1) against a mock kitty-capable renderer and saves the image it would
-// send: bun dev/pixel-check.ts [wallpaper] [calm|lively|teeming]
+// send: bun dev/pixel-check.ts [wallpaper] [calm|lively|teeming] [day|sunset|night]
 import { mkdirSync } from "node:fs"
-import { ACTIVITIES } from "../src/engine"
+import { ACTIVITIES, TIMES } from "../src/engine"
 import { WALLPAPERS } from "../wallpapers"
 import { H, W, mockScreen, text } from "./mock"
 import { encodePng } from "./png"
@@ -22,7 +22,7 @@ const drawImage = (source: { width: number; height: number; copyTo(out: Uint8Arr
   return true
 }
 screen.engine.mode = "behind"
-screen.engine.start(wallpaper, ACTIVITIES.find((a) => a === process.argv[3]) ?? "calm")
+screen.engine.start(wallpaper, { activity: ACTIVITIES.find((a) => process.argv.includes(a)) ?? "calm", time: TIMES.find((t) => process.argv.includes(t)) ?? "day" })
 let ms = 0
 const frames = 90
 for (let f = 0; f < frames; f++) {

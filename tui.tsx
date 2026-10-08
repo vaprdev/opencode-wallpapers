@@ -1,19 +1,30 @@
 import { Plugin } from "@opencode/plugin/tui"
-import { createEffect } from "solid-js"
-import { ACTIVITIES, createEngine, type Activity, type Mode } from "./src/engine"
+import { createEffect, createSignal } from "solid-js"
+import { ACTIVITIES, TIMES, createEngine, type Activity, type Mode, type Time } from "./src/engine"
 import { WALLPAPERS } from "./wallpapers"
 
 export default Plugin.define({
   id: "wallpapers",
   setup(context) {
-    const [stored, update] = context.storage.store<{ wallpaper: string; mode: Mode; activity?: Activity }>("wallpapers", { initial: { wallpaper: "", mode: "panels", activity: "calm" } })
+    const [stored, update] = context.storage.store<{ wallpaper: string; mode: Mode; activity?: Activity; time?: Time | "auto" }>("wallpapers", {
+      initial: { wallpaper: "", mode: "panels", activity: "calm", time: "auto" },
+    })
     const engine = createEngine(context, { dump: process.env.WALLPAPER_DUMP })
     // Environment overrides for development; they win over the stored choice.
     const pinned = process.env.WALLPAPER
     const pinnedMode = process.env.WALLPAPER_MODE
     const pinnedActivity = process.env.WALLPAPER_ACTIVITY
-    // Settings saved before activity levels existed have none.
+    const pinnedTime = process.env.WALLPAPER_TIME
+    // Settings saved before these options existed have none.
     const activity = () => stored.activity ?? "calm"
+    const timeSetting = () => stored.time ?? "auto"
+    // Auto follows the local clock, checked once a minute.
+    const [now, setNow] = createSignal(new Date())
+    const clock = setInterval(() => setNow(new Date()), 60_000)
+    const time = () => {
+      const setting = TIMES.find((t) => t === pinnedTime) ?? timeSetting()
+      return setting === "auto" ? timeAt(now()) : setting
+    }
 
     const notify = (message: string, variant: "info" | "error" = "info") => context.ui.toast.show({ message, variant })
     const choose = (id: string) => {
@@ -42,6 +53,12 @@ export default Plugin.define({
       })
       notify(`Wallpaper activity: ${level}`)
     }
+    const setTime = (value: Time | "auto") => {
+      void update((draft) => {
+        draft.time = value
+      })
+      notify(value === "auto" ? `Wallpaper time follows your clock (${timeAt(new Date())} now)` : `Wallpaper time: ${value}`)
+    }
     // Every choice in the picker is a /wallpaper argument, so picking one runs it.
     const pick = async () => {
       const current = (on: boolean) => (on ? "current" : undefined)
@@ -53,6 +70,8 @@ export default Plugin.define({
           ...WALLPAPERS.map((w) => ({ title: w.name, value: w.id, description: w.description, category: "Wallpapers" })),
           { title: "Off", value: "off", category: "Wallpapers" },
           ...ACTIVITIES.map((level) => ({ title: capitalize(level), value: level, description: levels[level], footer: current(activity() === level), category: "Activity" })),
+          { title: "Auto", value: "auto", description: `Follows your clock · ${timeAt(new Date())} now`, footer: current(timeSetting() === "auto"), category: "Time of day" },
+          ...TIMES.map((t) => ({ title: capitalize(t), value: t, footer: current(timeSetting() === t), category: "Time of day" })),
           { title: "In panels", value: "panels", description: "Sidebar, prompt, notices", footer: current(stored.mode === "panels"), category: "Show it" },
           { title: "Behind everything", value: "behind", description: "Whole background", footer: current(stored.mode === "behind"), category: "Show it" },
         ],
@@ -66,6 +85,8 @@ export default Plugin.define({
       if (arg === "panels" || arg === "behind") return setMode(arg)
       const level = ACTIVITIES.find((a) => a === arg)
       if (level) return setActivity(level)
+      const t = TIMES.find((value) => value === arg)
+      if (t || arg === "auto") return setTime(t ?? "auto")
       choose(arg)
     }
 
@@ -76,7 +97,7 @@ export default Plugin.define({
           engine.mode = pinnedMode === "behind" || pinnedMode === "panels" ? pinnedMode : stored.mode
           const wallpaper = WALLPAPERS.find((w) => w.id === (pinned ?? stored.wallpaper))
           const level = ACTIVITIES.find((a) => a === pinnedActivity) ?? activity()
-          if (wallpaper) engine.start(wallpaper, level)
+          if (wallpaper) engine.start(wallpaper, { activity: level, time: time() })
           else engine.stop()
         })
         context.keymap.layer(() => ({
@@ -85,7 +106,7 @@ export default Plugin.define({
             {
               id: "wallpapers.choose",
               title: "Choose wallpaper",
-              description: "Animated scene behind the UI. Args: wallpaper id, off, calm, lively, teeming, panels, behind",
+              description: "Animated scene behind the UI. Args: wallpaper id, off, calm, lively, teeming, day, sunset, night, auto, panels, behind",
               group: "Wallpapers",
               palette: true,
               slash: { name: "wallpaper", arguments: true },
@@ -114,6 +135,17 @@ export default Plugin.define({
               palette: true,
               run: () => setActivity(ACTIVITIES[(ACTIVITIES.indexOf(activity()) + 1) % ACTIVITIES.length]),
             },
+            {
+              id: "wallpapers.time",
+              title: "Cycle wallpaper time of day",
+              description: "Auto, day, sunset, night",
+              group: "Wallpapers",
+              palette: true,
+              run: () => {
+                const options = ["auto", ...TIMES] as const
+                setTime(options[(options.indexOf(timeSetting()) + 1) % options.length])
+              },
+            },
           ],
         }))
         return null
@@ -121,6 +153,7 @@ export default Plugin.define({
     })
 
     return () => {
+      clearInterval(clock)
       engine.stop()
       unslot()
     }
@@ -129,4 +162,12 @@ export default Plugin.define({
 
 function capitalize(text: string) {
   return text[0].toUpperCase() + text.slice(1)
+}
+
+// Day from 7am, sunset around dawn and dusk, night from 8pm.
+function timeAt(date: Date): Time {
+  const hour = date.getHours() + date.getMinutes() / 60
+  if (hour >= 20 || hour < 6) return "night"
+  if (hour < 7 || hour >= 18) return "sunset"
+  return "day"
 }

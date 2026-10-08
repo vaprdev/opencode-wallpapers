@@ -21,17 +21,27 @@ export interface Wallpaper {
   readonly id: string
   readonly name: string
   readonly description: string
-  // Colors (0-255) that text scrims fade the scene toward at the top, middle and bottom of the screen. Darker,
-  // more saturated versions of the scene's own colors at those depths read better than black.
-  readonly scrim: readonly [RGB, RGB, RGB]
+  // For each time of day, colors (0-255) that text scrims fade the scene toward at the top, middle and bottom of the
+  // screen. Darker, more saturated versions of the scene's own colors at those depths read better than black.
+  readonly scrim: Readonly<Record<Time, Scrim>>
   // What each activity level shows, for the picker.
   readonly activity: Readonly<Record<Activity, string>>
-  create(activity: Activity): Scene
+  create(settings: Settings): Scene
+}
+
+export type Scrim = readonly [RGB, RGB, RGB]
+
+export interface Settings {
+  readonly activity: Activity
+  readonly time: Time
 }
 
 // How much is going on in the scene. calm is scenery with rare events; teeming is the full cast.
 export const ACTIVITIES = ["calm", "lively", "teeming"] as const
 export type Activity = (typeof ACTIVITIES)[number]
+
+export const TIMES = ["day", "sunset", "night"] as const
+export type Time = (typeof TIMES)[number]
 
 // panels: the scene shows only through the sidebar, prompt, notices and other neutral raised surfaces.
 // behind: it also replaces the main background behind the conversation.
@@ -375,7 +385,7 @@ function createLayer(renderer: Context["renderer"], draw: (buffer: OptimizedBuff
 export interface Engine {
   mode: Mode
   readonly wallpaper: Wallpaper | undefined
-  start(wallpaper: Wallpaper, activity: Activity): void
+  start(wallpaper: Wallpaper, settings: Settings): void
   stop(): void
 }
 
@@ -394,7 +404,7 @@ export function createEngine(
   const surfaces = new Set<number>()
   const tints = new Map<number, number>()
   let wallpaper: Wallpaper | undefined
-  let activity: Activity | undefined
+  let settings: Settings | undefined
   let scene: Scene | undefined
   let frames = 0
   let dumped = false
@@ -518,7 +528,7 @@ export function createEngine(
     for (let iy = 0; iy < PH; iy++) {
       const row = Math.min(H - 1, Math.floor(iy / chh))
       const depth = row / Math.max(1, H - 1)
-      const [deepR, deepG, deepB] = scrimAt(wallpaper!.scrim, depth)
+      const [deepR, deepG, deepB] = scrimAt(wallpaper!.scrim[settings!.time], depth)
       const my = clamp01((iy + 0.5) / (chh / 2) - 0.5, MH - 1)
       const my0 = Math.floor(my)
       const my1 = Math.min(MH - 1, my0 + 1)
@@ -695,7 +705,7 @@ export function createEngine(
     for (let y = 0; y < H; y++) {
       const mTop = y * 2 * W
       const mBottom = (y * 2 + 1) * W
-      const [deepR, deepG, deepB] = scrimAt(wallpaper!.scrim, y / Math.max(1, H - 1))
+      const [deepR, deepG, deepB] = scrimAt(wallpaper!.scrim[settings!.time], y / Math.max(1, H - 1))
       for (let x = 0; x < W; x++) {
         const i = y * W + x
         if (imageCell[i]) continue
@@ -771,12 +781,12 @@ export function createEngine(
     get wallpaper() {
       return wallpaper
     },
-    start(next, level) {
-      if (wallpaper === next && activity === level) return
+    start(next, chosen) {
+      if (wallpaper === next && settings?.activity === chosen.activity && settings.time === chosen.time) return
       engine.stop()
       wallpaper = next
-      activity = level
-      scene = next.create(level)
+      settings = chosen
+      scene = next.create(chosen)
       renderer.addPostProcessFn(postProcess)
       lastStep = 0
       lastTarget = ""
@@ -788,7 +798,7 @@ export function createEngine(
     stop() {
       if (!scene) return
       wallpaper = undefined
-      activity = undefined
+      settings = undefined
       scene = undefined
       renderer.removePostProcessFn(postProcess)
       clearInterval(timer)
@@ -808,7 +818,7 @@ export function createEngine(
 }
 
 // The scrim color at a depth (0 top, 1 bottom), blending top to middle to bottom.
-function scrimAt(scrim: Wallpaper["scrim"], depth: number): RGB {
+function scrimAt(scrim: Scrim, depth: number): RGB {
   const upper = depth < 0.5
   const from = upper ? scrim[0] : scrim[1]
   const to = upper ? scrim[1] : scrim[2]

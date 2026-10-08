@@ -1,17 +1,18 @@
 // Renders a wallpaper's scene directly (no terminal conversion) to PNGs at the given scene times in seconds:
-// bun dev/snap.ts <wallpaper> [calm|lively|teeming] [seconds...]
+// bun dev/snap.ts <wallpaper> [calm|lively|teeming] [day|sunset|night] [seconds...]
 import { mkdirSync } from "node:fs"
-import { ACTIVITIES } from "../src/engine"
+import { ACTIVITIES, TIMES } from "../src/engine"
 import { WALLPAPERS } from "../wallpapers"
 import { encodePng } from "./png"
 
 const [id, ...rest] = process.argv.slice(2)
-const activity = ACTIVITIES.find((a) => a === rest[0]) ?? "calm"
-const times = rest.filter((arg) => arg !== activity)
+const activity = ACTIVITIES.find((a) => rest.includes(a)) ?? "calm"
+const time = TIMES.find((t) => rest.includes(t)) ?? "day"
+const times = rest.filter((arg) => /^[\d.]+$/.test(arg))
 const wallpaper = WALLPAPERS.find((w) => w.id === id)
 if (!wallpaper) throw new Error(`usage: bun dev/snap.ts <${WALLPAPERS.map((w) => w.id).join("|")}> [seconds...]`)
 mkdirSync("dev/out", { recursive: true })
-const scene = wallpaper.create(activity)
+const scene = wallpaper.create({ activity, time })
 scene.resize(720, 400)
 let elapsed = 0
 let ms = 0
@@ -25,7 +26,7 @@ for (const seconds of (times.length ? times : ["5", "30", "60"]).map(Number)) {
     renders++
   }
   scene.render()
-  const path = `dev/out/${wallpaper.id}-${activity}-${seconds}s.png`
+  const path = `dev/out/${wallpaper.id}-${activity}-${time}-${seconds}s.png`
   await Bun.write(path, encodePng(scene.pixels, scene.W, scene.H))
   console.log(path)
 }

@@ -5,16 +5,17 @@ panels (or the whole background), drawn with Unicode block characters and kept r
 
 > This project is not affiliated with, endorsed by, or sponsored by OpenCode or its maintainers.
 
-![Aquarium wallpaper](screenshots/aquarium.png)
-
-![Desert wallpaper](screenshots/desert.png)
+| | Day | Sunset | Night |
+| --- | --- | --- | --- |
+| Aquarium | ![Aquarium by day](screenshots/aquarium.png) | ![Aquarium at sunset](screenshots/aquarium-sunset.png) | ![Aquarium at night](screenshots/aquarium-night.png) |
+| Desert | ![Desert by day](screenshots/desert.png) | ![Desert at sunset](screenshots/desert-sunset.png) | ![Desert at night](screenshots/desert-night.png) |
 
 ## Wallpapers
 
 | Wallpaper | Description |
 | --- | --- |
 | `aquarium` | Deep water, god rays, marine snow, and a whale that drifts past now and then. |
-| `desert` | A sunset over mesas and dunes, with a saguaro, a cow skull, and a tumbleweed now and then. |
+| `desert` | Mesas and dunes with a saguaro, a cow skull, and a tumbleweed now and then. |
 
 ## Install
 
@@ -38,12 +39,14 @@ Update with `git pull` in the clone.
 
 | Command | Effect |
 | --- | --- |
-| `/wallpaper` | Open a picker with every wallpaper, off, activity level, and where to show it |
+| `/wallpaper` | Open a picker with every wallpaper, off, activity level, time of day, and where to show it |
 | `/wallpaper aquarium` | Switch to a wallpaper by id |
 | `/wallpaper off` | Turn the wallpaper off |
 | `/wallpaper calm` | Scenery with rare events (default) |
 | `/wallpaper lively` | A few creatures |
 | `/wallpaper teeming` | The full cast |
+| `/wallpaper day` | Daytime; also `sunset` and `night` |
+| `/wallpaper auto` | Time of day follows your clock (default) |
 | `/wallpaper panels` | Show it only inside panels: sidebar, prompt, notices (default) |
 | `/wallpaper behind` | Show it behind everything, including the conversation |
 
@@ -56,7 +59,17 @@ Every wallpaper has three activity levels, which set how much is going on behind
 | Wallpaper | Calm | Lively | Teeming |
 | --- | --- | --- | --- |
 | `aquarium` | Water, light and the whale | Adds a fish and an octopus | Adds a shark, diver, turtle and kelp |
-| `desert` | Sunset, mesas, a saguaro and a skull | Adds a soaring eagle and a rattlesnake | Adds vultures, a howling coyote and more cacti |
+| `desert` | Mesas, a saguaro and a skull | Adds a soaring eagle (an owl at night) and a rattlesnake | Adds vultures (bats at night), a howling coyote and more cacti |
+
+## Time of day
+
+Every wallpaper has a day, sunset and night look. By default the time of day follows your clock: day from 7am,
+sunset from 6pm (and at dawn, 6 to 7am), night from 8pm. Pick one in the picker to keep it fixed.
+
+- **Aquarium:** sunlit water by day, golden light at sunset, and at night dark moonlit water with glowing plankton
+  and, in teeming, a diver's torch.
+- **Desert:** a high sun with sunlit rock and shadows by day, backlit silhouettes at sunset, and a moonlit night with
+  stars and the Milky Way, where an owl and bats take over the sky.
 
 ## Terminals
 
@@ -79,7 +92,8 @@ per character cell. Wallpapers update at 15 frames per second.
 ## Add a wallpaper
 
 1. Create `wallpapers/<id>.ts`. Extend `Canvas` from `src/canvas.ts`, implement `step(dt)` and `render()`, and export
-   a `Wallpaper` with an id, name, description, scrim colors, what each activity level shows, and `create(activity)`.
+   a `Wallpaper` with an id, name, description, scrim colors for each time of day, what each activity level shows, and
+   `create({ activity, time })`.
    `wallpapers/aquarium.ts` is the example.
 2. Add it to `wallpapers/index.ts`.
 3. Check it:
@@ -87,8 +101,8 @@ per character cell. Wallpapers update at 15 frames per second.
 ```sh
 bun install
 bun run typecheck
-bun dev/check.ts <id>            # errors, frame cost, and flicker at every activity level
-bun dev/snap.ts <id> teeming 30  # scene PNGs at an activity level and times
+bun dev/check.ts <id>            # errors, frame cost, and flicker at every activity level and time of day
+bun dev/snap.ts <id> teeming night 30  # scene PNGs at an activity level, time of day, and times
 bun dev/preview.ts <id> 20       # terminal-cell rendering behind text, as a PNG
 bun dev/pixel-check.ts <id>      # real-pixel mode against a mock kitty renderer
 ```

@@ -1,7 +1,7 @@
-// Runs every wallpaper (or the named ones) at every activity level through the engine on a mock screen and reports errors, frame cost and
+// Runs every wallpaper (or the named ones) at every activity level and time of day through the engine on a mock screen and reports errors, frame cost and
 // flicker (cells whose glyph changes per frame; lower is calmer): bun dev/check.ts [wallpaper...]
 import { mkdirSync, rmSync } from "node:fs"
-import { ACTIVITIES } from "../src/engine"
+import { ACTIVITIES, TIMES } from "../src/engine"
 import { WALLPAPERS } from "../wallpapers"
 import { H, W, mockScreen, text } from "./mock"
 
@@ -17,8 +17,9 @@ if (unknown.length) throw new Error(`unknown wallpaper ${unknown.join(", ")}; av
 const screen = mockScreen()
 screen.engine.mode = "behind"
 let failed = false
-for (const [wallpaper, activity] of (ids.length ? WALLPAPERS.filter((w) => ids.includes(w.id)) : WALLPAPERS).flatMap((w) => ACTIVITIES.map((a) => [w, a] as const))) {
-  screen.engine.start(wallpaper, activity)
+const runs = (ids.length ? WALLPAPERS.filter((w) => ids.includes(w.id)) : WALLPAPERS).flatMap((w) => ACTIVITIES.flatMap((activity) => TIMES.map((time) => ({ wallpaper: w, activity, time }))))
+for (const { wallpaper, activity, time } of runs) {
+  screen.engine.start(wallpaper, { activity, time })
   let previous = new Uint32Array(W * H)
   let changes = 0
   let ms = 0
@@ -36,7 +37,7 @@ for (const [wallpaper, activity] of (ids.length ? WALLPAPERS.filter((w) => ids.i
   const errors = (await Bun.file(debug).exists()) ? (await Bun.file(debug).text()).split("\n").filter((l) => l.startsWith("error:")) : []
   rmSync(debug, { force: true })
   if (errors.length) failed = true
-  console.log(`${`${wallpaper.id} ${activity}`.padEnd(20)} ${errors.length ? "FAIL" : "ok  "} ${(ms / (frames - 60)).toFixed(1)} ms/frame  ${(changes / (frames - 60)).toFixed(0)} of ${W * H} cells change per frame`)
+  console.log(`${`${wallpaper.id} ${activity} ${time}`.padEnd(26)} ${errors.length ? "FAIL" : "ok  "} ${(ms / (frames - 60)).toFixed(1)} ms/frame  ${(changes / (frames - 60)).toFixed(0)} of ${W * H} cells change per frame`)
   for (const e of errors.slice(0, 3)) console.log(`  ${e}`)
 }
 if (failed) process.exit(1)
