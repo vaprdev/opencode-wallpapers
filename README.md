@@ -7,11 +7,14 @@ panels (or the whole background), drawn with Unicode block characters and kept r
 
 ![Aquarium wallpaper](screenshots/aquarium.png)
 
+![Desert wallpaper](screenshots/desert.png)
+
 ## Wallpapers
 
 | Wallpaper | Description |
 | --- | --- |
 | `aquarium` | Deep water, god rays, marine snow, and a whale that drifts past now and then. |
+| `desert` | A sunset over mesas and dunes, with a saguaro, a cow skull, and a tumbleweed now and then. |
 
 ## Install
 
@@ -53,6 +56,7 @@ Every wallpaper has three activity levels, which set how much is going on behind
 | Wallpaper | Calm | Lively | Teeming |
 | --- | --- | --- | --- |
 | `aquarium` | Water, light and the whale | Adds a fish and an octopus | Adds a shark, diver, turtle and kelp |
+| `desert` | Sunset, mesas, a saguaro and a skull | Adds a soaring eagle and a rattlesnake | Adds vultures, a howling coyote and more cacti |
 
 ## Terminals
 
