@@ -8,6 +8,8 @@ const SURFACE = 0.065
 const TIME_SCALE = 0.35
 // Creatures are drawn smaller than in a full-screen tank so they stay out of the way of text.
 const CREATURE_SCALE = 0.7
+// Creatures swim and animate at a quarter of scene speed, so they drift rather than dart.
+const CREATURE_SPEED = 0.25
 const CAUS_N = 128
 const RAY_N = 1024
 
@@ -146,13 +148,20 @@ class Aquarium extends Canvas {
   step(dt: number) {
     dt = clamp(dt, 0, 0.1) * TIME_SCALE
     this.time += dt
-    for (const f of this.fish) this.stepFish(f, dt)
     for (const s of this.snow) {
       s.x += (0.006 + s.z * 0.012) * dt
       s.y += (0.004 + s.s * 0.008) * dt + Math.sin(this.time * 0.7 + s.s * 20) * 0.002 * dt
       if (s.x > this.A) s.x -= this.A
       if (s.y > 1) s.y -= 0.95
     }
+    this.stepCreatures(dt * CREATURE_SPEED)
+    this.stepWhale(dt)
+    this.stepParticles(dt)
+  }
+
+  // Moves the fish, shark, turtle, diver and octopus; dt is creature time, so this also sets their animation speed.
+  private stepCreatures(dt: number) {
+    for (const f of this.fish) this.stepFish(f, dt)
     const tu = this.turtle
     if (tu) {
       const zx0 = tu.zone[0] * this.A + 0.15
@@ -233,8 +242,6 @@ class Aquarium extends Canvas {
       while (delta < -Math.PI) delta += TAU
       o.dir += delta * Math.min(1, dt * (speed > 0.02 ? 2.5 : 0.6))
     }
-    this.stepWhale(dt)
-    this.stepParticles(dt)
   }
 
   render() {
@@ -1178,7 +1185,6 @@ class Aquarium extends Canvas {
 
   private drawOctopus(o: Octopus) {
     const H = this.H
-    const t = this.time
     const S = o.size * H * CREATURE_SCALE * (1.12 - 0.45 * o.z)
     if (S < 1.5) return
     const cx = o.x * H
