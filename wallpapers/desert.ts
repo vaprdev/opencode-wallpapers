@@ -1,4 +1,4 @@
-import { Canvas } from "../src/canvas"
+import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
 import type { Activity, Settings, Time, Wallpaper } from "../src/engine"
 import { TAU, clamp, fbm1, hash, lerp, rand, smoothstep, type RGB } from "../src/math"
 
@@ -181,7 +181,7 @@ const LOOKS: Record<Time, Look> = {
 // Daylight comes from the upper right, slightly in front of the scene.
 const DAYLIGHT = (() => {
   const l = Math.hypot(0.45, 0.6, 0.65)
-  return [0.45 / l, -0.6 / l, 0.65 / l]
+  return [0.45 / l, -0.6 / l, 0.65 / l] as const
 })()
 
 interface Mesa {
@@ -218,20 +218,6 @@ interface Snake {
   wanderT: number
   phase: number
   trail: { x: number; y: number }[]
-}
-
-type Part =
-  | { kind: "capsule"; ax: number; ay: number; bx: number; by: number; r0: number; r1: number; color: RGB; ribs: number }
-  | { kind: "ellipse"; cx: number; cy: number; rx: number; ry: number; angle: number; color: RGB; ribs: number }
-
-// A tapered capsule from (ax, ay) radius r0 to (bx, by) radius r1; ribs adds lengthwise ridges, as on a cactus.
-function cap(ax: number, ay: number, bx: number, by: number, r0: number, r1: number, color: RGB, ribs = 0): Part {
-  return { kind: "capsule", ax, ay, bx, by, r0, r1, color, ribs }
-}
-
-// An ellipse rotated by angle; ribs runs ridges across its width.
-function ell(cx: number, cy: number, rx: number, ry: number, angle: number, color: RGB, ribs = 0): Part {
-  return { kind: "ellipse", cx, cy, rx, ry, angle, color, ribs }
 }
 
 interface Coyote {
@@ -555,92 +541,9 @@ class Desert extends Canvas {
     if (s.trail.length > 200) s.trail.splice(0, s.trail.length - 200)
   }
 
-  // Draws parts as one shape: each pixel takes the nearest part's color, so joints stay seamless. With rim lighting
-  // only the outline facing the sun or moon catches light; with front lighting each part is shaded as a rounded
-  // form. light scales the effect (0 draws flat color).
   private silhouette(parts: Part[], light = 1) {
-    if (!parts.length) return
-    const { look } = this
-    let x0 = Infinity
-    let y0 = Infinity
-    let x1 = -Infinity
-    let y1 = -Infinity
-    for (const p of parts) {
-      const pad = (p.kind === "capsule" ? Math.max(p.r0, p.r1) : Math.max(p.rx, p.ry)) + 1
-      const [ax, ay, bx, by] = p.kind === "capsule" ? [p.ax, p.ay, p.bx, p.by] : [p.cx, p.cy, p.cx, p.cy]
-      x0 = Math.min(x0, ax - pad, bx - pad)
-      y0 = Math.min(y0, ay - pad, by - pad)
-      x1 = Math.max(x1, ax + pad, bx + pad)
-      y1 = Math.max(y1, ay + pad, by + pad)
-    }
-    const sl = Math.hypot(this.orbX - (x0 + x1) / 2, this.orbY - (y0 + y1) / 2) || 1
-    const sx = (this.orbX - (x0 + x1) / 2) / sl
-    const sy = (this.orbY - (y0 + y1) / 2) / sl
-    for (let y = Math.max(0, Math.floor(y0)); y <= Math.min(this.H - 1, Math.ceil(y1)); y++)
-      for (let x = Math.max(0, Math.floor(x0)); x <= Math.min(this.W - 1, Math.ceil(x1)); x++) {
-        const px = x + 0.5
-        const py = y + 0.5
-        let best = Infinity
-        let part = parts[0]
-        let nx = 0
-        let ny = 0
-        let e = 0
-        let across = 0
-        for (const p of parts) {
-          if (p.kind === "capsule") {
-            const dx = p.bx - p.ax
-            const dy = p.by - p.ay
-            const len2 = dx * dx + dy * dy || 1e-6
-            const t = clamp(((px - p.ax) * dx + (py - p.ay) * dy) / len2, 0, 1)
-            const ox = px - (p.ax + dx * t)
-            const oy = py - (p.ay + dy * t)
-            const r = p.r0 + (p.r1 - p.r0) * t
-            const dist = Math.hypot(ox, oy) || 1e-6
-            const d = dist - r
-            if (d >= best) continue
-            best = d
-            part = p
-            nx = ox / dist
-            ny = oy / dist
-            e = dist / Math.max(r, 0.5)
-            across = (ox * dy - oy * dx) / Math.sqrt(len2) / Math.max(r, 0.5)
-            continue
-          }
-          const ca = Math.cos(p.angle)
-          const sa = Math.sin(p.angle)
-          const ox = px - p.cx
-          const oy = py - p.cy
-          const lx = ox * ca + oy * sa
-          const ly = -ox * sa + oy * ca
-          const radial = Math.sqrt((lx / p.rx) ** 2 + (ly / p.ry) ** 2)
-          const d = (radial - 1) * Math.min(p.rx, p.ry)
-          if (d >= best) continue
-          const gx = lx / (p.rx * p.rx)
-          const gy = ly / (p.ry * p.ry)
-          const gl = Math.hypot(gx, gy) || 1e-6
-          best = d
-          part = p
-          nx = (gx * ca - gy * sa) / gl
-          ny = (gx * sa + gy * ca) / gl
-          e = radial
-          across = lx / p.rx
-        }
-        const cov = clamp(0.5 - best, 0, 1)
-        if (cov <= 0) continue
-        const k = part.ribs ? 0.8 + 0.2 * Math.cos(across * Math.PI * part.ribs) : 1
-        const c = part.color
-        const o = (y * this.W + x) * 3
-        if (look.style === "front") {
-          // Treat the shape as rounded: the normal tilts from facing the viewer at the center to sideways at the edge.
-          const r = Math.min(1, e)
-          const lit = Math.max(0, nx * r * DAYLIGHT[0] + ny * r * DAYLIGHT[1] + Math.sqrt(1 - r * r) * DAYLIGHT[2])
-          const shade = k * (1 - light + light * (0.45 + 0.75 * lit))
-          this.blend(o, c[0] * shade, c[1] * shade, c[2] * shade, cov)
-          continue
-        }
-        const lit = light * clamp((best + 2.2) / 2.2, 0, 1) * Math.max(0, nx * sx + ny * sy) * 0.8
-        this.blend(o, c[0] * k + look.light[0] * lit, c[1] * k + look.light[1] * lit, c[2] * k + look.light[2] * lit, cov)
-      }
+    const lighting: Lighting = this.look.style === "rim" ? { style: "rim", color: this.look.light, x: this.orbX, y: this.orbY } : { style: "front", dir: DAYLIGHT }
+    this.shape(parts, lighting, light)
   }
 
   // A saguaro: a ribbed trunk with two upturned arms. haze fades distant ones toward the dunes behind them.
