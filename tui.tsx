@@ -1,5 +1,6 @@
 import { Plugin } from "@opencode/plugin/tui"
-import { createEffect, createSignal } from "solid-js"
+import { RGBA, TextAttributes } from "@opentui/core"
+import { For, createEffect, createSignal } from "solid-js"
 import { ACTIVITIES, TIMES, createEngine, type Activity, type Mode, type Time } from "./src/engine"
 import { WALLPAPERS } from "./wallpapers"
 
@@ -68,31 +69,125 @@ export default Plugin.define({
       const result = await apply(arg)
       notify(result.message, result.error ? "error" : "info")
     }
-    // Every choice in the picker is a /wallpaper argument. Enter applies it and the picker reopens on the same item,
-    // so several settings can be changed in one go; Escape closes it.
-    const pick = async () => {
-      let focus = stored.wallpaper || "off"
-      while (true) {
-        const current = (on: boolean) => (on ? "current" : undefined)
-        const levels = (WALLPAPERS.find((w) => w.id === stored.wallpaper) ?? WALLPAPERS[0]).activity
-        const arg = await context.ui.dialog.select({
-          title: "Wallpaper · Enter applies, Esc closes",
-          current: focus,
-          options: [
-            ...WALLPAPERS.map((w) => ({ title: w.name, value: w.id, description: w.description, footer: current(stored.wallpaper === w.id), category: "Wallpapers" })),
-            { title: "Off", value: "off", footer: current(!stored.wallpaper), category: "Wallpapers" },
-            ...ACTIVITIES.map((level) => ({ title: capitalize(level), value: level, description: levels[level], footer: current(activity() === level), category: "Activity" })),
-            { title: "Auto", value: "auto", description: `Follows your clock · ${timeAt(new Date())} now`, footer: current(timeSetting() === "auto"), category: "Time of day" },
-            ...TIMES.map((t) => ({ title: capitalize(t), value: t, footer: current(timeSetting() === t), category: "Time of day" })),
-            { title: "In panels", value: "panels", description: "Sidebar, prompt, notices", footer: current(stored.mode === "panels"), category: "Show it" },
-            { title: "Behind everything", value: "behind", description: "Whole background", footer: current(stored.mode === "behind"), category: "Show it" },
-          ],
+    // The picker works like OpenCode's settings: a row per setting with its value on the right. Enter or the arrow
+    // keys change the highlighted row in place, and the dialog stays open until Escape.
+    const rows: Row[] = [
+      {
+        title: "Wallpaper",
+        values: () => ["off", ...WALLPAPERS.map((w) => w.id)],
+        value: () => stored.wallpaper || "off",
+        label: (v) => WALLPAPERS.find((w) => w.id === v)?.name ?? "Off",
+        describe: (v) => WALLPAPERS.find((w) => w.id === v)?.description ?? "No wallpaper",
+      },
+      {
+        title: "Activity",
+        values: () => ACTIVITIES,
+        value: activity,
+        label: capitalize,
+        describe: (v) => (WALLPAPERS.find((w) => w.id === stored.wallpaper) ?? WALLPAPERS[0]).activity[v as Activity],
+      },
+      {
+        title: "Time of day",
+        values: () => ["auto", ...TIMES],
+        value: timeSetting,
+        label: (v) => (v === "auto" ? `Auto (${timeAt(now())})` : capitalize(v)),
+        describe: (v) => (v === "auto" ? "Follows your clock: day from 7am, sunset from 6pm, night from 8pm" : `Always ${v}`),
+      },
+      {
+        title: "Show it",
+        values: () => ["panels", "behind"],
+        value: () => stored.mode,
+        label: (v) => (v === "panels" ? "In panels" : "Behind everything"),
+        describe: (v) => (v === "panels" ? "Only in the sidebar, prompt and notices" : "Also behind the conversation"),
+      },
+    ]
+    const Picker = () => {
+      const theme = context.theme.surface("dialog")
+      const [selected, setSelected] = createSignal(0)
+      let saving = false
+      const change = async (index: number, direction: number) => {
+        if (saving) return
+        const row = rows[index]
+        const values = row.values()
+        const next = values[(values.indexOf(row.value()) + direction + values.length) % values.length]
+        saving = true
+        await apply(next).finally(() => {
+          saving = false
         })
-        if (!arg) return
-        await apply(arg)
-        focus = arg
       }
+      const move = (direction: number) => {
+        setSelected((i) => (i + direction + rows.length) % rows.length)
+      }
+      context.keymap.layer(() => ({
+        mode: "modal",
+        commands: [
+          { bind: "up", title: "Previous setting", group: "Wallpaper", run: () => move(-1) },
+          { bind: "ctrl+p", title: "Previous setting", group: "Wallpaper", run: () => move(-1) },
+          { bind: "down", title: "Next setting", group: "Wallpaper", run: () => move(1) },
+          { bind: "ctrl+n", title: "Next setting", group: "Wallpaper", run: () => move(1) },
+          { bind: "right", title: "Next value", group: "Wallpaper", run: () => void change(selected(), 1) },
+          { bind: "return", title: "Next value", group: "Wallpaper", run: () => void change(selected(), 1) },
+          { bind: "left", title: "Previous value", group: "Wallpaper", run: () => void change(selected(), -1) },
+        ],
+      }))
+      return (
+        <box gap={1} paddingBottom={1}>
+          <box paddingLeft={4} paddingRight={4} flexDirection="row" justifyContent="space-between">
+            <text fg={theme.text.base} attributes={TextAttributes.BOLD}>
+              Wallpaper settings
+            </text>
+            <text fg={theme.text.muted} onMouseUp={() => context.ui.dialog.clear()}>
+              esc
+            </text>
+          </box>
+          <box>
+            <For each={rows}>
+              {(row, index) => {
+                const active = () => selected() === index()
+                const fg = () => (active() ? theme.text.action.primary.focused : theme.text.base)
+                return (
+                  <box
+                    flexDirection="row"
+                    paddingLeft={4}
+                    paddingRight={4}
+                    backgroundColor={active() ? theme.background.action.primary.focused : RGBA.fromInts(0, 0, 0, 0)}
+                    onMouseUp={() => {
+                      setSelected(index())
+                      void change(index(), 1)
+                    }}
+                  >
+                    <text flexGrow={1} fg={fg()} attributes={active() ? TextAttributes.BOLD : undefined}>
+                      {row.title}
+                    </text>
+                    <text fg={active() ? fg() : theme.text.muted}>{active() ? `‹ ${row.label(row.value())} ›` : row.label(row.value())}</text>
+                  </box>
+                )
+              }}
+            </For>
+          </box>
+          <box paddingLeft={4} paddingRight={4}>
+            <text fg={theme.text.muted} wrapMode="word">
+              {rows[selected()].describe(rows[selected()].value())}
+            </text>
+          </box>
+          <box paddingLeft={4} flexDirection="row" gap={2}>
+            <text>
+              <span style={{ fg: theme.text.base }}>
+                <b>↑/↓</b>{" "}
+              </span>
+              <span style={{ fg: theme.text.muted }}>setting</span>
+            </text>
+            <text>
+              <span style={{ fg: theme.text.base }}>
+                <b>enter ←/→</b>{" "}
+              </span>
+              <span style={{ fg: theme.text.muted }}>change</span>
+            </text>
+          </box>
+        </box>
+      )
     }
+    const pick = () => context.ui.dialog.show(() => <Picker />)
     const cycle = <T extends string>(options: readonly T[], value: T) => run(options[(options.indexOf(value) + 1) % options.length])
 
     const unslot = context.ui.slot({
@@ -172,4 +267,13 @@ function timeAt(date: Date): Time {
   if (hour >= 20 || hour < 6) return "night"
   if (hour < 7 || hour >= 18) return "sunset"
   return "day"
+}
+
+// A setting in the picker: its values in order, how to show each, and a line explaining the current one.
+interface Row {
+  title: string
+  values: () => readonly string[]
+  value: () => string
+  label: (value: string) => string
+  describe: (value: string) => string
 }

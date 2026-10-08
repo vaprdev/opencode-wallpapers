@@ -43,7 +43,7 @@ Update with `git pull` in the clone.
 
 | Command | Effect |
 | --- | --- |
-| `/wallpaper` | Open a picker with every wallpaper, off, activity level, time of day, and where to show it. Enter applies a choice and keeps the picker open; Escape closes it |
+| `/wallpaper` | Open the wallpaper settings: wallpaper, activity, time of day, and where to show it. ↑/↓ picks a setting, Enter or ←/→ changes it in place, Escape closes |
 | `/wallpaper aquarium` | Switch to a wallpaper by id |
 | `/wallpaper off` | Turn the wallpaper off |
 | `/wallpaper calm` | Scenery with rare events (default) |
