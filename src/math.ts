@@ -80,3 +80,25 @@ export function fbm1(x: number, seed = 0, octaves = 4) {
   }
   return sum
 }
+
+export function noise2(x: number, y: number) {
+  const ix = Math.floor(x)
+  const iy = Math.floor(y)
+  const fx = x - ix
+  const fy = y - iy
+  const ux = fx * fx * (3 - 2 * fx)
+  const uy = fy * fy * (3 - 2 * fy)
+  return lerp(lerp(hash2(ix, iy), hash2(ix + 1, iy), ux), lerp(hash2(ix, iy + 1), hash2(ix + 1, iy + 1), ux), uy)
+}
+
+export function fbm2(x: number, y: number, octaves = 4) {
+  let sum = 0
+  let amp = 0.5
+  let freq = 1
+  for (let i = 0; i < octaves; i++) {
+    sum += noise2(x * freq + i * 17.3, y * freq + i * 9.1) * amp
+    freq *= 2
+    amp *= 0.5
+  }
+  return sum
+}

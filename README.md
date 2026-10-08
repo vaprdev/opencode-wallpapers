@@ -9,6 +9,8 @@ panels (or the whole background), drawn with Unicode block characters and kept r
 | --- | --- | --- | --- |
 | Aquarium | ![Aquarium by day](screenshots/aquarium.png) | ![Aquarium at sunset](screenshots/aquarium-sunset.png) | ![Aquarium at night](screenshots/aquarium-night.png) |
 | Desert | ![Desert by day](screenshots/desert.png) | ![Desert at sunset](screenshots/desert-sunset.png) | ![Desert at night](screenshots/desert-night.png) |
+| Jungle | ![Jungle by day](screenshots/jungle.png) | ![Jungle at sunset](screenshots/jungle-sunset.png) | ![Jungle at night](screenshots/jungle-night.png) |
+| Space | ![Space by day](screenshots/space.png) | ![Space at sunset](screenshots/space-sunset.png) | ![Space at night](screenshots/space-night.png) |
 
 ## Wallpapers
 
@@ -16,6 +18,8 @@ panels (or the whole background), drawn with Unicode block characters and kept r
 | --- | --- |
 | `aquarium` | Deep water, god rays, marine snow, and a whale that drifts past now and then. |
 | `desert` | Mesas and dunes with a saguaro, a cow skull, and a tumbleweed now and then. |
+| `jungle` | A misty rainforest with a waterfall, light through the canopy, and a toucan flying by now and then. |
+| `space` | A ringed planet turning slowly below a nebula and drifting stars, with a comet now and then. |
 
 ## Install
 
@@ -39,7 +43,7 @@ Update with `git pull` in the clone.
 
 | Command | Effect |
 | --- | --- |
-| `/wallpaper` | Open a picker with every wallpaper, off, activity level, time of day, and where to show it |
+| `/wallpaper` | Open a picker with every wallpaper, off, activity level, time of day, and where to show it. Enter applies a choice and keeps the picker open; Escape closes it |
 | `/wallpaper aquarium` | Switch to a wallpaper by id |
 | `/wallpaper off` | Turn the wallpaper off |
 | `/wallpaper calm` | Scenery with rare events (default) |
@@ -60,6 +64,8 @@ Every wallpaper has three activity levels, which set how much is going on behind
 | --- | --- | --- | --- |
 | `aquarium` | Water, light and the whale | Adds a fish and an octopus | Adds a shark, diver, turtle and kelp |
 | `desert` | Mesas, a saguaro and a skull | Adds a soaring eagle (an owl at night) and a rattlesnake | Adds vultures (bats at night), a howling coyote and more cacti |
+| `jungle` | Trees, vines, a waterfall and swaying leaves | Adds a swinging spider monkey and blue morpho butterflies | Adds a jaguar, scarlet macaws, a tree frog and more butterflies |
+| `space` | The planet, its rings, a moon and the stars | Adds an orbiting space station and a satellite | Adds asteroids, a floating astronaut and a flying saucer |
 
 ## Time of day
 
@@ -70,6 +76,10 @@ sunset from 6pm (and at dawn, 6 to 7am), night from 8pm. Pick one in the picker 
   and, in teeming, a diver's torch.
 - **Desert:** a high sun with sunlit rock and shadows by day, backlit silhouettes at sunset, and a moonlit night with
   stars and the Milky Way, where an owl and bats take over the sky.
+- **Jungle:** sunlit greens by day, warm backlit mist at sunset, and a moonlit night lit by fireflies, where the
+  jaguar's eyes glow.
+- **Space:** the planet's sunlit side by day, an orbital sunrise with the star flaring at its edge at sunset, and its
+  night side with city lights and aurora under a bright Milky Way.
 
 ## Terminals
 

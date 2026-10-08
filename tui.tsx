@@ -27,68 +27,73 @@ export default Plugin.define({
     }
 
     const notify = (message: string, variant: "info" | "error" = "info") => context.ui.toast.show({ message, variant })
-    const choose = (id: string) => {
-      const wallpaper = WALLPAPERS.find((w) => w.id === id)
-      if (!wallpaper) return notify(`No wallpaper "${id}". Available: ${WALLPAPERS.map((w) => w.id).join(", ")}`, "error")
-      void update((draft) => {
-        draft.wallpaper = id
+    // Applies one /wallpaper argument and says what changed.
+    const apply = async (arg: string): Promise<{ message: string; error?: true }> => {
+      if (arg === "off") {
+        await update((draft) => {
+          draft.wallpaper = ""
+        })
+        return { message: "Wallpaper off" }
+      }
+      if (arg === "panels" || arg === "behind") {
+        await update((draft) => {
+          draft.mode = arg
+        })
+        return { message: arg === "panels" ? "Wallpaper in panels only" : "Wallpaper behind everything" }
+      }
+      const level = ACTIVITIES.find((a) => a === arg)
+      if (level) {
+        await update((draft) => {
+          draft.activity = level
+        })
+        return { message: `Wallpaper activity: ${level}` }
+      }
+      const t = TIMES.find((value) => value === arg)
+      if (t || arg === "auto") {
+        await update((draft) => {
+          draft.time = t ?? "auto"
+        })
+        return { message: t ? `Wallpaper time: ${t}` : `Wallpaper time follows your clock (${timeAt(new Date())} now)` }
+      }
+      const wallpaper = WALLPAPERS.find((w) => w.id === arg)
+      if (!wallpaper) return { message: `No wallpaper "${arg}". Available: ${WALLPAPERS.map((w) => w.id).join(", ")}`, error: true }
+      await update((draft) => {
+        draft.wallpaper = arg
       })
-      notify(`${wallpaper.name} wallpaper on`)
+      return { message: `${wallpaper.name} wallpaper on` }
     }
-    const off = () => {
-      void update((draft) => {
-        draft.wallpaper = ""
-      })
-      notify("Wallpaper off")
-    }
-    const setMode = (mode: Mode) => {
-      void update((draft) => {
-        draft.mode = mode
-      })
-      notify(mode === "panels" ? "Wallpaper in panels only" : "Wallpaper behind everything")
-    }
-    const setActivity = (level: Activity) => {
-      void update((draft) => {
-        draft.activity = level
-      })
-      notify(`Wallpaper activity: ${level}`)
-    }
-    const setTime = (value: Time | "auto") => {
-      void update((draft) => {
-        draft.time = value
-      })
-      notify(value === "auto" ? `Wallpaper time follows your clock (${timeAt(new Date())} now)` : `Wallpaper time: ${value}`)
-    }
-    // Every choice in the picker is a /wallpaper argument, so picking one runs it.
-    const pick = async () => {
-      const current = (on: boolean) => (on ? "current" : undefined)
-      const levels = (WALLPAPERS.find((w) => w.id === stored.wallpaper) ?? WALLPAPERS[0]).activity
-      const arg = await context.ui.dialog.select({
-        title: "Wallpaper",
-        current: stored.wallpaper || "off",
-        options: [
-          ...WALLPAPERS.map((w) => ({ title: w.name, value: w.id, description: w.description, category: "Wallpapers" })),
-          { title: "Off", value: "off", category: "Wallpapers" },
-          ...ACTIVITIES.map((level) => ({ title: capitalize(level), value: level, description: levels[level], footer: current(activity() === level), category: "Activity" })),
-          { title: "Auto", value: "auto", description: `Follows your clock · ${timeAt(new Date())} now`, footer: current(timeSetting() === "auto"), category: "Time of day" },
-          ...TIMES.map((t) => ({ title: capitalize(t), value: t, footer: current(timeSetting() === t), category: "Time of day" })),
-          { title: "In panels", value: "panels", description: "Sidebar, prompt, notices", footer: current(stored.mode === "panels"), category: "Show it" },
-          { title: "Behind everything", value: "behind", description: "Whole background", footer: current(stored.mode === "behind"), category: "Show it" },
-        ],
-      })
-      if (arg) run(arg)
-    }
-    const run = (input?: string) => {
+    const run = async (input?: string) => {
       const arg = input?.trim().toLowerCase()
       if (!arg) return pick()
-      if (arg === "off") return off()
-      if (arg === "panels" || arg === "behind") return setMode(arg)
-      const level = ACTIVITIES.find((a) => a === arg)
-      if (level) return setActivity(level)
-      const t = TIMES.find((value) => value === arg)
-      if (t || arg === "auto") return setTime(t ?? "auto")
-      choose(arg)
+      const result = await apply(arg)
+      notify(result.message, result.error ? "error" : "info")
     }
+    // Every choice in the picker is a /wallpaper argument. Enter applies it and the picker reopens on the same item,
+    // so several settings can be changed in one go; Escape closes it.
+    const pick = async () => {
+      let focus = stored.wallpaper || "off"
+      while (true) {
+        const current = (on: boolean) => (on ? "current" : undefined)
+        const levels = (WALLPAPERS.find((w) => w.id === stored.wallpaper) ?? WALLPAPERS[0]).activity
+        const arg = await context.ui.dialog.select({
+          title: "Wallpaper · Enter applies, Esc closes",
+          current: focus,
+          options: [
+            ...WALLPAPERS.map((w) => ({ title: w.name, value: w.id, description: w.description, footer: current(stored.wallpaper === w.id), category: "Wallpapers" })),
+            { title: "Off", value: "off", footer: current(!stored.wallpaper), category: "Wallpapers" },
+            ...ACTIVITIES.map((level) => ({ title: capitalize(level), value: level, description: levels[level], footer: current(activity() === level), category: "Activity" })),
+            { title: "Auto", value: "auto", description: `Follows your clock · ${timeAt(new Date())} now`, footer: current(timeSetting() === "auto"), category: "Time of day" },
+            ...TIMES.map((t) => ({ title: capitalize(t), value: t, footer: current(timeSetting() === t), category: "Time of day" })),
+            { title: "In panels", value: "panels", description: "Sidebar, prompt, notices", footer: current(stored.mode === "panels"), category: "Show it" },
+            { title: "Behind everything", value: "behind", description: "Whole background", footer: current(stored.mode === "behind"), category: "Show it" },
+          ],
+        })
+        if (!arg) return
+        await apply(arg)
+        focus = arg
+      }
+    }
+    const cycle = <T extends string>(options: readonly T[], value: T) => run(options[(options.indexOf(value) + 1) % options.length])
 
     const unslot = context.ui.slot({
       append: "app",
@@ -117,7 +122,7 @@ export default Plugin.define({
               title: "Turn off wallpaper",
               group: "Wallpapers",
               palette: true,
-              run: off,
+              run: () => run("off"),
             },
             {
               id: "wallpapers.mode",
@@ -125,7 +130,7 @@ export default Plugin.define({
               description: "Panels only, or behind everything",
               group: "Wallpapers",
               palette: true,
-              run: () => setMode(stored.mode === "panels" ? "behind" : "panels"),
+              run: () => cycle(["panels", "behind"] as const, stored.mode),
             },
             {
               id: "wallpapers.activity",
@@ -133,7 +138,7 @@ export default Plugin.define({
               description: "Calm, lively, teeming",
               group: "Wallpapers",
               palette: true,
-              run: () => setActivity(ACTIVITIES[(ACTIVITIES.indexOf(activity()) + 1) % ACTIVITIES.length]),
+              run: () => cycle(ACTIVITIES, activity()),
             },
             {
               id: "wallpapers.time",
@@ -141,10 +146,7 @@ export default Plugin.define({
               description: "Auto, day, sunset, night",
               group: "Wallpapers",
               palette: true,
-              run: () => {
-                const options = ["auto", ...TIMES] as const
-                setTime(options[(options.indexOf(timeSetting()) + 1) % options.length])
-              },
+              run: () => cycle(["auto", ...TIMES] as const, timeSetting()),
             },
           ],
         }))

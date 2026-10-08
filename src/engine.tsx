@@ -621,6 +621,16 @@ export function createEngine(
       lastStep = now
       scene.step(dt)
       scene.render()
+    }
+    paint(buf, px, scene.W, scene.H, advanced, pixels)
+  }
+
+  // Everything after the scene has drawn its frame. It never touches the scene object: each wallpaper's scene is a
+  // different class, and the optimizer would otherwise fall back to slow code for this whole function after a switch.
+  const paint = (buf: OptimizedBuffer, px: Uint8Array, PW: number, PH: number, advanced: boolean, pixels: boolean) => {
+    const W = buf.width
+    const H = buf.height
+    if (advanced) {
       const fresh = history.length !== px.length
       if (fresh) history = new Float32Array(px.length)
       for (let p = 0; p < px.length; p += 4) {
@@ -633,8 +643,6 @@ export function createEngine(
         }
       }
     }
-    const PW = scene.W
-    const PH = scene.H
     const GW = W * 2
     const GH = H * 4
     if (advanced || grid.length !== GW * GH * 3) buildGrid(px, PW, PH, GW, GH)
