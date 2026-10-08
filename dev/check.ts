@@ -15,7 +15,6 @@ const ids = process.argv.slice(2)
 const unknown = ids.filter((id) => !WALLPAPERS.some((w) => w.id === id))
 if (unknown.length) throw new Error(`unknown wallpaper ${unknown.join(", ")}; available: ${WALLPAPERS.map((w) => w.id).join(", ")}`)
 const screen = mockScreen()
-screen.engine.mode = "behind"
 let failed = false
 const runs = (ids.length ? WALLPAPERS.filter((w) => ids.includes(w.id)) : WALLPAPERS).flatMap((w) => ACTIVITIES.flatMap((activity) => TIMES.map((time) => ({ wallpaper: w, activity, time }))))
 for (const { wallpaper, activity, time } of runs) {

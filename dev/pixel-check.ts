@@ -21,7 +21,6 @@ const drawImage = (source: { width: number; height: number; copyTo(out: Uint8Arr
   source.copyTo(image.pixels)
   return true
 }
-screen.engine.mode = "behind"
 screen.engine.start(wallpaper, { activity: ACTIVITIES.find((a) => process.argv.includes(a)) ?? "calm", time: TIMES.find((t) => process.argv.includes(t)) ?? "day" })
 let ms = 0
 const frames = 90

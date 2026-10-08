@@ -43,9 +43,6 @@ export type Activity = (typeof ACTIVITIES)[number]
 export const TIMES = ["day", "sunset", "night"] as const
 export type Time = (typeof TIMES)[number]
 
-// panels: the scene shows only through the sidebar, prompt, notices and other neutral raised surfaces.
-// behind: it also replaces the main background behind the conversation.
-export type Mode = "panels" | "behind"
 
 const UPPER_HALF = 0x2580
 const LOWER_HALF = 0x2584
@@ -383,7 +380,6 @@ function createLayer(renderer: Context["renderer"], draw: (buffer: OptimizedBuff
 }
 
 export interface Engine {
-  mode: Mode
   readonly wallpaper: Wallpaper | undefined
   start(wallpaper: Wallpaper, settings: Settings): void
   stop(): void
@@ -660,7 +656,7 @@ export function createEngine(
       for (const [k, n] of counts) if (n > best) ((best = n), (base = k))
       surfaces.clear()
       tints.clear()
-      if (engine.mode === "behind") surfaces.add(base)
+      surfaces.add(base)
       for (const [k, n] of counts) if (k !== base && n > cells * 0.002 && isSurface(k)) surfaces.add(k)
     }
 
@@ -785,7 +781,6 @@ export function createEngine(
   }
 
   const engine: Engine = {
-    mode: "panels",
     get wallpaper() {
       return wallpaper
     },

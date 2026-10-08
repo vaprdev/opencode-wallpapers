@@ -1,7 +1,7 @@
 # OpenCode Wallpapers
 
-Animated wallpapers for the OpenCode terminal UI. A slow, quiet scene shows through the sidebar, prompt, and other
-panels (or the whole background), drawn with Unicode block characters and kept readable behind text.
+Animated wallpapers for the OpenCode terminal UI. A slow, quiet scene fills the background behind everything, drawn
+with Unicode block characters and kept readable behind text.
 
 > This project is not affiliated with, endorsed by, or sponsored by OpenCode or its maintainers.
 
@@ -43,7 +43,7 @@ Update with `git pull` in the clone.
 
 | Command | Effect |
 | --- | --- |
-| `/wallpaper` | Open the wallpaper settings: wallpaper, activity, time of day, and where to show it. ↑/↓ picks a setting, Enter or ←/→ changes it in place, Escape closes |
+| `/wallpaper` | Open the wallpaper settings: wallpaper, activity, and time of day. ↑/↓ picks a setting, Enter or ←/→ changes it in place, Escape closes |
 | `/wallpaper aquarium` | Switch to a wallpaper by id |
 | `/wallpaper off` | Turn the wallpaper off |
 | `/wallpaper calm` | Scenery with rare events (default) |
@@ -51,8 +51,6 @@ Update with `git pull` in the clone.
 | `/wallpaper teeming` | The full cast |
 | `/wallpaper day` | Daytime; also `sunset` and `night` |
 | `/wallpaper auto` | Time of day follows your clock (default) |
-| `/wallpaper panels` | Show it only inside panels: sidebar, prompt, notices (default) |
-| `/wallpaper behind` | Show it behind everything, including the conversation |
 
 The same actions are in the command palette under **Wallpapers**. Your choice persists across restarts.
 

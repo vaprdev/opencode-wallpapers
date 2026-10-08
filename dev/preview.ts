@@ -15,7 +15,6 @@ if (!wallpaper) throw new Error(`usage: bun dev/preview.ts <${WALLPAPERS.map((w)
 process.env.WALLPAPER_OCTANTS = "1"
 mkdirSync("dev/out", { recursive: true })
 const screen = mockScreen()
-screen.engine.mode = "behind"
 screen.engine.start(wallpaper, { activity, time })
 for (let f = 0; f < Number(seconds) * FPS; f++) screen.frame(text)
 screen.engine.stop()

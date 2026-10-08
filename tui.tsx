@@ -1,19 +1,18 @@
 import { Plugin } from "@opencode/plugin/tui"
 import { RGBA, TextAttributes } from "@opentui/core"
 import { For, createEffect, createSignal } from "solid-js"
-import { ACTIVITIES, TIMES, createEngine, type Activity, type Mode, type Time } from "./src/engine"
+import { ACTIVITIES, TIMES, createEngine, type Activity, type Time } from "./src/engine"
 import { WALLPAPERS } from "./wallpapers"
 
 export default Plugin.define({
   id: "wallpapers",
   setup(context) {
-    const [stored, update] = context.storage.store<{ wallpaper: string; mode: Mode; activity?: Activity; time?: Time | "auto" }>("wallpapers", {
-      initial: { wallpaper: "", mode: "panels", activity: "calm", time: "auto" },
+    const [stored, update] = context.storage.store<{ wallpaper: string; activity?: Activity; time?: Time | "auto" }>("wallpapers", {
+      initial: { wallpaper: "", activity: "calm", time: "auto" },
     })
     const engine = createEngine(context, { dump: process.env.WALLPAPER_DUMP })
     // Environment overrides for development; they win over the stored choice.
     const pinned = process.env.WALLPAPER
-    const pinnedMode = process.env.WALLPAPER_MODE
     const pinnedActivity = process.env.WALLPAPER_ACTIVITY
     const pinnedTime = process.env.WALLPAPER_TIME
     // Settings saved before these options existed have none.
@@ -35,12 +34,6 @@ export default Plugin.define({
           draft.wallpaper = ""
         })
         return { message: "Wallpaper off" }
-      }
-      if (arg === "panels" || arg === "behind") {
-        await update((draft) => {
-          draft.mode = arg
-        })
-        return { message: arg === "panels" ? "Wallpaper in panels only" : "Wallpaper behind everything" }
       }
       const level = ACTIVITIES.find((a) => a === arg)
       if (level) {
@@ -92,13 +85,6 @@ export default Plugin.define({
         value: timeSetting,
         label: (v) => (v === "auto" ? `Auto (${timeAt(now())})` : capitalize(v)),
         describe: (v) => (v === "auto" ? "Follows your clock: day from 7am, sunset from 6pm, night from 8pm" : `Always ${v}`),
-      },
-      {
-        title: "Show it",
-        values: () => ["panels", "behind"],
-        value: () => stored.mode,
-        label: (v) => (v === "panels" ? "In panels" : "Behind everything"),
-        describe: (v) => (v === "panels" ? "Only in the sidebar, prompt and notices" : "Also behind the conversation"),
       },
     ]
     const Picker = () => {
@@ -194,7 +180,6 @@ export default Plugin.define({
       append: "app",
       render() {
         createEffect(() => {
-          engine.mode = pinnedMode === "behind" || pinnedMode === "panels" ? pinnedMode : stored.mode
           const wallpaper = WALLPAPERS.find((w) => w.id === (pinned ?? stored.wallpaper))
           const level = ACTIVITIES.find((a) => a === pinnedActivity) ?? activity()
           if (wallpaper) engine.start(wallpaper, { activity: level, time: time() })
@@ -206,7 +191,7 @@ export default Plugin.define({
             {
               id: "wallpapers.choose",
               title: "Choose wallpaper",
-              description: "Animated scene behind the UI. Args: wallpaper id, off, calm, lively, teeming, day, sunset, night, auto, panels, behind",
+              description: "Animated scene behind the UI. Args: wallpaper id, off, calm, lively, teeming, day, sunset, night, auto",
               group: "Wallpapers",
               palette: true,
               slash: { name: "wallpaper", arguments: true },
@@ -218,14 +203,6 @@ export default Plugin.define({
               group: "Wallpapers",
               palette: true,
               run: () => run("off"),
-            },
-            {
-              id: "wallpapers.mode",
-              title: "Switch wallpaper mode",
-              description: "Panels only, or behind everything",
-              group: "Wallpapers",
-              palette: true,
-              run: () => cycle(["panels", "behind"] as const, stored.mode),
             },
             {
               id: "wallpapers.activity",
