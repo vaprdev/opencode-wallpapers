@@ -293,9 +293,9 @@ class Aquarium extends Canvas {
       for (let x = 0; x < W; x++) {
         const o = (y * W + x) * 3
         const moon = Math.exp(-Math.hypot(x - mx, (y - my) * 1.6) / (0.16 * H))
-        hdr[o] = hdr[o] * 0.12 + moon * 0.3
-        hdr[o + 1] = hdr[o + 1] * 0.2 + moon * 0.4
-        hdr[o + 2] = hdr[o + 2] * 0.34 + moon * 0.55
+        hdr[o] = hdr[o] * 0.04 + moon * 0.05
+        hdr[o + 1] = hdr[o + 1] * 0.16 + moon * 0.28
+        hdr[o + 2] = hdr[o + 2] * 0.4 + moon * 0.6
       }
     for (const p of this.snow) {
       const pulse = Math.pow(0.5 + 0.5 * Math.sin(this.time * 1.5 + p.s * 50), 3)
@@ -304,7 +304,7 @@ class Aquarium extends Canvas {
       if (p.s > 0.75) this.disc(p.x * H, p.y * H, 1.2, 0.1 * k * 4, (green ? 0.9 : 0.6) * k * 4, (green ? 0.6 : 1) * k * 4, 0.5)
       this.add(p.x * H, p.y * H, 0.1 * k, (green ? 0.9 : 0.6) * k, (green ? 0.6 : 1) * k)
     }
-    if (this.diver) this.drawTorch(this.diver, 6)
+    if (this.diver) this.drawTorch(this.diver, 4, [1, 0.55, 0.15])
   }
 
   protected override layout() {
@@ -1151,7 +1151,7 @@ class Aquarium extends Canvas {
   }
 
   // The torch beam, faint and warm, from the hand forward; it dims as the diver turns edge-on.
-  private drawTorch(dv: Diver, strength: number) {
+  private drawTorch(dv: Diver, strength: number, color: RGB = [1, 0.95, 0.75]) {
     const beam = Math.pow(Math.abs(dv.face), 2)
     if (beam <= 0.02) return
     const [hx, hy] = this.diverPoint(dv, 0.3, 0.07)
@@ -1173,7 +1173,7 @@ class Aquarium extends Canvas {
         const width = along * 0.3 + 1
         if (across > width) continue
         const k = (1 - along / len) * Math.pow(1 - across / width, 2) * 0.14 * beam * strength
-        this.add(x, y, k * 1, k * 0.95, k * 0.75)
+        this.add(x, y, k * color[0], k * color[1], k * color[2])
       }
   }
 

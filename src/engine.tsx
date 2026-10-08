@@ -62,7 +62,8 @@ for (let v = 0; v < 256; v++) {
   const soft = (x * 1.0) / (1 + x * 0.9)
   EMPTY[v] = Math.round(soft * 255)
 }
-const DESATURATE = 0.22
+// Night scenes keep their color: it is what separates them from light text.
+const DESATURATE = { day: 0.22, sunset: 0.22, night: 0.04 }
 
 function blurRows(src: Float32Array, dst: Float32Array, w: number, h: number, r: number) {
   const inv = 1 / (r * 2 + 1)
@@ -618,12 +619,12 @@ export function createEngine(
       scene.step(dt)
       scene.render()
     }
-    paint(buf, px, scene.W, scene.H, advanced, pixels)
+    paint(buf, px, scene.W, scene.H, advanced, pixels, DESATURATE[settings!.time])
   }
 
   // Everything after the scene has drawn its frame. It never touches the scene object: each wallpaper's scene is a
   // different class, and the optimizer would otherwise fall back to slow code for this whole function after a switch.
-  const paint = (buf: OptimizedBuffer, px: Uint8Array, PW: number, PH: number, advanced: boolean, pixels: boolean) => {
+  const paint = (buf: OptimizedBuffer, px: Uint8Array, PW: number, PH: number, advanced: boolean, pixels: boolean, desaturate: number) => {
     const W = buf.width
     const H = buf.height
     if (advanced) {
@@ -632,7 +633,7 @@ export function createEngine(
       for (let p = 0; p < px.length; p += 4) {
         const l = px[p] * 0.2126 + px[p + 1] * 0.7152 + px[p + 2] * 0.0722
         for (let c = 0; c < 3; c++) {
-          const v = px[p + c] + (l - px[p + c]) * DESATURATE
+          const v = px[p + c] + (l - px[p + c]) * desaturate
           const h = fresh ? v : history[p + c] * PERSISTENCE + v * (1 - PERSISTENCE)
           history[p + c] = h
           px[p + c] = h

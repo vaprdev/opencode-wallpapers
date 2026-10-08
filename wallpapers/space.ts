@@ -27,6 +27,10 @@ interface Look {
   lighting: "front" | "limb" | "night"
   // Darkens spacecraft colors away from the sunlit side, leaving the edge light to pick them out.
   tint: RGB
+  ringColor: RGB
+  rockColor: RGB
+  // Stars come in a few colors at night rather than plain white, so they read apart from light text.
+  starTints: boolean
 }
 
 const LOOKS: Record<Time, Look> = {
@@ -42,6 +46,9 @@ const LOOKS: Record<Time, Look> = {
     ring: 1,
     lighting: "front",
     tint: [1, 1, 1],
+    ringColor: [0.75, 0.68, 0.55],
+    rockColor: [0.75, 0.68, 0.6],
+    starTints: false,
   },
   sunset: {
     sun: normalize(-0.5, -0.48, -0.72),
@@ -55,6 +62,9 @@ const LOOKS: Record<Time, Look> = {
     ring: 0.45,
     lighting: "limb",
     tint: [0.3, 0.26, 0.28],
+    ringColor: [0.85, 0.62, 0.45],
+    rockColor: [0.75, 0.62, 0.55],
+    starTints: false,
   },
   night: {
     sun: normalize(0.6, 0.6, -0.5),
@@ -68,10 +78,20 @@ const LOOKS: Record<Time, Look> = {
     ring: 0.12,
     lighting: "night",
     tint: [0.05, 0.06, 0.09],
+    ringColor: [0.35, 0.4, 0.9],
+    rockColor: [0.4, 0.5, 0.95],
+    starTints: true,
   },
 }
 
 const SURFACE = buildSurface()
+const WHITE_STAR: RGB = [1, 0.97, 1.1]
+const STAR_TINTS: RGB[] = [
+  [0.55, 0.75, 1.2],
+  [1.15, 0.85, 0.45],
+  [1.1, 0.6, 0.85],
+  [0.7, 0.6, 1.2],
+]
 
 interface Traveler {
   x: number
@@ -102,7 +122,7 @@ class Space extends Canvas {
   private ringBox = [0, 0, 0, 0]
   private ringMask = new Uint8Array(0)
   private starPos: [number, number] = [0, 0]
-  private stars = Array.from({ length: 320 }, (_, i) => ({ x: Math.random() * 3, y: Math.random(), layer: i % 3, b: 0.3 + Math.random() * 0.7, phase: Math.random() * TAU }))
+  private stars = Array.from({ length: 320 }, (_, i) => ({ x: Math.random() * 3, y: Math.random(), layer: i % 3, b: 0.3 + Math.random() * 0.7, phase: Math.random() * TAU, tint: STAR_TINTS[i % STAR_TINTS.length] }))
   private comet = { x: -9, y: 0, vx: 0, vy: 0, next: 14 }
   private ufo = { x: -9, y: 0.2, dir: 1, next: 30 }
   private station: Traveler = { x: 0.2, y: 0.3, dir: 1, wait: 0 }
@@ -186,7 +206,7 @@ class Space extends Canvas {
         ? { style: "front", dir: look.sun }
         : look.lighting === "limb"
           ? { style: "rim", color: [1, 0.6, 0.3], x: this.starPos[0], y: this.starPos[1] }
-          : { style: "rim", color: [0.25, 0.32, 0.5], x: cx, y: cy }
+          : { style: "rim", color: [0.2, 0.4, 1], x: cx, y: cy }
     const [n1, n2] = look.nebula
     for (let y = 0; y < H; y++)
       for (let x = 0; x < W; x++) {
@@ -197,8 +217,9 @@ class Space extends Canvas {
         const band = Math.abs(v - (0.15 + u * 0.25)) / 0.12
         const milky = Math.exp(-band * band) * (0.4 + 0.6 * fbm2(u * 9, v * 9, 4)) * 0.06 * look.milkyWay
         const o = (y * W + x) * 3
-        this.hdr[o] = 0.004 + n1[0] * a + n2[0] * b + milky * 0.85
-        this.hdr[o + 1] = 0.005 + n1[1] * a + n2[1] * b + milky * 0.85
+        const [mr, mg] = look.starTints ? [0.55, 0.4] : [0.85, 0.85]
+        this.hdr[o] = 0.004 + n1[0] * a + n2[0] * b + milky * mr
+        this.hdr[o + 1] = 0.005 + n1[1] * a + n2[1] * b + milky * mg
         this.hdr[o + 2] = 0.012 + n1[2] * a + n2[2] * b + milky
       }
     // Rings: bands of dust in a tilted, flattened annulus. The far half is painted now, behind the planet; the near
@@ -226,14 +247,15 @@ class Space extends Canvas {
         const a = 0.75 * density
         const k = look.ring * (0.6 + 0.4 * density)
         const o = y * W + x
+        const [rr, rg, rb] = look.ringColor
         if (qy < 0) {
-          this.blend(o * 3, 0.75 * k, 0.68 * k, 0.55 * k, a)
+          this.blend(o * 3, rr * k, rg * k, rb * k, a)
           if (a > 0.3) this.ringMask[o] = 1
           continue
         }
-        this.ringFront[o * 4] = 0.75 * k
-        this.ringFront[o * 4 + 1] = 0.68 * k
-        this.ringFront[o * 4 + 2] = 0.55 * k
+        this.ringFront[o * 4] = rr * k
+        this.ringFront[o * 4 + 1] = rg * k
+        this.ringFront[o * 4 + 2] = rb * k
         this.ringFront[o * 4 + 3] = a
       }
     this.background = this.hdr.slice()
@@ -253,7 +275,8 @@ class Space extends Canvas {
       const i = (y | 0) * W + (x | 0)
       if (x < 0 || x >= W || y >= H || this.ringMask[i]) continue
       const k = s.b * (0.4 + s.layer * 0.3) * look.starK * (s.b > 0.85 ? 0.75 + 0.25 * Math.sin(this.time * 1.5 + s.phase) : 1) * 0.5
-      this.add(x, y, k, k * 0.97, k * 1.1)
+      const t = look.starTints ? s.tint : WHITE_STAR
+      this.add(x, y, k * t[0], k * t[1], k * t[2])
     }
   }
 
@@ -482,7 +505,7 @@ class Space extends Canvas {
         const pits = 0.7 + 0.45 * fbm2(dx * 2.5 + Math.cos(r.angle) * 2 + r.seed, dy * 2.5 + Math.sin(r.angle) * 2, 4)
         const ambient = look.lighting === "night" ? 0.01 : 0.02
         const k = (ambient + lit * 0.7) * pits
-        this.blend((y * W + x) * 3, k * 0.75, k * 0.68, k * 0.6, clamp((1.05 - rr) * R, 0, 1))
+        this.blend((y * W + x) * 3, k * look.rockColor[0], k * look.rockColor[1], k * look.rockColor[2], clamp((1.05 - rr) * R, 0, 1))
       }
   }
 

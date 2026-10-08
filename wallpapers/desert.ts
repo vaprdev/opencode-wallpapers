@@ -135,17 +135,17 @@ const LOOKS: Record<Time, Look> = {
   },
   night: {
     style: "rim",
-    light: [0.55, 0.7, 1],
+    light: [0.18, 0.42, 1],
     sky: [
       [0, [0.004, 0.006, 0.02]],
       [0.3, [0.01, 0.018, 0.05]],
       [0.5, [0.025, 0.04, 0.09]],
       [HORIZON, [0.05, 0.07, 0.13]],
     ],
-    orb: { x: 0.3, y: 0.16, r: 0.035, core: [1.6, 1.65, 1.8], glow: [0.5, 0.6, 0.85], near: 0.25, wide: 0.1, moon: true },
+    orb: { x: 0.3, y: 0.16, r: 0.035, core: [1, 0.72, 0.3], glow: [0.45, 0.3, 0.12], near: 0.2, wide: 0.08, moon: true },
     stars: 160,
     milkyWay: true,
-    clouds: { puffy: false, top: [0.02, 0.025, 0.045], bottom: [0.12, 0.14, 0.2], alpha: 0.5 },
+    clouds: { puffy: false, top: [0.015, 0.02, 0.05], bottom: [0.06, 0.1, 0.3], alpha: 0.5 },
     farMesa: [0.03, 0.04, 0.08],
     nearMesa: [0.012, 0.016, 0.035],
     floor: [
@@ -155,9 +155,9 @@ const LOOKS: Record<Time, Look> = {
     backDune: [0.025, 0.03, 0.055],
     frontDune: [0.012, 0.014, 0.028],
     cactus: [0.01, 0.02, 0.02],
-    bone: [0.32, 0.36, 0.42],
-    horn: [0.24, 0.25, 0.28],
-    hornTip: [0.04, 0.04, 0.05],
+    bone: [0.1, 0.2, 0.42],
+    horn: [0.08, 0.13, 0.28],
+    hornTip: [0.02, 0.03, 0.06],
     socket: [0.01, 0.01, 0.015],
     pear: [0.012, 0.022, 0.02],
     fruit: [0.15, 0.03, 0.06],
@@ -165,18 +165,26 @@ const LOOKS: Record<Time, Look> = {
     flower: [0.3, 0.28, 0.12],
     coyote: [0.012, 0.012, 0.02],
     snake: [
-      [0.1, 0.1, 0.12],
-      [0.04, 0.04, 0.05],
-      [0.22, 0.22, 0.25],
+      [0.05, 0.08, 0.16],
+      [0.02, 0.03, 0.07],
+      [0.1, 0.14, 0.3],
     ],
-    twig: [0.12, 0.12, 0.15],
+    twig: [0.06, 0.09, 0.2],
     night: true,
     plumage: [0.08, 0.075, 0.08],
-    plumageLight: [0.16, 0.15, 0.15],
+    plumageLight: [0.08, 0.1, 0.22],
     flock: [0.02, 0.02, 0.03],
     dust: [0, 0, 0],
   },
 }
+
+// Stars come in a few colors rather than plain white, so they read apart from light text.
+const STAR_TINTS: RGB[] = [
+  [0.55, 0.75, 1.2],
+  [1.15, 0.85, 0.45],
+  [1.1, 0.6, 0.85],
+  [0.7, 0.6, 1.2],
+]
 
 // Daylight comes from the upper right, slightly in front of the scene.
 const DAYLIGHT = (() => {
@@ -236,7 +244,7 @@ class Desert extends Canvas {
   private orbX = 0
   private orbY = 0
   private coyoteX = 0
-  private stars: { x: number; y: number; b: number; phase: number }[]
+  private stars: { x: number; y: number; b: number; phase: number; tint: RGB }[]
   private dust = Array.from({ length: 60 }, () => ({ x: Math.random() * 4, y: 0.3 + Math.random() * 0.7, s: Math.random() }))
   private clouds: Cloud[]
   private tumbleweed = { x: -9, dir: 1, next: 14, spin: 0, hop: 0 }
@@ -252,7 +260,7 @@ class Desert extends Canvas {
     this.look = LOOKS[settings.time]
     const look = this.look
     const top = look.milkyWay ? 0.5 : 0.3
-    this.stars = Array.from({ length: look.stars }, () => ({ x: Math.random(), y: Math.random() * top, b: 0.4 + Math.random() * 0.6, phase: Math.random() * TAU }))
+    this.stars = Array.from({ length: look.stars }, () => ({ x: Math.random(), y: Math.random() * top, b: 0.4 + Math.random() * 0.6, phase: Math.random() * TAU, tint: STAR_TINTS[Math.floor(Math.random() * STAR_TINTS.length)] }))
     this.clouds = Array.from({ length: look.clouds.puffy ? 4 : 5 }, () => ({
       x: Math.random() * 2,
       y: look.clouds.puffy ? 0.1 + Math.random() * 0.2 : 0.12 + Math.random() * 0.24,
@@ -409,8 +417,8 @@ class Desert extends Canvas {
           // A faint, mottled band rising from lower left to upper right.
           const band = Math.abs(v - (0.45 - (x / W) * 0.35)) / 0.07
           const m = Math.exp(-band * band) * (0.5 + 0.5 * fbm1(x * 0.05 + v * 9, 4)) * 0.05
-          hdr[o] += m * 0.8
-          hdr[o + 1] += m * 0.85
+          hdr[o] += m * 0.55
+          hdr[o + 1] += m * 0.4
           hdr[o + 2] += m
         }
         const r = d * H
@@ -612,7 +620,7 @@ class Desert extends Canvas {
     const bright = this.look.milkyWay ? 0.6 : 0.35
     for (const s of this.stars) {
       const k = s.b * (1 - s.y / top) * (0.7 + 0.3 * Math.sin(this.time * 0.8 + s.phase)) * bright
-      this.add(s.x * this.W, s.y * this.H, k, k * 0.95, k * 1.15)
+      this.add(s.x * this.W, s.y * this.H, k * s.tint[0], k * s.tint[1], k * s.tint[2])
     }
   }
 
