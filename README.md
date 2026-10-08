@@ -11,6 +11,9 @@ with Unicode block characters and kept readable behind text.
 | Desert | ![Desert by day](screenshots/desert.png) | ![Desert at sunset](screenshots/desert-sunset.png) | ![Desert at night](screenshots/desert-night.png) |
 | Jungle | ![Jungle by day](screenshots/jungle.png) | ![Jungle at sunset](screenshots/jungle-sunset.png) | ![Jungle at night](screenshots/jungle-night.png) |
 | Space | ![Space by day](screenshots/space.png) | ![Space at sunset](screenshots/space-sunset.png) | ![Space at night](screenshots/space-night.png) |
+| Farm | ![Farm by day](screenshots/farm.png) | ![Farm at sunset](screenshots/farm-sunset.png) | ![Farm at night](screenshots/farm-night.png) |
+| Tundra | ![Tundra by day](screenshots/tundra.png) | ![Tundra at sunset](screenshots/tundra-sunset.png) | ![Tundra at night](screenshots/tundra-night.png) |
+| Beach | ![Beach by day](screenshots/beach.png) | ![Beach at sunset](screenshots/beach-sunset.png) | ![Beach at night](screenshots/beach-night.png) |
 
 ## Wallpapers
 
@@ -20,6 +23,9 @@ with Unicode block characters and kept readable behind text.
 | `desert` | Mesas and dunes with a saguaro, a cow skull, and a tumbleweed now and then. |
 | `jungle` | A misty rainforest with a waterfall, light through the canopy, and a toucan flying by now and then. |
 | `space` | A ringed planet turning slowly below a nebula and drifting stars, with a comet now and then. |
+| `farm` | Rolling fields with a red barn, a turning windmill and swaying corn, and a tractor now and then. |
+| `tundra` | Snowy peaks, a frozen lake, igloos and a snowman under falling snow, with a snowy owl now and then. |
+| `beach` | Waves washing up a sandy beach between swaying palms, with a sailboat on the horizon now and then. |
 
 ## Install
 
@@ -64,6 +70,9 @@ Every wallpaper has three activity levels, which set how much is going on behind
 | `desert` | Mesas, a saguaro and a skull | Adds a soaring eagle (an owl at night) and a rattlesnake | Adds vultures (bats at night), a howling coyote and more cacti |
 | `jungle` | Trees, vines, a waterfall and swaying leaves | Adds a swinging spider monkey and blue morpho butterflies | Adds a jaguar, scarlet macaws, a tree frog and more butterflies |
 | `space` | The planet, its rings, a moon and the stars | Adds an orbiting space station and a satellite | Adds asteroids, a floating astronaut and a flying saucer |
+| `farm` | Barn, windmill, fields and corn | Adds grazing cows and pecking chickens | Adds a farmer, pigs in the mud and crows over the corn |
+| `tundra` | Peaks, igloos, a snowman and falling snow | Adds waddling penguins and an arctic fox | Adds a polar bear, an ice fisher and another snowman |
+| `beach` | Sea, waves, sand and palm trees | Adds leaping dolphins and seagulls | Adds a crab, a surfer, an umbrella and a sandcastle |
 
 ## Time of day
 
@@ -78,6 +87,11 @@ sunset from 6pm (and at dawn, 6 to 7am), night from 8pm. Pick one in the picker 
   jaguar's eyes glow.
 - **Space:** the planet's sunlit side by day, an orbital sunrise with the star flaring at its edge at sunset, and its
   night side with city lights and aurora under a bright Milky Way.
+- **Farm:** sunny fields by day, a backlit barn at sunset, and a moonlit night with glowing windows and fireflies.
+- **Tundra:** crisp blue-white snow by day, pink alpenglow at sunset, and deep blue snow under a green and violet
+  aurora at night, with warm light from the igloos.
+- **Beach:** turquoise water by day, a glittering path under the setting sun, and a moon path at night with glowing
+  bioluminescent waves.
 
 ## Terminals
 

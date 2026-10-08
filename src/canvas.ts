@@ -135,6 +135,11 @@ export abstract class Canvas {
     fillEllipse(this.hdr, this.W, this.H, cx, cy, rx, ry, r, g, b, a)
   }
 
+  // An anti-aliased filled polygon in a flat color, for straight-edged things like buildings and machines.
+  protected polygon(points: readonly (readonly [number, number])[], color: RGB, alpha = 1) {
+    fillPolygon(this.hdr, this.W, this.H, points, color[0], color[1], color[2], alpha)
+  }
+
   // Draws parts as one shape: each pixel takes the nearest part's color, so joints stay seamless. With rim lighting
   // only the outline facing the light catches it; with front lighting each part is shaded as a rounded form.
   // light scales the effect (0 draws flat color).
@@ -226,25 +231,35 @@ function fillEllipse(hdr: Float32Array, W: number, H: number, cx: number, cy: nu
 
 function fillShape(hdr: Float32Array, W: number, H: number, parts: Part[], lighting: Lighting, light: number) {
   if (!parts.length) return
-  let x0 = Infinity
-  let y0 = Infinity
-  let x1 = -Infinity
-  let y1 = -Infinity
-  for (const p of parts) {
-    const pad = (p.kind === "capsule" ? Math.max(p.r0, p.r1) : Math.max(p.rx, p.ry)) + 1
+  // The shape's overall extent: the pixels it can cover, and the direction its rim light comes from.
+  let cx0 = Infinity
+  let cy0 = Infinity
+  let cx1 = -Infinity
+  let cy1 = -Infinity
+  // Each part's own bounds: a pixel outside them is too far from that part for it to be the one that colors it.
+  // The ellipse distance is approximate and runs short past the tips of long ellipses, so they get a wider margin.
+  const boxes = new Float32Array(parts.length * 4)
+  for (let j = 0; j < parts.length; j++) {
+    const p = parts[j]
+    const radius = p.kind === "capsule" ? Math.max(p.r0, p.r1) : Math.max(p.rx, p.ry)
+    const pad = p.kind === "capsule" ? radius + 1 : radius * (1 + 0.5 / Math.max(0.01, Math.min(p.rx, p.ry))) + 1
     const [ax, ay, bx, by] = p.kind === "capsule" ? [p.ax, p.ay, p.bx, p.by] : [p.cx, p.cy, p.cx, p.cy]
-    x0 = Math.min(x0, ax - pad, bx - pad)
-    y0 = Math.min(y0, ay - pad, by - pad)
-    x1 = Math.max(x1, ax + pad, bx + pad)
-    y1 = Math.max(y1, ay + pad, by + pad)
+    cx0 = Math.min(cx0, ax - radius - 1, bx - radius - 1)
+    cy0 = Math.min(cy0, ay - radius - 1, by - radius - 1)
+    cx1 = Math.max(cx1, ax + radius + 1, bx + radius + 1)
+    cy1 = Math.max(cy1, ay + radius + 1, by + radius + 1)
+    boxes[j * 4] = Math.min(ax, bx) - pad
+    boxes[j * 4 + 1] = Math.min(ay, by) - pad
+    boxes[j * 4 + 2] = Math.max(ax, bx) + pad
+    boxes[j * 4 + 3] = Math.max(ay, by) + pad
   }
   const lx0 = lighting.style === "rim" ? lighting.x : 0
   const ly0 = lighting.style === "rim" ? lighting.y : 0
-  const sl = Math.hypot(lx0 - (x0 + x1) / 2, ly0 - (y0 + y1) / 2) || 1
-  const sx = (lx0 - (x0 + x1) / 2) / sl
-  const sy = (ly0 - (y0 + y1) / 2) / sl
-  for (let y = Math.max(0, Math.floor(y0)); y <= Math.min(H - 1, Math.ceil(y1)); y++)
-    for (let x = Math.max(0, Math.floor(x0)); x <= Math.min(W - 1, Math.ceil(x1)); x++) {
+  const sl = Math.hypot(lx0 - (cx0 + cx1) / 2, ly0 - (cy0 + cy1) / 2) || 1
+  const sx = (lx0 - (cx0 + cx1) / 2) / sl
+  const sy = (ly0 - (cy0 + cy1) / 2) / sl
+  for (let y = Math.max(0, Math.floor(cy0)); y <= Math.min(H - 1, Math.ceil(cy1)); y++)
+    for (let x = Math.max(0, Math.floor(cx0)); x <= Math.min(W - 1, Math.ceil(cx1)); x++) {
       const px = x + 0.5
       const py = y + 0.5
       let best = Infinity
@@ -253,7 +268,9 @@ function fillShape(hdr: Float32Array, W: number, H: number, parts: Part[], light
       let ny = 0
       let e = 0
       let across = 0
-      for (const p of parts) {
+      for (let j = 0; j < parts.length; j++) {
+        if (px < boxes[j * 4] || py < boxes[j * 4 + 1] || px > boxes[j * 4 + 2] || py > boxes[j * 4 + 3]) continue
+        const p = parts[j]
         if (p.kind === "capsule") {
           const dx = p.bx - p.ax
           const dy = p.by - p.ay
@@ -409,4 +426,40 @@ function bloom(hdr: Float32Array, W: number, H: number, bw: number, bh: number, 
       }
     }
   }
+}
+
+function fillPolygon(hdr: Float32Array, W: number, H: number, pts: readonly (readonly [number, number])[], r: number, g: number, b: number, a: number) {
+  let x0 = Infinity
+  let y0 = Infinity
+  let x1 = -Infinity
+  let y1 = -Infinity
+  for (const [x, y] of pts) {
+    x0 = Math.min(x0, x)
+    y0 = Math.min(y0, y)
+    x1 = Math.max(x1, x)
+    y1 = Math.max(y1, y)
+  }
+  const n = pts.length
+  for (let y = Math.max(0, Math.floor(y0 - 1)); y <= Math.min(H - 1, Math.ceil(y1 + 1)); y++)
+    for (let x = Math.max(0, Math.floor(x0 - 1)); x <= Math.min(W - 1, Math.ceil(x1 + 1)); x++) {
+      const px = x + 0.5
+      const py = y + 0.5
+      let inside = false
+      let dmin = Infinity
+      for (let i = 0, j = n - 1; i < n; j = i++) {
+        const [ax, ay] = pts[j]
+        const [bx, by] = pts[i]
+        if (ay > py !== by > py && px < ((bx - ax) * (py - ay)) / (by - ay) + ax) inside = !inside
+        const dx = bx - ax
+        const dy = by - ay
+        const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy || 1e-6)))
+        dmin = Math.min(dmin, Math.hypot(px - ax - dx * t, py - ay - dy * t))
+      }
+      const cov = Math.max(0, Math.min(1, (inside ? dmin : -dmin) + 0.5)) * a
+      if (cov <= 0) continue
+      const o = (y * W + x) * 3
+      hdr[o] += (r - hdr[o]) * cov
+      hdr[o + 1] += (g - hdr[o + 1]) * cov
+      hdr[o + 2] += (b - hdr[o + 2]) * cov
+    }
 }
