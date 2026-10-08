@@ -35,7 +35,7 @@ Update with `git pull` in the clone.
 
 | Command | Effect |
 | --- | --- |
-| `/wallpaper` | Pick a wallpaper, or turn it off |
+| `/wallpaper` | Open a picker with every wallpaper, off, and where to show it |
 | `/wallpaper aquarium` | Switch to a wallpaper by id |
 | `/wallpaper off` | Turn the wallpaper off |
 | `/wallpaper panels` | Show it only inside panels: sidebar, prompt, notices (default) |

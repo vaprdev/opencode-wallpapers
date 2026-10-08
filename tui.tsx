@@ -33,15 +33,20 @@ export default Plugin.define({
       })
       notify(mode === "panels" ? "Wallpaper in panels only" : "Wallpaper behind everything")
     }
+    // Every choice in the picker is a /wallpaper argument, so picking one runs it.
     const pick = async () => {
-      const id = await context.ui.dialog.select({
+      const current = (mode: Mode) => (stored.mode === mode ? "current" : undefined)
+      const arg = await context.ui.dialog.select({
         title: "Wallpaper",
-        current: stored.wallpaper,
-        options: [...WALLPAPERS.map((w) => ({ title: w.name, value: w.id, description: w.description })), { title: "Off", value: "" }],
+        current: stored.wallpaper || "off",
+        options: [
+          ...WALLPAPERS.map((w) => ({ title: w.name, value: w.id, description: w.description, category: "Wallpapers" })),
+          { title: "Off", value: "off", category: "Wallpapers" },
+          { title: "In panels", value: "panels", description: "Sidebar, prompt, notices", footer: current("panels"), category: "Show it" },
+          { title: "Behind everything", value: "behind", description: "Whole background", footer: current("behind"), category: "Show it" },
+        ],
       })
-      if (id === undefined) return
-      if (id) return choose(id)
-      off()
+      if (arg) run(arg)
     }
     const run = (input?: string) => {
       const arg = input?.trim().toLowerCase()
