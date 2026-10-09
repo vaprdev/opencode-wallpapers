@@ -1,13 +1,13 @@
 import { Plugin } from "@opencode/plugin/tui"
 import { RGBA, TextAttributes } from "@opentui/core"
 import { For, createEffect, createSignal } from "solid-js"
-import { ACTIVITIES, TIMES, createEngine, type Activity, type Time } from "./src/engine"
+import { ACTIVITIES, BRIGHTNESSES, TIMES, createEngine, type Activity, type Brightness, type Time } from "./src/engine"
 import { WALLPAPERS } from "./wallpapers"
 
 export default Plugin.define({
   id: "wallpapers",
   setup(context) {
-    const [stored, update] = context.storage.store<{ wallpaper: string; activity?: Activity; time?: Time | "auto" }>("wallpapers", {
+    const [stored, update] = context.storage.store<Stored>("wallpapers", {
       initial: { wallpaper: "", activity: "calm", time: "auto" },
     })
     const engine = createEngine(context, { dump: process.env.WALLPAPER_DUMP })
@@ -18,6 +18,34 @@ export default Plugin.define({
     // Settings saved before these options existed have none.
     const activity = () => stored.activity ?? "calm"
     const timeSetting = () => stored.time ?? "auto"
+    const brightness = () => stored.brightness ?? "normal"
+    const shuffleSetting = () => stored.shuffle ?? "off"
+    const directory = () => context.location?.directory ?? context.data.location.default().directory
+    // Where the wallpaper choice lives: the project's directory when per-project is on, otherwise "" for everywhere.
+    const scope = (state: Stored) => (state.perProject ? directory() : "")
+    const current = (state: Stored) => (state.perProject ? state.projects?.[directory()] : undefined) ?? state.wallpaper
+    const choose = (draft: Stored, id: string) => {
+      if (draft.perProject) draft.projects = { ...draft.projects, [directory()]: id }
+      else draft.wallpaper = id
+      draft.changed = { ...draft.changed, [scope(draft)]: Date.now() }
+    }
+    // A project without its own change time yet counts from the global one.
+    const due = (state: Stored) => Date.now() - (state.changed?.[scope(state)] ?? state.changed?.[""] ?? 0) >= HOUR
+    // Switches to a different wallpaper. The hourly check repeats under the storage lock, so several running OpenCodes
+    // shuffle once between them.
+    const shuffle = (hourly: boolean) =>
+      update((draft) => {
+        const id = current(draft)
+        if (!id || (hourly && !due(draft))) return
+        const others = WALLPAPERS.filter((w) => w.id !== id)
+        choose(draft, others[Math.floor(Math.random() * others.length)].id)
+      })
+    // Every-session shuffle runs once per OpenCode start; memory storage outlives plugin hot reloads.
+    const [session, mark] = context.storage.memory("session", { initial: { shuffled: false } })
+    if (!session.shuffled && shuffleSetting() === "session") void shuffle(false)
+    mark((draft) => {
+      draft.shuffled = true
+    })
     // Auto follows the local clock, checked once a minute.
     const [now, setNow] = createSignal(new Date())
     const clock = setInterval(() => setNow(new Date()), 60_000)
@@ -30,9 +58,7 @@ export default Plugin.define({
     // Applies one /wallpaper argument and says what changed.
     const apply = async (arg: string): Promise<{ message: string; error?: true }> => {
       if (arg === "off") {
-        await update((draft) => {
-          draft.wallpaper = ""
-        })
+        await update((draft) => choose(draft, ""))
         return { message: "Wallpaper off" }
       }
       const level = ACTIVITIES.find((a) => a === arg)
@@ -49,11 +75,16 @@ export default Plugin.define({
         })
         return { message: t ? `Wallpaper time: ${t}` : `Wallpaper time follows your clock (${timeAt(new Date())} now)` }
       }
+      const b = BRIGHTNESSES.find((value) => value === arg)
+      if (b) {
+        await update((draft) => {
+          draft.brightness = b
+        })
+        return { message: `Wallpaper brightness: ${b}` }
+      }
       const wallpaper = WALLPAPERS.find((w) => w.id === arg)
       if (!wallpaper) return { message: `No wallpaper "${arg}". Available: ${WALLPAPERS.map((w) => w.id).join(", ")}`, error: true }
-      await update((draft) => {
-        draft.wallpaper = arg
-      })
+      await update((draft) => choose(draft, arg))
       return { message: `${wallpaper.name} wallpaper on` }
     }
     const run = async (input?: string) => {
@@ -68,16 +99,49 @@ export default Plugin.define({
       {
         title: "Wallpaper",
         values: () => ["off", ...WALLPAPERS.map((w) => w.id)],
-        value: () => stored.wallpaper || "off",
+        value: () => current(stored) || "off",
         label: (v) => WALLPAPERS.find((w) => w.id === v)?.name ?? "Off",
         describe: (v) => WALLPAPERS.find((w) => w.id === v)?.description ?? "No wallpaper",
+        set: apply,
+      },
+      {
+        title: "Shuffle",
+        values: () => SHUFFLES,
+        value: shuffleSetting,
+        label: (v) => ({ off: "Off", hourly: "Every hour", session: "Every session" })[v as Shuffle],
+        describe: (v) =>
+          ({
+            off: "Keep the wallpaper you chose",
+            hourly: "Switch to a different wallpaper every hour",
+            session: "Switch to a different wallpaper each time OpenCode starts",
+          })[v as Shuffle],
+        set: (v) =>
+          update((draft) => {
+            draft.shuffle = v as Shuffle
+            draft.changed = { ...draft.changed, [scope(draft)]: Date.now() }
+          }),
+      },
+      {
+        title: "Per project",
+        values: () => ["off", "on"],
+        value: () => (stored.perProject ? "on" : "off"),
+        label: capitalize,
+        describe: (v) =>
+          v === "on"
+            ? `Each project remembers its own wallpaper, starting from the global one. This project: ${context.ui.format.path(directory())}`
+            : "The same wallpaper in every project",
+        set: (v) =>
+          update((draft) => {
+            draft.perProject = v === "on"
+          }),
       },
       {
         title: "Activity",
         values: () => ACTIVITIES,
         value: activity,
         label: capitalize,
-        describe: (v) => (WALLPAPERS.find((w) => w.id === stored.wallpaper) ?? WALLPAPERS[0]).activity[v as Activity],
+        describe: (v) => (WALLPAPERS.find((w) => w.id === current(stored)) ?? WALLPAPERS[0]).activity[v as Activity],
+        set: apply,
       },
       {
         title: "Time of day",
@@ -85,6 +149,18 @@ export default Plugin.define({
         value: timeSetting,
         label: (v) => (v === "auto" ? `Auto (${timeAt(now())})` : capitalize(v)),
         describe: (v) => (v === "auto" ? "Follows your clock: day from 7am, sunset from 6pm, night from 8pm" : `Always ${v}`),
+        set: apply,
+      },
+      {
+        title: "Brightness",
+        values: () => BRIGHTNESSES,
+        value: brightness,
+        label: capitalize,
+        describe: (v) =>
+          ({ subtle: "A dim scene that stays out of the way", normal: "The standard look", vivid: "A brighter scene, with firmer shade behind text" })[
+            v as Brightness
+          ] + (context.themeMode === "light" ? ", washed out for your light theme" : ""),
+        set: apply,
       },
     ]
     const Picker = () => {
@@ -97,7 +173,7 @@ export default Plugin.define({
         const values = row.values()
         const next = values[(values.indexOf(row.value()) + direction + values.length) % values.length]
         saving = true
-        await apply(next).finally(() => {
+        await row.set(next).finally(() => {
           saving = false
         })
       }
@@ -180,10 +256,14 @@ export default Plugin.define({
       append: "app",
       render() {
         createEffect(() => {
-          const wallpaper = WALLPAPERS.find((w) => w.id === (pinned ?? stored.wallpaper))
+          const wallpaper = WALLPAPERS.find((w) => w.id === (pinned ?? current(stored)))
           const level = ACTIVITIES.find((a) => a === pinnedActivity) ?? activity()
-          if (wallpaper) engine.start(wallpaper, { activity: level, time: time() })
+          if (wallpaper) engine.start(wallpaper, { activity: level, time: time(), brightness: brightness() })
           else engine.stop()
+        })
+        createEffect(() => {
+          now()
+          if (shuffleSetting() === "hourly" && current(stored) && due(stored)) void shuffle(true)
         })
         context.keymap.layer(() => ({
           mode: "global",
@@ -191,7 +271,7 @@ export default Plugin.define({
             {
               id: "wallpapers.choose",
               title: "Choose wallpaper",
-              description: "Animated scene behind the UI. Args: wallpaper id, off, calm, lively, teeming, day, sunset, night, auto",
+              description: "Animated scene behind the UI. Args: wallpaper id, off, calm, lively, teeming, day, sunset, night, auto, subtle, normal, vivid",
               group: "Wallpapers",
               palette: true,
               slash: { name: "wallpaper", arguments: true },
@@ -246,11 +326,29 @@ function timeAt(date: Date): Time {
   return "day"
 }
 
-// A setting in the picker: its values in order, how to show each, and a line explaining the current one.
+const SHUFFLES = ["off", "hourly", "session"] as const
+type Shuffle = (typeof SHUFFLES)[number]
+const HOUR = 3_600_000
+
+interface Stored {
+  wallpaper: string
+  activity?: Activity
+  time?: Time | "auto"
+  brightness?: Brightness
+  shuffle?: Shuffle
+  // Wallpapers by project directory, shown instead of the global one while perProject is on.
+  perProject?: boolean
+  projects?: Record<string, string>
+  // When the wallpaper last changed, by scope, for hourly shuffle.
+  changed?: Record<string, number>
+}
+
+// A setting in the picker: its values in order, how to show each, a line explaining the current one, and how to save one.
 interface Row {
   title: string
   values: () => readonly string[]
   value: () => string
   label: (value: string) => string
   describe: (value: string) => string
+  set: (value: string) => Promise<unknown>
 }
