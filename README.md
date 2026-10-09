@@ -51,8 +51,8 @@ Type `/wallpaper` to open the wallpaper menu:
 
 ![The wallpaper menu](screenshots/menu.png)
 
-Use ↑/↓ to pick a setting, and Enter or ←/→ to change it. The wallpaper changes as you go, and Escape closes the
-menu. Your choice is kept across restarts.
+Use ↑/↓ to pick a setting, and Enter or ←/→ to change it. The wallpaper crossfades to each choice as you go, and
+Escape closes the menu. Your choice is kept across restarts.
 
 ## Activity
 
@@ -71,7 +71,8 @@ Every wallpaper has three activity levels, which set how much is going on behind
 ## Time of day
 
 Every wallpaper has a day, sunset and night look. By default the time of day follows your clock: day from 7am,
-sunset from 6pm (and at dawn, 6 to 7am), night from 8pm. Pick one in the menu to keep it fixed.
+sunset from 6pm (and at dawn, 6 to 7am), night from 8pm, fading from one to the next over a minute and a half. Pick
+one in the menu to keep it fixed.
 
 - **Ocean:** sunlit water by day, golden light at sunset, and at night dark moonlit water with glowing plankton
   and, in teeming, a diver's torch.
@@ -103,7 +104,8 @@ quadrant blocks (2x2). These environment variables tune rendering:
 The plugin post-processes each frame OpenCode draws. Cells painted with OpenCode's neutral surface colors are replaced
 by the scene, while colored backgrounds such as diffs and selections are left alone. Text keeps a soft scrim that fades
 the scene toward a dark tint around it. Scenes render in HDR with bloom and tone mapping, then are fitted to two colors
-per character cell. Wallpapers update at 15 frames per second.
+per character cell. Wallpapers update at 15 frames per second. While one look fades into another, both scenes render
+and blend, scrim included, so only transitions cost extra.
 
 ## Add a wallpaper
 
@@ -121,10 +123,12 @@ bun dev/check.ts <id>            # errors, frame cost, and flicker at every acti
 bun dev/snap.ts <id> teeming night 30  # scene PNGs at an activity level, time of day, and times
 bun dev/preview.ts <id> 20       # terminal-cell rendering behind text, as a PNG
 bun dev/pixel-check.ts <id>      # real-pixel mode against a mock kitty renderer
+bun dev/fade.ts <id>:day <id>:night 50  # a frame halfway through a crossfade, and its cost
 ```
 
 `dev/pty.ts` and `dev/pty-kitty.ts` drive a real OpenCode in a pseudo-terminal, and `WALLPAPER_DUMP=<file>` saves one
-frame of terminal cells that `dev/cells.ts` turns into a PNG.
+frame of terminal cells that `dev/cells.ts` turns into a PNG. `WALLPAPER_DUMP_FADE=<file>` saves the first frame past
+the middle of a crossfade instead, and `WALLPAPER_CLOCK=17:59` starts auto's clock at that time to try its fades.
 
 ## License
 

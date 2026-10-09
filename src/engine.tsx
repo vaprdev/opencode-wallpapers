@@ -1,7 +1,7 @@
 import type { Context } from "@opencode/plugin/tui/context"
 import { NativeImagePool, Renderable, type KittyImageTransport, type OptimizedBuffer, type RenderContext } from "@opentui/core"
 import { appendFileSync } from "node:fs"
-import type { RGB } from "./math"
+import { lerp, smoothstep, type RGB } from "./math"
 import { OCTANTS } from "./octants"
 
 // A wallpaper's animation. Each frame the engine resizes the scene to the sub-pixel grid it needs, steps it by the
@@ -64,6 +64,13 @@ for (let v = 0; v < 256; v++) {
 }
 // Night scenes keep their color: it is what separates them from light text.
 const DESATURATE = { day: 0.22, sunset: 0.22, night: 0.04 }
+// Seconds a change of wallpaper, activity or time of day crossfades over by default.
+export const FADE = 1.2
+
+// Crossfades two equally sized RGBA frames into out.
+function mix(a: Uint8Array, b: Uint8Array, out: Uint8Array, t: number) {
+  for (let p = 0; p < out.length; p++) out[p] = a[p] + (b[p] - a[p]) * t
+}
 
 function blurRows(src: Float32Array, dst: Float32Array, w: number, h: number, r: number) {
   const inv = 1 / (r * 2 + 1)
@@ -382,7 +389,8 @@ function createLayer(renderer: Context["renderer"], draw: (buffer: OptimizedBuff
 
 export interface Engine {
   readonly wallpaper: Wallpaper | undefined
-  start(wallpaper: Wallpaper, settings: Settings): void
+  // While running, the old scene crossfades into the new one over `fade` seconds.
+  start(wallpaper: Wallpaper, settings: Settings, fade?: number): void
   stop(): void
 }
 
@@ -393,6 +401,8 @@ export function createEngine(
   options: {
     // Writes one frame's cells as JSON to this path, for dev/cells.ts.
     dump?: string
+    // Writes the first frame past the middle of a crossfade, likewise.
+    dumpFade?: string
     layer?: (renderer: Context["renderer"], draw: (buffer: OptimizedBuffer) => void) => { dispose(): void }
   } = {},
 ): Engine {
@@ -403,8 +413,14 @@ export function createEngine(
   let wallpaper: Wallpaper | undefined
   let settings: Settings | undefined
   let scene: Scene | undefined
+  // The outgoing scene while a crossfade runs, and how far the incoming one has faded in (0 to 1) over fadeLength seconds.
+  let from: { scene: Scene; wallpaper: Wallpaper; settings: Settings } | undefined
+  let fade = 1
+  let fadeLength = FADE
+  let mixed = new Uint8Array(0)
   let frames = 0
   let dumped = false
+  let fadeDumped = false
   let base = -2
   let mask = new Float32Array(0)
   const quad = new Float32Array(24)
@@ -517,7 +533,7 @@ export function createEngine(
   }
 
   // Builds the scene image with the text scrim and tints baked in, for the cells marked in imageCell.
-  const publishImage = (px: Uint8Array, PW: number, PH: number, W: number, H: number, MH: number) => {
+  const publishImage = (px: Uint8Array, PW: number, PH: number, W: number, H: number, MH: number, scrim: Scrim) => {
     if (imagePixels.length !== PW * PH * 4) imagePixels = new Uint8Array(PW * PH * 4)
     const img = imagePixels
     const cw = PW / W
@@ -525,7 +541,7 @@ export function createEngine(
     for (let iy = 0; iy < PH; iy++) {
       const row = Math.min(H - 1, Math.floor(iy / chh))
       const depth = row / Math.max(1, H - 1)
-      const [deepR, deepG, deepB] = scrimAt(wallpaper!.scrim[settings!.time], depth)
+      const [deepR, deepG, deepB] = scrimAt(scrim, depth)
       const my = clamp01((iy + 0.5) / (chh / 2) - 0.5, MH - 1)
       const my0 = Math.floor(my)
       const my1 = Math.min(MH - 1, my0 + 1)
@@ -609,22 +625,51 @@ export function createEngine(
     const resized = target !== lastTarget
     lastTarget = target
     scene.resize(targetW, targetH)
+    from?.scene.resize(targetW, targetH)
     // The scene advances at most FPS times a second; redraws in between (typing, UI updates) reuse the last frame.
     const now = performance.now()
-    const px = scene.pixels
     const advanced = resized || now - lastStep >= 1000 / FPS - 2
     if (advanced) {
       const dt = lastStep ? Math.min(0.2, (now - lastStep) / 1000) : 1 / FPS
       lastStep = now
       scene.step(dt)
       scene.render()
+      fade = Math.min(1, fade + dt / fadeLength)
+      if (fade === 1) from = undefined
+      if (from) {
+        from.scene.step(dt)
+        from.scene.render()
+        if (mixed.length !== scene.pixels.length) mixed = new Uint8Array(scene.pixels.length)
+        mix(from.scene.pixels, scene.pixels, mixed, smoothstep(0, 1, fade))
+      }
     }
-    paint(buf, px, scene.W, scene.H, advanced, pixels, DESATURATE[settings!.time])
+    // Mid-fade the text scrim and desaturation blend from the old look to the new one along with the scene.
+    const t = from ? smoothstep(0, 1, fade) : 1
+    const was = from ?? { wallpaper: wallpaper!, settings: settings! }
+    const scrim = blendScrim(was.wallpaper.scrim[was.settings.time], wallpaper!.scrim[settings!.time], t)
+    const desaturate = lerp(DESATURATE[was.settings.time], DESATURATE[settings!.time], t)
+    paint(buf, from ? mixed : scene.pixels, scene.W, scene.H, advanced, pixels, desaturate, scrim)
+    if (options.dump && !dumped && frames > 120) {
+      dumped = true
+      write(buf, options.dump)
+    }
+    if (options.dumpFade && !fadeDumped && from && fade >= 0.5) {
+      fadeDumped = true
+      write(buf, options.dumpFade)
+    }
+  }
+
+  const write = (buf: OptimizedBuffer, path: string) => {
+    void Bun.write(
+      path,
+      // Characters beyond ASCII live in a grapheme pool, so the frame's text comes along to recover them.
+      JSON.stringify({ W: buf.width, H: buf.height, char: Array.from(buf.buffers.char), text: new TextDecoder().decode(buf.getRealCharBytes(true)), fg: Array.from(buf.buffers.fg, (v) => v & 255), bg: Array.from(buf.buffers.bg, (v) => v & 255) }),
+    )
   }
 
   // Everything after the scene has drawn its frame. It never touches the scene object: each wallpaper's scene is a
   // different class, and the optimizer would otherwise fall back to slow code for this whole function after a switch.
-  const paint = (buf: OptimizedBuffer, px: Uint8Array, PW: number, PH: number, advanced: boolean, pixels: boolean, desaturate: number) => {
+  const paint = (buf: OptimizedBuffer, px: Uint8Array, PW: number, PH: number, advanced: boolean, pixels: boolean, desaturate: number, scrim: Scrim) => {
     const W = buf.width
     const H = buf.height
     if (advanced) {
@@ -710,7 +755,7 @@ export function createEngine(
     for (let y = 0; y < H; y++) {
       const mTop = y * 2 * W
       const mBottom = (y * 2 + 1) * W
-      const [deepR, deepG, deepB] = scrimAt(wallpaper!.scrim[settings!.time], y / Math.max(1, H - 1))
+      const [deepR, deepG, deepB] = scrimAt(scrim, y / Math.max(1, H - 1))
       for (let x = 0; x < W; x++) {
         const i = y * W + x
         if (imageCell[i]) continue
@@ -763,7 +808,7 @@ export function createEngine(
 
     // Build next frame's image now; the back layer places it before OpenCode draws, so text lands on top.
     if (pixels && (advanced || !nextImage)) {
-      const image = publishImage(px, PW, PH, W, H, MH)
+      const image = publishImage(px, PW, PH, W, H, MH, scrim)
       if (image) {
         nextImage?.dispose()
         nextImage = image
@@ -771,23 +816,28 @@ export function createEngine(
     }
     if (debug && frames % 30 === 0)
       log(`frame ${frames} pixels=${pixels} imageCells=${imageCell.reduce((n, v) => n + v, 0)} layer=${JSON.stringify(layerStats)} reservation=${reservation.toString(16)} resolution=${JSON.stringify(renderer.resolution)} kitty=${renderer.capabilities?.kitty_graphics}`)
-
-    if (options.dump && !dumped && frames > 120) {
-      dumped = true
-      void Bun.write(
-        options.dump,
-        // Characters beyond ASCII live in a grapheme pool, so the frame's text comes along to recover them.
-        JSON.stringify({ W, H, char: Array.from(char), text: new TextDecoder().decode(buf.getRealCharBytes(true)), fg: Array.from(fg, (v) => v & 255), bg: Array.from(bg, (v) => v & 255) }),
-      )
-    }
   }
 
   const engine: Engine = {
     get wallpaper() {
       return wallpaper
     },
-    start(next, chosen) {
-      if (wallpaper === next && settings?.activity === chosen.activity && settings.time === chosen.time) return
+    start(next, chosen, seconds = FADE) {
+      const shows = (w?: Wallpaper, s?: Settings) => w === next && s?.activity === chosen.activity && s.time === chosen.time
+      if (shows(wallpaper, settings)) return
+      if (scene) {
+        // Going back to the outgoing scene reverses the fade. Otherwise the more visible of the two fades out.
+        const back = shows(from?.wallpaper, from?.settings) ? from : undefined
+        if (back || !from || fade >= 0.5) from = { scene, wallpaper: wallpaper!, settings: settings! }
+        scene = back ? back.scene : next.create(chosen)
+        fade = back ? 1 - fade : 0
+        wallpaper = next
+        settings = chosen
+        fadeLength = seconds
+        // Draws the first faded frame at once instead of waiting for the next step.
+        lastTarget = ""
+        return
+      }
       engine.stop()
       wallpaper = next
       settings = chosen
@@ -805,6 +855,7 @@ export function createEngine(
       wallpaper = undefined
       settings = undefined
       scene = undefined
+      from = undefined
       renderer.removePostProcessFn(postProcess)
       clearInterval(timer)
       timer = undefined
@@ -829,4 +880,10 @@ function scrimAt(scrim: Scrim, depth: number): RGB {
   const to = upper ? scrim[1] : scrim[2]
   const t = upper ? depth * 2 : depth * 2 - 1
   return [from[0] + (to[0] - from[0]) * t, from[1] + (to[1] - from[1]) * t, from[2] + (to[2] - from[2]) * t]
+}
+
+function blendScrim(a: Scrim, b: Scrim, t: number): Scrim {
+  if (t === 1) return b
+  const at = (i: number): RGB => [lerp(a[i][0], b[i][0], t), lerp(a[i][1], b[i][1], t), lerp(a[i][2], b[i][2], t)]
+  return [at(0), at(1), at(2)]
 }
