@@ -1,6 +1,7 @@
 import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
 import type { Activity, Settings, Time, Wallpaper } from "../src/engine"
-import { TAU, clamp, fbm1, hash, hash2, lerp, rand, type RGB } from "../src/math"
+import { eggWait } from "../src/egg"
+import { TAU, clamp, fbm1, hash, hash2, lerp, rand, smoothstep, type RGB } from "../src/math"
 import { driftClouds, makeClouds, makeStars, paintClouds, paintSky, paintStars, type Cloud, type Orb, type Star } from "../src/sky"
 
 // The scene runs slower than real time, which keeps it calm behind text.
@@ -109,6 +110,8 @@ interface Walker {
   // 0 standing, 1 head down grazing or pecking.
   graze: number
   rest: number
+  // Time left standing with the head up, looking toward a click.
+  look: number
   moving: boolean
 }
 
@@ -129,6 +132,9 @@ class Farm extends Canvas {
   private tractor = { x: -9, dir: 1, next: 14, wheel: 0 }
   private smoke: { x: number; y: number; age: number }[] = []
   private fireflies: { x: number; y: number; vx: number; vy: number; phase: number }[] = []
+  // The easter egg: a cow ambles in from the right, then a flying saucer beams it up. t counts scene seconds from
+  // the cow settling down to graze.
+  private egg: { wait: number; t: number; cow: Walker | undefined } = { wait: eggWait() * TIME_SCALE, t: -1, cow: undefined }
 
   constructor(settings: Settings) {
     super()
@@ -136,7 +142,7 @@ class Farm extends Canvas {
     this.look = LOOKS[settings.time]
     this.stars = makeStars(this.look.stars, 0.45)
     this.clouds = makeClouds(this.look.clouds.puffy ? 4 : 5, this.look.clouds.puffy, 0.08, 0.3)
-    const walker = (x: number, y: number): Walker => ({ x, y, wx: x, wy: y, wanderT: 0, face: 1, phase: Math.random() * TAU, graze: 0, rest: 0, moving: false })
+    const walker = (x: number, y: number): Walker => ({ x, y, wx: x, wy: y, wanderT: 0, face: 1, phase: Math.random() * TAU, graze: 0, rest: 0, look: 0, moving: false })
     if (settings.activity !== "calm") {
       this.cows = [walker(0.9, 0.8), walker(1.3, 0.84), ...(settings.activity === "teeming" ? [walker(1.1, 0.78)] : [])]
       this.chickens = [walker(1.2, 0.69), walker(1.3, 0.7), walker(1.4, 0.685)]
@@ -166,6 +172,16 @@ class Farm extends Canvas {
     for (const c of this.chickens) this.wander(c, cdt, [0.62 * A, 0.84 * A, 0.672, 0.712], 0.025, [2, 5])
     for (const p of this.pigs) this.wander(p, cdt, [0.44 * A, 0.6 * A, 0.88, 0.94], 0.02, [5, 10])
     if (this.activity === "teeming") this.stepFarmer(cdt)
+    this.stepEgg(dt, cdt)
+  }
+
+  // The nearest cow stops, lifts its head and turns toward the click.
+  poke(x: number, y: number) {
+    const cow = this.cows.reduce<Walker | undefined>((best, c) => (!best || Math.hypot(c.x - x, c.y - y) < Math.hypot(best.x - x, best.y - y) ? c : best), undefined)
+    if (!cow) return
+    cow.face = x < cow.x ? -1 : 1
+    cow.look = 2
+    cow.rest = 0
   }
 
   render() {
@@ -178,6 +194,7 @@ class Farm extends Canvas {
     if (this.activity === "teeming") this.drawCrows()
     const herd = [...this.cows.map((w) => ({ w, kind: "cow" as const })), ...this.pigs.map((w) => ({ w, kind: "pig" as const }))].sort((a, b) => a.w.y - b.w.y)
     for (const { w, kind } of herd) kind === "cow" ? this.drawCow(w) : this.drawPig(w)
+    this.drawEgg()
     if (this.activity === "teeming") this.drawFarmer()
     this.drawCornRow(3)
     this.drawFireflies()
@@ -381,6 +398,12 @@ class Farm extends Canvas {
   // Walks between random points in a zone, pausing at each to graze or peck.
   private wander(w: Walker, dt: number, zone: [number, number, number, number], speed: number, pause: [number, number]) {
     w.phase += dt * (w.moving ? 6 : 1.5)
+    if (w.look > 0) {
+      w.look -= dt
+      w.graze = Math.max(0, w.graze - dt * 8)
+      w.moving = false
+      return
+    }
     if (w.rest > 0) {
       w.rest -= dt
       w.graze = Math.min(1, w.graze + dt * 0.8)
@@ -413,12 +436,13 @@ class Farm extends Canvas {
     return 0.6 + (y - 0.7) * 2.5
   }
 
-  // A black-and-white dairy cow seen from the side, lowering its head to graze.
-  private drawCow(c: Walker) {
+  // A black-and-white dairy cow seen from the side, lowering its head to graze. lift raises it off the ground and
+  // size shrinks it, for the saucer's beam.
+  private drawCow(c: Walker, lift = 0, size = 1) {
     const H = this.H
-    const S = 0.11 * H * this.depthScale(c.y)
+    const S = 0.11 * H * this.depthScale(c.y) * size
     const x = c.x * H
-    const y = c.y * H
+    const y = (c.y - lift) * H
     const P = (u: number, v: number): [number, number] => [x + u * c.face * S, y + v * S]
     const swing = c.moving ? Math.sin(c.phase) * 0.05 : 0
     const hide = this.paint([0.92, 0.9, 0.86])
@@ -614,6 +638,74 @@ class Farm extends Canvas {
         const a = t.wheel * (0.22 / R) + (k / 4) * Math.PI
         this.shape([cap(cx - Math.cos(a) * R * 0.5 * S, cy - Math.sin(a) * R * 0.5 * S, cx + Math.cos(a) * R * 0.5 * S, cy + Math.sin(a) * R * 0.5 * S, 0.012 * S, 0.012 * S, this.paint([0.6, 0.5, 0.08]))], this.lighting, 0)
       }
+    }
+  }
+
+  private stepEgg(dt: number, cdt: number) {
+    const e = this.egg
+    const c = e.cow
+    if (!c) {
+      e.wait -= dt
+      if (e.wait > 0) return
+      e.cow = { x: this.A + 0.15, y: 0.83, wx: 0, wy: 0, wanderT: 0, face: -1, phase: 0, graze: 0, rest: 0, look: 0, moving: true }
+      e.t = -1
+      return
+    }
+    if (e.t < 0) {
+      c.phase += cdt * 6
+      c.x -= 0.03 * cdt
+      if (c.x > 0.9 * this.A) return
+      c.moving = false
+      e.t = 0
+      return
+    }
+    e.t += dt
+    c.phase += cdt * 1.5
+    // Grazing until the beam comes on, then head up in surprise.
+    c.graze = e.t < 11 ? Math.min(1, c.graze + cdt * 0.8) : Math.max(0, c.graze - dt * 2)
+    if (e.t < 36) return
+    e.cow = undefined
+    e.wait = eggWait() * TIME_SCALE
+  }
+
+  // The saucer glides in from the upper right, hovers over the cow, lifts it up a beam of green light, and leaves.
+  private drawEgg() {
+    const { A, H, W } = this
+    const e = this.egg
+    const c = e.cow
+    if (!c) return
+    if (e.t < 0) {
+      this.drawCow(c)
+      return
+    }
+    const t = e.t
+    const arrive = smoothstep(0, 10, t)
+    const leave = smoothstep(26, 36, t) ** 2
+    const ux = lerp(lerp(A + 0.3, c.x, arrive), -0.4, leave)
+    const uy = lerp(lerp(0.1, c.y - 0.4, arrive), -0.2, leave) + Math.sin(this.time * 1.5) * 0.005
+    const beam = smoothstep(10, 12, t) * (1 - smoothstep(23, 25, t))
+    if (beam > 0) {
+      const top = (uy + 0.02) * H
+      const bottom = (c.y + 0.01) * H
+      for (let y = Math.max(0, Math.floor(top)); y < Math.min(H, bottom); y++) {
+        const f = (y - top) / (bottom - top)
+        const half = lerp(0.025, 0.075, f) * H
+        const k = beam * 0.32 * (0.85 + 0.15 * Math.sin(y * 0.4 - this.time * 6)) * (1 - 0.4 * f)
+        for (let x = Math.max(0, Math.floor(ux * H - half)); x < Math.min(W, ux * H + half); x++) {
+          const a = k * smoothstep(1, 0.7, Math.abs(x + 0.5 - ux * H) / half)
+          this.add(x, y, 0.3 * a, 1 * a, 0.6 * a)
+        }
+      }
+    }
+    const rise = smoothstep(13, 24, t)
+    if (t < 24) this.drawCow(c, rise * (c.y - uy - 0.025), lerp(1, 0.35, rise))
+    const x = ux * H
+    const y = uy * H
+    this.shape([ell(x, y - 0.016 * H, 0.04 * H, 0.03 * H, 0, this.paint([0.45, 0.75, 0.85])), ell(x, y, 0.09 * H, 0.022 * H, 0, this.paint([0.6, 0.62, 0.66]))], this.lighting, 0.8)
+    for (let i = 0; i < 6; i++) {
+      const on = Math.floor(this.time * 4) % 6 === i ? 2 : 0.4
+      const color = [[1, 0.2, 0.2], [0.2, 1, 0.3], [0.3, 0.5, 1]][i % 3]
+      this.add(x + Math.cos((i / 5) * Math.PI) * 0.075 * H, y + 0.008 * H, color[0] * on, color[1] * on, color[2] * on)
     }
   }
 

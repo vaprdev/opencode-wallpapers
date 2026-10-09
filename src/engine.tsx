@@ -1,5 +1,5 @@
 import type { Context } from "@opencode/plugin/tui/context"
-import { NativeImagePool, Renderable, type KittyImageTransport, type OptimizedBuffer, type RenderContext } from "@opentui/core"
+import { MouseButton, NativeImagePool, Renderable, type KittyImageTransport, type MouseEvent, type OptimizedBuffer, type RenderContext } from "@opentui/core"
 import { appendFileSync } from "node:fs"
 import type { RGB } from "./math"
 import { OCTANTS } from "./octants"
@@ -14,6 +14,8 @@ export interface Scene {
   resize(W: number, H: number): void
   step(dt: number): void
   render(): void
+  // Optional reaction to a click on open background, in screen heights: x runs 0..W/H across and y 0..1 down.
+  poke?(x: number, y: number): void
 }
 
 export interface Wallpaper {
@@ -54,6 +56,8 @@ const SCRIM_X = 4
 const SCRIM_Y = 4
 const SCRIM = 0.93
 const SCRIM_GAIN = 3.5
+// A click pokes the scene only where it shows through clearly: a blank surface cell with little scrim (mask value).
+const OPEN = 0.15
 
 // Compress the scene into a range that keeps text readable on top of it.
 const EMPTY = new Uint8Array(256)
@@ -418,6 +422,9 @@ export function createEngine(
   let lastStep = 0
   let lastTarget = ""
   let imageCell = new Uint8Array(0)
+  let open = new Uint8Array(0)
+  let openW = 0
+  let pressed = -1
   let grid = new Float32Array(0)
   let gridBlur = new Float32Array(0)
 
@@ -687,6 +694,9 @@ export function createEngine(
       blurRows(mask, scratch, W, MH, SCRIM_X)
       blurColumns(scratch, mask, W, MH, SCRIM_Y)
     }
+    if (open.length !== cells) open = new Uint8Array(cells)
+    openW = W
+    for (let i = 0; i < cells; i++) open[i] = surface[i] && char[i] === SPACE && mask[((i / W) | 0) * 2 * W + (i % W)] < OPEN ? 1 : 0
 
     const cursor = renderer.getCursorState()
     const cursorX = cursor.visible ? cursor.x - 1 : -1
@@ -782,6 +792,25 @@ export function createEngine(
     }
   }
 
+  // Clicks bubble up to the root after OpenCode's own handlers have run. This only watches them, so it never takes
+  // one away: a plain left click that presses and lifts on the same open cell, outside overlays such as dialogs,
+  // pokes the scene.
+  const onMouse = (event: MouseEvent) => {
+    if (event.button !== MouseButton.LEFT || event.modifiers.shift || event.modifiers.ctrl || event.modifiers.alt) return
+    if (event.type !== "down" && event.type !== "up") return
+    const cell = event.y * openW + event.x
+    const clear = event.x >= 0 && event.x < openW && open[cell] === 1 && !event.isDragging && !inOverlay(event.target)
+    if (event.type === "down") {
+      pressed = clear ? cell : -1
+      return
+    }
+    const hit = clear && pressed === cell
+    pressed = -1
+    if (!hit || !scene?.poke) return
+    scene.poke(((event.x + 0.5) / openW) * (scene.W / scene.H), (event.y + 0.5) / (open.length / openW))
+    renderer.requestRender()
+  }
+
   const engine: Engine = {
     get wallpaper() {
       return wallpaper
@@ -799,6 +828,7 @@ export function createEngine(
       previousMask = new Int16Array(0)
       timer = setInterval(() => renderer.requestRender(), 1000 / FPS)
       layer = (options.layer ?? createLayer)(renderer, drawLayer)
+      renderer.root.onMouse = onMouse
     },
     stop() {
       if (!scene) return
@@ -810,6 +840,8 @@ export function createEngine(
       timer = undefined
       layer?.dispose()
       layer = undefined
+      renderer.root.onMouse = undefined
+      pressed = -1
       nextImage?.dispose()
       nextImage = undefined
       pool?.dispose()
@@ -820,6 +852,12 @@ export function createEngine(
     },
   }
   return engine
+}
+
+// Dialogs, toasts and popups float above the UI with a positive zIndex; clicks on them are never pokes.
+function inOverlay(target: Renderable | null) {
+  for (let r = target; r; r = r.parent) if (r.zIndex > 0) return true
+  return false
 }
 
 // The scrim color at a depth (0 top, 1 bottom), blending top to middle to bottom.

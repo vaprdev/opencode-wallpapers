@@ -1,4 +1,5 @@
-import { Canvas } from "../src/canvas"
+import { Canvas, cap, ell, type Lighting } from "../src/canvas"
+import { eggWait } from "../src/egg"
 import type { Activity, Settings, Time, Wallpaper } from "../src/engine"
 import { TAU, clamp, fbm1, hash, hash2, hashString, hsv, lerp, noise1, rand, smoothstep, type RGB } from "../src/math"
 
@@ -12,6 +13,8 @@ const CREATURE_SCALE = 0.7
 const CREATURE_SPEED = 0.25
 const CAUS_N = 128
 const RAY_N = 1024
+// The submarine is lit from the surface above.
+const SUNLIGHT: Lighting = { style: "front", dir: [0.25, -0.85, 0.46] }
 
 const CAUSTICS = buildCaustics()
 const RAYS_A = buildRays(1)
@@ -126,6 +129,8 @@ class Ocean extends Canvas {
   private particles: Particle[] = []
   private snow: { x: number; y: number; z: number; s: number }[] = []
   private whale = { x: -9, dir: 1, next: 14, y: 0.4 }
+  // The easter egg: a little yellow submarine putters across, propeller turning. x < -5 while it waits.
+  private sub = { x: -9, y: 0.4, dir: 1, wait: eggWait() * TIME_SCALE, spin: 0 }
 
   // Each creature keeps to its own home area so they never pile up: shark along the top, fish lower left, octopus
   // lower right, diver upper left, turtle along the bottom. Areas are laid out before the first resize, at A = 1.
@@ -162,7 +167,35 @@ class Ocean extends Canvas {
     }
     this.stepCreatures(dt * CREATURE_SPEED)
     this.stepWhale(dt)
+    this.stepSub(dt, dt * CREATURE_SPEED)
     this.stepParticles(dt)
+  }
+
+  // Fish, the shark and the octopus dart away from the click, and a puff of bubbles rises from it.
+  poke(x: number, y: number) {
+    if (y < SURFACE + 0.02) return
+    for (let i = 0; i < 6; i++) this.spawn("bubble", x + rand(-0.01, 0.01), y + rand(-0.01, 0.01), rand(-0.02, 0.02), rand(-0.06, -0.02), 6, rand(0.003, 0.007), true)
+    for (const f of this.fish) {
+      const dx = f.x - x
+      const dy = f.y - y
+      const d = Math.hypot(dx, dy) || 1
+      if (d > 0.45) continue
+      f.vx += (dx / d) * 0.25
+      f.vy += (dy / d) * 0.15
+      f.wx = clamp(f.x + (dx / d) * 0.4, 0.1, this.A - 0.1)
+      f.wy = clamp(f.y + (dy / d) * 0.15, f.zone[2], f.zone[3])
+      f.wanderT = rand(3, 5)
+    }
+    const o = this.octopus
+    if (!o) return
+    const dx = o.x - x
+    const dy = o.y - y
+    const d = Math.hypot(dx, dy) || 1
+    if (d > 0.45) return
+    o.vx += (dx / d) * 0.15
+    o.vy += (dy / d) * 0.1
+    o.pulse = 1
+    o.next = rand(2.5, 4.5)
   }
 
   // Moves the fish, shark, turtle, diver and octopus; dt is creature time, so this also sets their animation speed.
@@ -253,6 +286,7 @@ class Ocean extends Canvas {
   render() {
     this.drawWater()
     this.drawWhale()
+    this.drawSub()
     this.drawSnow(true)
     // Nearer creatures (lower z) draw later, over farther ones.
     const fish = this.fish.toSorted((a, b) => b.z - a.z)
@@ -266,6 +300,12 @@ class Ocean extends Canvas {
     this.drawSnow(false)
     if (this.timeOfDay === "sunset") this.gradeSunset()
     if (this.timeOfDay === "night") this.gradeNight()
+    // At night the portholes glow amber through the dark water.
+    if (this.timeOfDay === "night" && this.sub.x > -5)
+      for (const u of [-0.16, 0.02, 0.2]) {
+        const [px, py] = this.subPoint(u, 0)
+        this.disc(px, py, 0.0135 * this.H, 1.4, 0.75, 0.18, 0.85)
+      }
     this.finish()
   }
 
@@ -437,6 +477,62 @@ class Ocean extends Canvas {
       w.x = -9
       w.next = rand(40, 75)
     }
+  }
+
+  private stepSub(dt: number, cdt: number) {
+    const s = this.sub
+    if (s.x < -5) {
+      s.wait -= dt
+      if (s.wait > 0) return
+      s.dir = Math.random() < 0.5 ? 1 : -1
+      s.x = s.dir > 0 ? -0.3 : this.A + 0.3
+      s.y = rand(0.32, 0.42)
+      return
+    }
+    s.x += s.dir * 0.1 * cdt
+    s.spin += cdt * 25
+    if (Math.random() < cdt * 6) {
+      const [bx, by] = this.subPoint(-0.62, 0)
+      this.spawn("bubble", bx / this.H, by / this.H, -s.dir * 0.02, rand(-0.04, -0.02), 5, rand(0.003, 0.006), true)
+    }
+    if (s.x > -0.4 && s.x < this.A + 0.4) return
+    s.x = -9
+    s.wait = eggWait() * TIME_SCALE
+  }
+
+  // A point on the submarine in pixels: u along it toward the bow, v down, both in hull lengths.
+  private subPoint(u: number, v: number): [number, number] {
+    const s = this.sub
+    const L = 0.3 * this.H
+    return [s.x * this.H + u * s.dir * L, (s.y + Math.sin(this.time * 0.8) * 0.004) * this.H + v * L]
+  }
+
+  // A round-nosed yellow submarine with a conning tower and periscope, three portholes and a turning propeller,
+  // tinted by the water at its depth.
+  private drawSub() {
+    const s = this.sub
+    if (s.x < -5) return
+    const L = 0.3 * this.H
+    const fog = this.fogAt(this.subPoint(0, 0)[1])
+    const tint = (c: RGB): RGB => [lerp(c[0], fog[0], 0.3), lerp(c[1], fog[1], 0.3), lerp(c[2], fog[2], 0.3)]
+    const P = (u: number, v: number) => this.subPoint(u, v)
+    const yellow = tint([0.95, 0.72, 0.12])
+    const dark = tint([0.12, 0.12, 0.14])
+    this.shape(
+      [
+        cap(...P(-0.5, 0), ...P(-0.64, -0.13), 0.025 * L, 0.012 * L, yellow),
+        cap(...P(-0.5, 0), ...P(-0.64, 0.13), 0.025 * L, 0.012 * L, yellow),
+        cap(...P(0.08, -0.13), ...P(0.08, -0.3), 0.012 * L, 0.012 * L, dark),
+        cap(...P(0.08, -0.3), ...P(0.15, -0.3), 0.012 * L, 0.01 * L, dark),
+        cap(...P(-0.12, -0.13), ...P(0.12, -0.13), 0.07 * L, 0.06 * L, yellow),
+        cap(...P(-0.4, 0), ...P(0.35, 0), 0.15 * L, 0.15 * L, yellow),
+      ],
+      SUNLIGHT,
+      0.8,
+    )
+    const glass = tint([0.15, 0.4, 0.5])
+    this.shape([-0.16, 0.02, 0.2].map((u) => ell(...P(u, 0), 0.045 * L, 0.045 * L, 0, glass)), SUNLIGHT, 0.6)
+    this.shape([ell(...P(-0.58, 0), 0.015 * L, 0.11 * L * Math.abs(Math.cos(s.spin)) + 0.01 * L, 0, dark)], SUNLIGHT, 0.3)
   }
 
   // Most bubbles and sparks are skipped to keep the scene quiet; the diver's breath is always kept.
