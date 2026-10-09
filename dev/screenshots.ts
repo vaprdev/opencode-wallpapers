@@ -30,13 +30,13 @@ await Promise.all(
         stale.push(`${shot.file}: ${b.width}x${b.height}, expected ${a.width}x${a.height}`)
         continue
       }
-      // Renders are byte-identical on macOS arm64 and Linux x64; the slack only absorbs rounding drift from other
-      // platforms' Math functions or Bun versions.
+      // Math functions round slightly differently across CPUs, which can flip a threshold here and there: city at night
+      // drew 92 pixels differently on GitHub's Linux x64 than on macOS arm64. Real scene changes touch far more.
       let differ = 0
       for (let p = 0; p < a.rgba.length; p += 4) {
         if (Math.max(Math.abs(a.rgba[p] - b.rgba[p]), Math.abs(a.rgba[p + 1] - b.rgba[p + 1]), Math.abs(a.rgba[p + 2] - b.rgba[p + 2])) > 2) differ++
       }
-      if (differ > a.width * a.height * 0.0001) stale.push(`${shot.file}: ${differ} pixels differ`)
+      if (differ > a.width * a.height * 0.0005) stale.push(`${shot.file}: ${differ} pixels differ`)
     }
   }),
 )
