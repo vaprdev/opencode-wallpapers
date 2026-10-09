@@ -1,9 +1,10 @@
 import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
 import { eggWait } from "../src/egg"
-import type { Activity, Settings, Time, Wallpaper } from "../src/engine"
+import type { Activity, Season, Settings, Time, Wallpaper } from "../src/engine"
 import { bird, flyAway, startle, type Flier } from "../src/flock"
-import { TAU, clamp, fbm1, hash, lerp, rand, smoothstep, type RGB } from "../src/math"
+import { TAU, clamp, fbm1, fbm2, hash, lerp, rand, smoothstep, type RGB } from "../src/math"
 import { driftClouds, makeStorm, paintStorm } from "../src/sky"
+import { WeatherLayer } from "../src/weather"
 
 // The scene runs slower than real time, which keeps it calm behind text.
 const TIME_SCALE = 0.35
@@ -181,6 +182,17 @@ const LOOKS: Record<Time, Look> = {
   },
 }
 
+// Spring wildflowers: poppy, lupine, brittlebush and verbena, scaled by FLOWER_LIGHT for the time of day.
+const FLOWERS: RGB[] = [
+  [1, 0.5, 0.08],
+  [0.5, 0.3, 0.95],
+  [1, 0.85, 0.15],
+  [0.92, 0.35, 0.68],
+]
+const FLOWER_LIGHT: Record<Time, RGB> = { day: [1, 1, 1], sunset: [0.3, 0.15, 0.13], night: [0.08, 0.1, 0.2] }
+// A winter dusting of snow on the mesa tops: white by day, rosy at sunset, blue at night.
+const DUSTING: Record<Time, RGB> = { day: [0.92, 0.93, 0.97], sunset: [0.55, 0.28, 0.3], night: [0.06, 0.12, 0.3] }
+
 // Stars come in a few colors rather than plain white, so they read apart from light text.
 const STAR_TINTS: RGB[] = [
   [0.55, 0.75, 1.2],
@@ -262,11 +274,19 @@ class Desert extends Canvas {
   // creature time; halt is when it stopped, or -1 before then.
   private roadrunner = { wait: eggWait() * TIME_SCALE, t: -1, x: 0, halt: -1, stride: 0 }
   private puffs: { x: number; y: number; age: number }[] = []
+  private readonly season: Season
+  private readonly flowerLight: RGB
+  private readonly dusting: RGB
+  private readonly weather: WeatherLayer
 
   constructor(settings: Settings) {
     super()
     this.activity = settings.activity
     this.look = LOOKS[settings.time]
+    this.season = settings.season ?? "summer"
+    this.flowerLight = FLOWER_LIGHT[settings.time]
+    this.dusting = DUSTING[settings.time]
+    this.weather = new WeatherLayer(settings.weather ?? "clear", settings.time, HORIZON)
     const look = this.look
     const top = look.milkyWay ? 0.5 : 0.3
     this.stars = Array.from({ length: look.stars }, () => ({ x: Math.random(), y: Math.random() * top, b: 0.4 + Math.random() * 0.6, phase: Math.random() * TAU, tint: STAR_TINTS[Math.floor(Math.random() * STAR_TINTS.length)] }))
@@ -305,6 +325,7 @@ class Desert extends Canvas {
     driftClouds(this.storm, this.A, dt)
     this.stepGloom(dt)
     this.stepTumbleweed(dt)
+    this.weather.step(dt)
     this.stepCreatures(dt * CREATURE_SPEED)
     this.startled = flyAway(this.startled, dt, this.A)
     this.stepRoadrunner(dt, dt * CREATURE_SPEED)
@@ -318,7 +339,7 @@ class Desert extends Canvas {
 
   render() {
     this.hdr.set(this.background)
-    this.drawStars()
+    if (!this.weather.covered) this.drawStars()
     this.drawClouds()
     paintStorm(this.hdr, this.W, this.H, this.storm, this.look.clouds.top, this.look.clouds.bottom, this.gloom)
     for (const b of this.flock) this.look.night ? this.drawBat(b) : this.drawBird(b, 0.3, "vulture")
@@ -329,6 +350,7 @@ class Desert extends Canvas {
     for (const b of this.startled) this.silhouette(bird(b, this.H, 0.022 * this.H, this.look.flock), 0.4)
     this.drawTumbleweed()
     this.drawDust()
+    this.weather.draw(this.hdr, this.W, this.H)
     this.finish()
   }
 
@@ -342,6 +364,7 @@ class Desert extends Canvas {
     this.orbX = look.orb.x * W
     this.orbY = look.orb.y * H
     this.drawSky()
+    this.weather.cover(this.hdr, W, H)
     const far = mesas(A, 3, 7, [0.06, 0.16], [0.04, 0.09])
     const near = mesas(A, 2, 19, [0.05, 0.12], [0.06, 0.13])
     this.nearTop = new Float32Array(W)
@@ -371,6 +394,7 @@ class Desert extends Canvas {
       const ripple = 0.9 + 0.1 * Math.sin(x * 0.5 + d * 0.9 + fbm1(x * 0.05, 3) * 4)
       return this.surface(scale(look.frontDune, ripple), this.frontTop, x, d, 2.5, 0.5, false)
     })
+    if (this.season === "spring") this.drawBloom()
     if (this.activity === "teeming") {
       for (const fx of [0.47, 0.92]) {
         const gy = backTop[Math.min(W - 1, Math.round(fx * W))] + 2
@@ -408,6 +432,14 @@ class Desert extends Canvas {
   // Shades a mesa or dune pixel `depth` below its top edge. At sunset and night the edge glows with backlight; by day,
   // slopes facing the sun are brighter, and cliffs show their rock layers.
   private surface(base: RGB, top: Float32Array, x: number, depth: number, rimWidth: number, rimStrength: number, strata: boolean): RGB {
+    if (strata && this.season === "winter") {
+      const snow = smoothstep(1, 0, depth - (0.006 + 0.03 * fbm1(x * 0.06, 4) ** 2) * this.H)
+      if (snow > 0) return mix(this.lit(base, top, x, depth, rimWidth, rimStrength, strata), this.dusting, snow * 0.85)
+    }
+    return this.lit(base, top, x, depth, rimWidth, rimStrength, strata)
+  }
+
+  private lit(base: RGB, top: Float32Array, x: number, depth: number, rimWidth: number, rimStrength: number, strata: boolean): RGB {
     const { light } = this.look
     if (this.look.style === "rim") {
       const k = Math.exp(-depth / rimWidth) * rimStrength * this.glowAt(x) * 0.6
@@ -455,6 +487,29 @@ class Desert extends Canvas {
         const maria = orb.moon ? 1 - 0.18 * smoothstep(0.55, 0.75, fbm1((x - this.orbX) * 0.25 + 3, 7) + fbm1((y - this.orbY) * 0.25 + 1, 9) * 0.6) : 1
         this.blend(o, orb.core[0] * limb * maria, orb.core[1] * limb * maria, orb.core[2] * limb * maria, cov)
       }
+    }
+  }
+
+  // A spring superbloom: green-washed patches of wildflowers over the floor and dunes, each patch mostly one kind,
+  // smaller with distance.
+  private drawBloom() {
+    const { W, H, A, hdr } = this
+    const patch = (u: number, v: number) => fbm2(u * 5, v * 11, 3)
+    const green = this.flowerLight
+    for (let y = Math.ceil((HORIZON + 0.01) * H); y < H; y++)
+      for (let x = 0; x < W; x++) {
+        const k = smoothstep(0.44, 0.6, patch(x / H, y / H)) * 0.35
+        if (k <= 0) continue
+        this.blend((y * W + x) * 3, hdr[(y * W + x) * 3] * 0.6 + 0.2 * green[0], hdr[(y * W + x) * 3 + 1] * 0.6 + 0.3 * green[1], hdr[(y * W + x) * 3 + 2] * 0.5 + 0.06 * green[2], k)
+      }
+    for (let i = 0; i < Math.round(A * 3200); i++) {
+      const u = hash(i * 1.31) * A
+      const v = HORIZON + 0.015 + hash(i * 2.77) * (0.99 - HORIZON)
+      if (patch(u, v) < 0.5) continue
+      const kind = FLOWERS[Math.floor(fbm2(u * 1.6 + 7, v * 3 + 2, 2) * 9 + hash(i * 4.1) * 1.4) % FLOWERS.length]
+      const near = (v - HORIZON) / (1 - HORIZON)
+      const light = this.flowerLight
+      this.disc(u * H, v * H, lerp(0.0016, 0.0055, near) * H, kind[0] * light[0], kind[1] * light[1], kind[2] * light[2], 0.9)
     }
   }
 
@@ -616,6 +671,11 @@ class Desert extends Canvas {
       ],
       1 - haze * 0.5,
     )
+    // In spring, a crown of cream blossoms on the trunk and each arm.
+    if (this.season !== "spring") return
+    const light = this.flowerLight
+    for (const [tx, ty, tr] of [[x, gy - h, r * 0.85], [x - h * 0.24, gy - h * 0.72, r * 0.62], [x + h * 0.21, gy - h * 0.82, r * 0.58]])
+      for (const a of [-0.9, -0.3, 0.3, 0.9]) this.disc(tx + Math.sin(a) * tr * 0.8, ty - Math.cos(a) * tr * 0.5, tr * 0.38, 0.98 * light[0], 0.94 * light[1], 0.82 * light[2], 0.95)
   }
 
   // A bleached cow skull seen from the front, resting on its snout, with long horns sweeping out and up.
@@ -675,7 +735,8 @@ class Desert extends Canvas {
   // Clouds drifting slowly across: puffy and sunlit from above by day, thin streaks lit from below otherwise.
   private drawClouds() {
     const { H, W, hdr, look } = this
-    const { top, bottom, alpha, puffy } = look.clouds
+    const { alpha, puffy } = look.clouds
+    const [top, bottom] = this.weather.scud ?? [look.clouds.top, look.clouds.bottom]
     for (const c of this.clouds)
       for (const p of c.puffs) {
         const cx = (c.x + p.dx) * H

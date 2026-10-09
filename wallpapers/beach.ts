@@ -1,9 +1,10 @@
 import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
 import { eggWait } from "../src/egg"
-import type { Activity, Settings, Time, Wallpaper } from "../src/engine"
+import type { Activity, Season, Settings, Time, Wallpaper } from "../src/engine"
 import { bird, flyAway, startle, type Flier } from "../src/flock"
 import { TAU, clamp, fbm1, hash, hash2, lerp, rand, smoothstep, type RGB } from "../src/math"
 import { driftClouds, makeClouds, makeStars, makeStorm, paintClouds, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
+import { WeatherLayer } from "../src/weather"
 
 // The scene runs slower than real time, which keeps it calm behind text.
 const TIME_SCALE = 0.35
@@ -112,6 +113,32 @@ const DAYLIGHT = (() => {
   return [-0.5 / l, -0.6 / l, 0.6 / l] as const
 })()
 
+// Out of season (autumn and winter) the day is cooler: grayer water and paler sand.
+const OFF_SEASON: Partial<Look> = {
+  sea: [
+    [0.14, 0.3, 0.42],
+    [0.13, 0.38, 0.42],
+  ],
+  sand: [
+    [0.74, 0.69, 0.56],
+    [0.52, 0.47, 0.38],
+  ],
+}
+// Summer umbrellas, busiest first: x as a fraction of the width, y in screen heights, and stripe color.
+const UMBRELLAS: [number, number, RGB][] = [
+  [0.64, 0.86, [0.85, 0.15, 0.12]],
+  [0.32, 0.84, [0.95, 0.72, 0.1]],
+  [0.78, 0.82, [0.15, 0.58, 0.35]],
+  [0.48, 0.9, [0.2, 0.45, 0.88]],
+  [0.22, 0.93, [0.95, 0.45, 0.12]],
+  [0.42, 0.8, [0.8, 0.2, 0.55]],
+]
+const SKIN: RGB[] = [
+  [0.85, 0.62, 0.48],
+  [0.55, 0.36, 0.24],
+  [0.95, 0.75, 0.6],
+]
+
 // Daytime colors.
 const TRUNK: RGB = [0.5, 0.36, 0.22]
 const FROND: RGB = [0.18, 0.45, 0.14]
@@ -150,11 +177,20 @@ class Beach extends Canvas {
   // The easter egg: a message in a bottle drifts in, washes up on the wet sand for a while, and floats away again.
   // t counts scene seconds.
   private bottle = { wait: eggWait() * TIME_SCALE, t: -1 }
+  private readonly season: Season
+  private readonly weather: WeatherLayer
+  private swimmers: { x: number; y: number; phase: number }[] = []
 
   constructor(settings: Settings) {
     super()
     this.activity = settings.activity
-    this.look = LOOKS[settings.time]
+    this.season = settings.season ?? "spring"
+    const offSeason = this.season === "autumn" || this.season === "winter"
+    this.weather = new WeatherLayer(settings.weather ?? "clear", settings.time, HORIZON)
+    const look = offSeason && settings.time === "day" ? { ...LOOKS.day, ...OFF_SEASON } : LOOKS[settings.time]
+    // With the sun or moon behind cloud, only a trace of the glitter path is left.
+    this.look = this.weather.covered ? { ...look, glitter: look.glitter * 0.15 } : look
+    if (this.season === "summer" && !this.look.night) this.swimmers = Array.from({ length: { calm: 1, lively: 3, teeming: 5 }[settings.activity] }, (_, i) => ({ x: 0.25 + i * 0.13 + hash(i) * 0.05, y: 0.69 + hash(i * 3.3) * 0.03, phase: i * 1.9 }))
     this.stars = makeStars(this.look.stars, 0.45)
     this.clouds = makeClouds(this.look.clouds.puffy ? 4 : 5, this.look.clouds.puffy, 0.08, 0.3)
     if (settings.activity !== "calm") this.dolphins = [0, 1].map((i) => ({ t: -1, x: 0, y: 0, dir: 1, wait: 4 + i * 9 }))
@@ -168,6 +204,7 @@ class Beach extends Canvas {
     driftClouds(this.clouds, this.A, dt)
     driftClouds(this.storm, this.A, dt)
     this.stepGloom(dt)
+    this.weather.step(dt)
     this.stepBoat(dt)
     for (const d of this.dolphins) this.stepDolphin(d, dt, cdt)
     for (const s of this.splashes) {
@@ -211,10 +248,12 @@ class Beach extends Canvas {
 
   render() {
     this.hdr.set(this.background)
-    paintStars(this.hdr, this.W, this.H, this.stars, this.time, 0.45, this.look.stars > 50 ? 0.5 : 0.3)
-    paintClouds(this.hdr, this.W, this.H, this.clouds, this.look.clouds.top, this.look.clouds.bottom, this.look.clouds.alpha, this.look.clouds.puffy)
+    if (!this.weather.covered) paintStars(this.hdr, this.W, this.H, this.stars, this.time, 0.45, this.look.stars > 50 ? 0.5 : 0.3)
+    const [top, bottom] = this.weather.scud ?? [this.look.clouds.top, this.look.clouds.bottom]
+    paintClouds(this.hdr, this.W, this.H, this.clouds, top, bottom, this.look.clouds.alpha, this.look.clouds.puffy)
     paintStorm(this.hdr, this.W, this.H, this.storm, this.look.clouds.top, this.look.clouds.bottom, this.gloom)
     this.drawSea()
+    for (const s of this.swimmers) this.drawSwimmer(s)
     this.drawBoat()
     for (const d of this.dolphins) this.drawDolphin(d)
     if (this.activity === "teeming") this.drawSurfer()
@@ -228,6 +267,7 @@ class Beach extends Canvas {
       this.drawTrunk(p)
       this.drawFronds(p)
     }
+    this.weather.draw(this.hdr, this.W, this.H)
     this.finish()
   }
 
@@ -241,6 +281,7 @@ class Beach extends Canvas {
     const { W, H, A, look } = this
     this.lighting = look.style === "front" ? { style: "front", dir: DAYLIGHT } : { style: "rim", color: look.light, x: look.orb.x * W, y: look.orb.y * H }
     paintSky(this.hdr, W, H, look.sky, look.orb)
+    this.weather.cover(this.hdr, W, H)
     // A small island on the horizon.
     const ix = 0.16 * A
     this.polygon(Array.from({ length: 21 }, (_, i) => [(ix + Math.cos((i / 20) * Math.PI) * 0.08) * H, (HORIZON - Math.sin((i / 20) * Math.PI) * 0.025) * H] as const), this.paint([0.2, 0.35, 0.22]))
@@ -259,7 +300,11 @@ class Beach extends Canvas {
         this.hdr[o + 1] = dry[1] * ripple
         this.hdr[o + 2] = dry[2] * ripple
       }
-    if (this.activity === "teeming") this.drawBeachThings()
+    // Summer brings a crowd of umbrellas and sunbathers; out of season the beach is empty but for driftwood.
+    const season = this.season
+    if (season === "summer") for (const [i, [x, y, stripe]] of UMBRELLAS.slice(0, { calm: 2, lively: 4, teeming: 6 }[this.activity]).entries()) this.drawUmbrella(x * A, y, stripe, i % 3 === 2 ? undefined : SKIN[i % SKIN.length])
+    if (season === "autumn" || season === "winter") this.drawDriftwood(0.56 * A, 0.9)
+    if (this.activity === "teeming" && season !== "autumn" && season !== "winter") this.drawBeachThings()
     this.palms = [
       { base: [0.07 * A, 1.03], crown: [0.2 * A, 0.36], lean: 1 },
       { base: [0.94 * A, 1.0], crown: [0.85 * A, 0.44], lean: -1 },
@@ -396,19 +441,48 @@ class Beach extends Canvas {
     }
   }
 
-  // An umbrella, a towel, a sandcastle and a beach ball, for the busiest level.
-  private drawBeachThings() {
-    const { A, H } = this
-    const [ux, uy] = [0.64 * A, 0.86]
-    this.polygon([[(ux - 0.06) * H, (uy + 0.04) * H], [(ux + 0.07) * H, (uy + 0.035) * H], [(ux + 0.09) * H, (uy + 0.075) * H], [(ux - 0.04) * H, (uy + 0.08) * H]], this.paint([0.2, 0.45, 0.85]))
-    this.polygon([[(ux - 0.03) * H, (uy + 0.042) * H], [(ux + 0.0) * H, (uy + 0.04) * H], [(ux + 0.025) * H, (uy + 0.078) * H], [(ux - 0.008) * H, (uy + 0.079) * H]], this.paint([0.92, 0.92, 0.88]))
-    this.shape([cap(ux * H, (uy + 0.05) * H, ux * H, (uy - 0.12) * H, 0.003 * H, 0.003 * H, this.paint([0.85, 0.85, 0.82]))], this.lighting, 0.4)
+  // A striped umbrella over a towel, with someone sunbathing on it if skin is given. Farther up the beach is smaller.
+  private drawUmbrella(ux: number, uy: number, stripe: RGB, skin?: RGB) {
+    const H = this.H
+    const s = 0.75 + (uy - 0.84) * 3
+    const P = (dx: number, dy: number) => [(ux + dx * s) * H, (uy + dy * s) * H] as const
+    this.polygon([P(-0.06, 0.04), P(0.07, 0.035), P(0.09, 0.075), P(-0.04, 0.08)], this.paint([0.2, 0.45, 0.85]))
+    this.polygon([P(-0.03, 0.042), P(0, 0.04), P(0.025, 0.078), P(-0.008, 0.079)], this.paint([0.92, 0.92, 0.88]))
+    if (skin) {
+      const c = this.paint(skin)
+      this.shape([cap(...P(-0.035, 0.06), ...P(0.045, 0.056), 0.009 * s * H, 0.006 * s * H, c), ell(...P(-0.048, 0.059), 0.01 * s * H, 0.009 * s * H, 0, c)], this.lighting, 0.6)
+      this.shape([cap(...P(-0.012, 0.06), ...P(0.012, 0.059), 0.0095 * s * H, 0.0095 * s * H, this.paint(stripe))], this.lighting, 0.4)
+    }
+    this.shape([cap(...P(0, 0.05), ...P(0, -0.12), 0.003 * s * H, 0.003 * s * H, this.paint([0.85, 0.85, 0.82]))], this.lighting, 0.4)
     for (let k = 0; k < 6; k++) {
       const a0 = Math.PI + (k / 6) * Math.PI
       const a1 = Math.PI + ((k + 1) / 6) * Math.PI
-      const color = this.paint(k % 2 ? [0.92, 0.92, 0.88] : [0.85, 0.15, 0.12])
-      this.polygon([[ux * H, (uy - 0.15) * H], [(ux + Math.cos(a0) * 0.09) * H, (uy - 0.12 + Math.sin(a0) * -0.02 + 0.02) * H], [(ux + Math.cos(a1) * 0.09) * H, (uy - 0.12 + Math.sin(a1) * -0.02 + 0.02) * H]], color)
+      const color = this.paint(k % 2 ? [0.92, 0.92, 0.88] : stripe)
+      this.polygon([P(0, -0.15), P(Math.cos(a0) * 0.09, -0.12 + Math.sin(a0) * -0.02 + 0.02), P(Math.cos(a1) * 0.09, -0.12 + Math.sin(a1) * -0.02 + 0.02)], color)
     }
+  }
+
+  // A bleached log washed up on the sand.
+  private drawDriftwood(x: number, y: number) {
+    const H = this.H
+    const wood = this.paint([0.62, 0.55, 0.45])
+    this.shape([cap((x - 0.07) * H, y * H, (x + 0.06) * H, (y - 0.008) * H, 0.009 * H, 0.006 * H, wood, 2), cap((x + 0.02) * H, (y - 0.005) * H, (x + 0.05) * H, (y - 0.03) * H, 0.004 * H, 0.002 * H, wood)], this.lighting, 0.7)
+  }
+
+  // A swimmer's head bobbing in the surf, ringed by a little foam.
+  private drawSwimmer(s: { x: number; y: number; phase: number }) {
+    const H = this.H
+    const x = s.x * this.A * H
+    const y = (s.y + Math.sin(this.time * 1.4 + s.phase) * 0.003) * H
+    const foam = this.look.foam
+    this.ellipse(x, y + 0.006 * H, 0.014 * H, 0.004 * H, foam[0], foam[1], foam[2], 0.35)
+    this.shape([ell(x, y, 0.007 * H, 0.008 * H, 0, this.paint(SKIN[Math.floor(s.phase) % SKIN.length])), ell(x, y - 0.004 * H, 0.0072 * H, 0.0045 * H, 0, this.paint([0.15, 0.1, 0.06]))], this.lighting, 0.6)
+  }
+
+  // An umbrella, a towel, a sandcastle and a beach ball, for the busiest level.
+  private drawBeachThings() {
+    const { A, H } = this
+    if (this.season !== "summer") this.drawUmbrella(0.64 * A, 0.86, [0.85, 0.15, 0.12])
     const [sx, sy] = [0.42 * A, 0.92]
     const sand = this.paint([0.78, 0.66, 0.42])
     const box = (x0: number, y0: number, x1: number, y1: number) => [[x0 * H, y0 * H], [x1 * H, y0 * H], [x1 * H, y1 * H], [x0 * H, y1 * H]] as const

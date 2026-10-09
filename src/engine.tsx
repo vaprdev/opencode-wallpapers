@@ -54,6 +54,9 @@ export interface Settings {
   readonly time: Time
   // Defaults to normal. Changing only this restyles the running scene instead of restarting it.
   readonly brightness?: Brightness
+  // Without a season a wallpaper shows its classic look; without weather it picks its own (see src/weather.ts).
+  readonly season?: Season
+  readonly weather?: Weather
 }
 
 export const BRIGHTNESSES = ["subtle", "normal", "vivid"] as const
@@ -69,6 +72,12 @@ export type Time = (typeof TIMES)[number]
 // saver slows down when nobody is using OpenCode and stops while the terminal is in the background; smooth never does.
 export const POWERS = ["saver", "smooth"] as const
 export type Power = (typeof POWERS)[number]
+
+export const SEASONS = ["spring", "summer", "autumn", "winter"] as const
+export type Season = (typeof SEASONS)[number]
+
+export const WEATHERS = ["clear", "overcast", "rain", "snow", "fog"] as const
+export type Weather = (typeof WEATHERS)[number]
 
 
 const UPPER_HALF = 0x2580
@@ -968,7 +977,7 @@ export function createEngine(
       return wallpaper
     },
     start(next, chosen, seconds = FADE) {
-      const shows = (w?: Wallpaper, s?: Settings) => w === next && s?.activity === chosen.activity && s.time === chosen.time
+      const shows = (w?: Wallpaper, s?: Settings) => w === next && s?.activity === chosen.activity && s.time === chosen.time && s.season === chosen.season && s.weather === chosen.weather
       // Only brightness changed: restyle the running scene.
       if (shows(wallpaper, settings)) {
         settings = chosen

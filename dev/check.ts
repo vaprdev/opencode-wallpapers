@@ -1,9 +1,9 @@
 // Runs every wallpaper (or the named ones) at every activity level and time of day through the engine on a mock screen and reports errors, frame cost and
 // flicker (cells whose glyph changes per frame; lower is calmer). Exits non-zero on errors, on flicker above --max-flicker (default 150 of 7200 cells)
-// and, only when given, on frame cost above --max-ms: bun dev/check.ts [--quiet] [--max-ms=N] [--max-flicker=N] [wallpaper...]
+// and, only when given, on frame cost above --max-ms: bun dev/check.ts [--quiet] [--max-ms=N] [--max-flicker=N] [wallpaper...] [season] [weather]
 import { mkdirSync, rmSync } from "node:fs"
 import { parseArgs } from "node:util"
-import { ACTIVITIES, TIMES } from "../src/engine"
+import { ACTIVITIES, SEASONS, TIMES, WEATHERS } from "../src/engine"
 import { WALLPAPERS } from "../wallpapers"
 import { H, W, mockScreen, text } from "./mock"
 import { seed } from "./seed"
@@ -17,7 +17,9 @@ process.env.WALLPAPER_OCTANTS = "1"
 const args = parseArgs({ allowPositionals: true, options: { quiet: { type: "boolean" }, "max-ms": { type: "string" }, "max-flicker": { type: "string", default: "150" } } })
 const maxMs = Number(args.values["max-ms"] ?? Infinity)
 const maxFlicker = Number(args.values["max-flicker"])
-const ids = args.positionals
+const season = SEASONS.find((s) => args.positionals.includes(s))
+const weather = WEATHERS.find((w) => args.positionals.includes(w))
+const ids = args.positionals.filter((arg) => arg !== season && arg !== weather)
 const unknown = ids.filter((id) => !WALLPAPERS.some((w) => w.id === id))
 if (unknown.length) throw new Error(`unknown wallpaper ${unknown.join(", ")}; available: ${WALLPAPERS.map((w) => w.id).join(", ")}`)
 const screen = mockScreen()
@@ -28,7 +30,7 @@ const runs = (ids.length ? WALLPAPERS.filter((w) => ids.includes(w.id)) : WALLPA
 for (const { wallpaper, activity, time } of runs) {
   // Same random stream per combination, so a run's numbers don't depend on which others ran before it.
   seed(1)
-  screen.engine.start(wallpaper, { activity, time })
+  screen.engine.start(wallpaper, { activity, time, season, weather })
   let previous = new Uint32Array(W * H)
   let changes = 0
   let total = 0

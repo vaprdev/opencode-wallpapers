@@ -3,6 +3,7 @@ import type { Activity, Settings, Time, Wallpaper } from "../src/engine"
 import { eggWait } from "../src/egg"
 import { TAU, clamp, fbm1, hash, lerp, rand, smoothstep, type RGB } from "../src/math"
 import { driftClouds, makeClouds, makeStars, makeStorm, paintClouds, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
+import { WeatherLayer } from "../src/weather"
 
 // The scene runs slower than real time, which keeps it calm behind text.
 const TIME_SCALE = 0.35
@@ -145,6 +146,7 @@ class Tundra extends Canvas {
   // The easter egg: a yeti looms out of the snow on the far field, looks about, waves and fades away. t is creature
   // time since it began.
   private yeti = { wait: eggWait() * TIME_SCALE, t: -1, x: 0 }
+  private readonly weather: WeatherLayer
 
   constructor(settings: Settings) {
     super()
@@ -152,7 +154,9 @@ class Tundra extends Canvas {
     this.look = LOOKS[settings.time]
     this.stars = makeStars(this.look.stars, 0.45)
     this.clouds = makeClouds(this.look.clouds.puffy ? 3 : 4, this.look.clouds.puffy, 0.06, 0.28)
-    this.flakes = Array.from({ length: { calm: 70, lively: 100, teeming: 130 }[settings.activity] }, () => ({ x: Math.random() * 4, y: Math.random(), z: Math.random(), s: Math.random() }))
+    // Its own gentle snowfall under a clear sky, unless weather is chosen.
+    this.weather = new WeatherLayer(settings.weather ?? "clear", settings.time, HORIZON)
+    this.flakes = Array.from({ length: settings.weather ? 0 : { calm: 70, lively: 100, teeming: 130 }[settings.activity] }, () => ({ x: Math.random() * 4, y: Math.random(), z: Math.random(), s: Math.random() }))
     const walker = (x: number, y: number): Walker => ({ x, y, wx: x, wy: y, wanderT: 0, face: 1, phase: Math.random() * TAU, rest: 0, moving: false, hop: Infinity })
     if (settings.activity !== "calm") {
       this.penguins = Array.from({ length: settings.activity === "teeming" ? 5 : 3 }, (_, i) => walker(0.6 + i * 0.12, 0.78 + (i % 2) * 0.015))
@@ -169,6 +173,7 @@ class Tundra extends Canvas {
     driftClouds(this.clouds, this.A, dt)
     driftClouds(this.storm, this.A, dt)
     this.stepGloom(dt)
+    this.weather.step(dt)
     for (const f of this.flakes) {
       f.y += (0.02 + f.z * 0.035) * dt
       f.x += (Math.sin(this.time * 0.6 + f.s * 20) * 0.006 + 0.004) * dt
@@ -216,9 +221,10 @@ class Tundra extends Canvas {
 
   render() {
     this.hdr.set(this.background)
-    paintStars(this.hdr, this.W, this.H, this.stars, this.time, 0.5, this.look.stars > 50 ? 0.5 : 0.3)
-    if (this.look.aurora > 0) this.drawAurora()
-    paintClouds(this.hdr, this.W, this.H, this.clouds, this.look.clouds.top, this.look.clouds.bottom, this.look.clouds.alpha, this.look.clouds.puffy)
+    if (!this.weather.covered) paintStars(this.hdr, this.W, this.H, this.stars, this.time, 0.5, this.look.stars > 50 ? 0.5 : 0.3)
+    if (this.look.aurora > 0 && !this.weather.covered) this.drawAurora()
+    const [top, bottom] = this.weather.scud ?? [this.look.clouds.top, this.look.clouds.bottom]
+    paintClouds(this.hdr, this.W, this.H, this.clouds, top, bottom, this.look.clouds.alpha, this.look.clouds.puffy)
     paintStorm(this.hdr, this.W, this.H, this.storm, this.look.clouds.top, this.look.clouds.bottom, this.gloom)
     if (this.owl.x > -5) this.drawOwl()
     if (this.yeti.t >= 0) this.drawYeti()
@@ -227,6 +233,7 @@ class Tundra extends Canvas {
     for (const p of [...this.penguins].sort((a, b) => a.y - b.y)) this.drawPenguin(p)
     if (this.fox) this.drawFox(this.fox)
     this.drawFlakes()
+    this.weather.draw(this.hdr, this.W, this.H)
     this.finish()
   }
 
@@ -239,6 +246,7 @@ class Tundra extends Canvas {
     const { W, H, A, look } = this
     this.lighting = look.style === "front" ? { style: "front", dir: DAYLIGHT } : { style: "rim", color: look.light, x: look.orb.x * W, y: look.orb.y * H }
     paintSky(this.hdr, W, H, look.sky, look.orb)
+    this.weather.cover(this.hdr, W, H)
     this.drawMountains()
     // Gentle drifts near the horizon, then the snowfield sweeping to the bottom of the screen.
     const drift = new Float32Array(W)
