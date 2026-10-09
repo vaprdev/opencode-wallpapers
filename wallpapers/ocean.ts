@@ -163,6 +163,11 @@ class Ocean extends Canvas {
     this.stepCreatures(dt * CREATURE_SPEED)
     this.stepWhale(dt)
     this.stepParticles(dt)
+    this.stepGloom(dt)
+  }
+
+  protected override visit() {
+    if (this.whale.x < -5) this.whale.next = 0
   }
 
   // Moves the fish, shark, turtle, diver and octopus; dt is creature time, so this also sets their animation speed.
@@ -517,8 +522,10 @@ class Ocean extends Canvas {
     const camFar = Math.round(Math.sin(t * 0.09) * H * 0.04) + this.pad
     const camMid = Math.round(Math.sin(t * 0.09) * H * 0.08) + this.pad
     const cs = 128 / (H * 0.55)
+    // After an error the rays fade, as if clouds had covered the sun.
+    const overcast = 1 - smoothstep(0, 1, this.gloom) * 0.7
     for (let y = 0; y < H; y++) {
-      const rf = rayFade[y]
+      const rf = rayFade[y] * overcast
       const ry1 = y * 0.42 + t * 7
       const ry2 = y * 0.6 - t * 4.3
       const flick = 0.75 + 0.25 * Math.sin(t * 0.8 + y * 0.01)

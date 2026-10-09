@@ -1,7 +1,7 @@
 import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
 import type { Activity, Settings, Time, Wallpaper } from "../src/engine"
 import { TAU, clamp, fbm1, hash, lerp, rand, smoothstep, type RGB } from "../src/math"
-import { driftClouds, makeClouds, makeStars, paintClouds, paintSky, paintStars, type Cloud, type Orb, type Star } from "../src/sky"
+import { driftClouds, makeClouds, makeStars, makeStorm, paintClouds, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
 
 // The scene runs slower than real time, which keeps it calm behind text.
 const TIME_SCALE = 0.35
@@ -129,6 +129,7 @@ class Tundra extends Canvas {
   private background = new Float32Array(0)
   private stars: Star[]
   private clouds: Cloud[]
+  private storm = makeStorm()
   private flakes: { x: number; y: number; z: number; s: number }[]
   private owl = { x: -9, y: 0.25, dir: 1, next: 14, phase: 0 }
   private penguins: Walker[] = []
@@ -157,6 +158,8 @@ class Tundra extends Canvas {
     const cdt = dt * CREATURE_SPEED
     this.creatureTime += cdt
     driftClouds(this.clouds, this.A, dt)
+    driftClouds(this.storm, this.A, dt)
+    this.stepGloom(dt)
     for (const f of this.flakes) {
       f.y += (0.02 + f.z * 0.035) * dt
       f.x += (Math.sin(this.time * 0.6 + f.s * 20) * 0.006 + 0.004) * dt
@@ -185,6 +188,7 @@ class Tundra extends Canvas {
     paintStars(this.hdr, this.W, this.H, this.stars, this.time, 0.5, this.look.stars > 50 ? 0.5 : 0.3)
     if (this.look.aurora > 0) this.drawAurora()
     paintClouds(this.hdr, this.W, this.H, this.clouds, this.look.clouds.top, this.look.clouds.bottom, this.look.clouds.alpha, this.look.clouds.puffy)
+    paintStorm(this.hdr, this.W, this.H, this.storm, this.look.clouds.top, this.look.clouds.bottom, this.gloom)
     if (this.owl.x > -5) this.drawOwl()
     if (this.bear) this.drawBear(this.bear)
     if (this.activity === "teeming") this.drawFisher()
@@ -192,6 +196,10 @@ class Tundra extends Canvas {
     if (this.fox) this.drawFox(this.fox)
     this.drawFlakes()
     this.finish()
+  }
+
+  protected override visit() {
+    if (this.owl.x < -5) this.owl.next = 0
   }
 
   // Everything that never moves is painted once per size into `background`, then copied in each frame.

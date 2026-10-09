@@ -1,3 +1,4 @@
+import type { AgentEvent } from "./engine"
 import { clamp, type RGB } from "./math"
 
 // Bloom is computed at 1/BLOOM resolution, then again at half that for the wide halo.
@@ -50,8 +51,25 @@ export abstract class Canvas {
   private colB = new Int32Array(0)
   private colF = new Float32Array(0)
 
+  // How overcast the scene is: eases to 1 after the agent fails and back to 0 once it works again. Scenes call
+  // stepGloom from step and darken their light or bring in clouds by it.
+  protected gloom = 0
+  private gloomy = false
+
   abstract step(dt: number): void
   abstract render(): void
+
+  react(event: AgentEvent) {
+    if (event !== "idle") this.gloomy = event === "error"
+    if (event === "done") this.visit()
+  }
+
+  // The agent finished a task: scenes bring on their rare visitor now.
+  protected visit() {}
+
+  protected stepGloom(dt: number) {
+    this.gloom = clamp(this.gloom + (this.gloomy ? dt : -dt) * 0.3, 0, 1)
+  }
 
   // Called after every size change, once the buffers match the new size.
   protected layout() {}

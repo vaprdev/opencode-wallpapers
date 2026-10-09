@@ -1,7 +1,7 @@
 import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
 import type { Activity, Settings, Time, Wallpaper } from "../src/engine"
 import { TAU, clamp, fbm1, hash, hash2, lerp, rand, type RGB } from "../src/math"
-import { driftClouds, makeClouds, makeStars, paintClouds, paintSky, paintStars, type Cloud, type Orb, type Star } from "../src/sky"
+import { driftClouds, makeClouds, makeStars, makeStorm, paintClouds, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
 
 // The scene runs slower than real time, which keeps it calm behind text.
 const TIME_SCALE = 0.35
@@ -121,6 +121,7 @@ class Farm extends Canvas {
   private background = new Float32Array(0)
   private stars: Star[]
   private clouds: Cloud[]
+  private storm = makeStorm()
   private nearTop = new Float32Array(0)
   private cows: Walker[] = []
   private chickens: Walker[] = []
@@ -152,6 +153,8 @@ class Farm extends Canvas {
     const cdt = dt * CREATURE_SPEED
     this.creatureTime += cdt
     driftClouds(this.clouds, this.A, dt)
+    driftClouds(this.storm, this.A, dt)
+    this.stepGloom(dt)
     for (const f of this.fireflies) {
       f.vx += (Math.random() - 0.5) * 0.02 * dt
       f.vy += (Math.random() - 0.5) * 0.02 * dt
@@ -172,6 +175,7 @@ class Farm extends Canvas {
     this.hdr.set(this.background)
     paintStars(this.hdr, this.W, this.H, this.stars, this.time, 0.5, this.look.stars > 50 ? 0.5 : 0.3)
     paintClouds(this.hdr, this.W, this.H, this.clouds, this.look.clouds.top, this.look.clouds.bottom, this.look.clouds.alpha, this.look.clouds.puffy)
+    paintStorm(this.hdr, this.W, this.H, this.storm, this.look.clouds.top, this.look.clouds.bottom, this.gloom)
     this.drawFan()
     this.drawTractor()
     for (const c of this.chickens) this.drawChicken(c)
@@ -182,6 +186,10 @@ class Farm extends Canvas {
     this.drawCornRow(3)
     this.drawFireflies()
     this.finish()
+  }
+
+  protected override visit() {
+    if (this.tractor.x < -5) this.tractor.next = 0
   }
 
   // Everything that never moves is painted once per size into `background`, then copied in each frame.

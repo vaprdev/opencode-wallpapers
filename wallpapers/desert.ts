@@ -1,6 +1,7 @@
 import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
 import type { Activity, Settings, Time, Wallpaper } from "../src/engine"
 import { TAU, clamp, fbm1, hash, lerp, rand, smoothstep, type RGB } from "../src/math"
+import { driftClouds, makeStorm, paintStorm } from "../src/sky"
 
 // The scene runs slower than real time, which keeps it calm behind text.
 const TIME_SCALE = 0.35
@@ -247,6 +248,7 @@ class Desert extends Canvas {
   private stars: { x: number; y: number; b: number; phase: number; tint: RGB }[]
   private dust = Array.from({ length: 60 }, () => ({ x: Math.random() * 4, y: 0.3 + Math.random() * 0.7, s: Math.random() }))
   private clouds: Cloud[]
+  private storm = makeStorm()
   private tumbleweed = { x: -9, dir: 1, next: 14, spin: 0, hop: 0 }
   private twigs = buildTwigs()
   private bigBird: Bird | undefined
@@ -293,6 +295,8 @@ class Desert extends Canvas {
       c.x += c.speed * dt
       if (c.x > this.A + 0.4) c.x = -0.4
     }
+    driftClouds(this.storm, this.A, dt)
+    this.stepGloom(dt)
     this.stepTumbleweed(dt)
     this.stepCreatures(dt * CREATURE_SPEED)
   }
@@ -301,6 +305,7 @@ class Desert extends Canvas {
     this.hdr.set(this.background)
     this.drawStars()
     this.drawClouds()
+    paintStorm(this.hdr, this.W, this.H, this.storm, this.look.clouds.top, this.look.clouds.bottom, this.gloom)
     for (const b of this.flock) this.look.night ? this.drawBat(b) : this.drawBird(b, 0.3, "vulture")
     if (this.bigBird) this.drawBird(this.bigBird, 0.8, this.look.night ? "owl" : "eagle")
     if (this.coyote) this.drawCoyote(this.coyote)
@@ -308,6 +313,10 @@ class Desert extends Canvas {
     this.drawTumbleweed()
     this.drawDust()
     this.finish()
+  }
+
+  protected override visit() {
+    if (this.tumbleweed.x < -5) this.tumbleweed.next = 0
   }
 
   // Everything that never moves is painted once per size into `background`, then copied in each frame.

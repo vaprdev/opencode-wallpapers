@@ -105,6 +105,17 @@ export function driftClouds(clouds: Cloud[], A: number, dt: number) {
   }
 }
 
+// Low, heavy clouds that gather after the agent fails: darker versions of the scene's own cloud colors, faded in by
+// gloom (0 to 1). They drift like the others, so the caller moves them with driftClouds.
+export function makeStorm(): Cloud[] {
+  return makeClouds(8, true, 0.04, 0.26)
+}
+
+export function paintStorm(hdr: Float32Array, W: number, H: number, clouds: Cloud[], top: RGB, bottom: RGB, gloom: number) {
+  if (gloom <= 0) return
+  paintClouds(hdr, W, H, clouds, [top[0] * 0.45, top[1] * 0.45, top[2] * 0.5], [bottom[0] * 0.4, bottom[1] * 0.4, bottom[2] * 0.45], smoothstep(0, 1, gloom) * 0.8, true)
+}
+
 // Clouds shaded from top to bottom; puffy ones are nearly opaque, streaks are thin and soft.
 export function paintClouds(hdr: Float32Array, W: number, H: number, clouds: Cloud[], top: RGB, bottom: RGB, alpha: number, puffy: boolean) {
   for (const c of clouds)

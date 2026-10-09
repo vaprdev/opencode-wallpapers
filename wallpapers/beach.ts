@@ -1,7 +1,7 @@
 import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
 import type { Activity, Settings, Time, Wallpaper } from "../src/engine"
 import { TAU, clamp, fbm1, hash, hash2, lerp, rand, smoothstep, type RGB } from "../src/math"
-import { driftClouds, makeClouds, makeStars, paintClouds, paintSky, paintStars, type Cloud, type Orb, type Star } from "../src/sky"
+import { driftClouds, makeClouds, makeStars, makeStorm, paintClouds, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
 
 // The scene runs slower than real time, which keeps it calm behind text.
 const TIME_SCALE = 0.35
@@ -135,6 +135,7 @@ class Beach extends Canvas {
   private background = new Float32Array(0)
   private stars: Star[]
   private clouds: Cloud[]
+  private storm = makeStorm()
   private palms: Palm[] = []
   private boat = { x: -9, dir: 1, next: 14 }
   private dolphins: Dolphin[] = []
@@ -157,6 +158,8 @@ class Beach extends Canvas {
     const cdt = dt * CREATURE_SPEED
     this.creatureTime += cdt
     driftClouds(this.clouds, this.A, dt)
+    driftClouds(this.storm, this.A, dt)
+    this.stepGloom(dt)
     this.stepBoat(dt)
     for (const d of this.dolphins) this.stepDolphin(d, dt, cdt)
     for (const s of this.splashes) {
@@ -186,6 +189,7 @@ class Beach extends Canvas {
     this.hdr.set(this.background)
     paintStars(this.hdr, this.W, this.H, this.stars, this.time, 0.45, this.look.stars > 50 ? 0.5 : 0.3)
     paintClouds(this.hdr, this.W, this.H, this.clouds, this.look.clouds.top, this.look.clouds.bottom, this.look.clouds.alpha, this.look.clouds.puffy)
+    paintStorm(this.hdr, this.W, this.H, this.storm, this.look.clouds.top, this.look.clouds.bottom, this.gloom)
     this.drawSea()
     this.drawBoat()
     for (const d of this.dolphins) this.drawDolphin(d)
@@ -199,6 +203,10 @@ class Beach extends Canvas {
       this.drawFronds(p)
     }
     this.finish()
+  }
+
+  protected override visit() {
+    if (this.boat.x < -5) this.boat.next = 0
   }
 
   // The sky, island and sand never move, so they are painted once per size; the sea is drawn over the sand each frame

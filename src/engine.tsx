@@ -14,6 +14,21 @@ export interface Scene {
   resize(W: number, H: number): void
   step(dt: number): void
   render(): void
+  // Optional: what the OpenCode agent is doing. Scenes bring on a rare visitor when a task is done and turn overcast
+  // after an error until the agent works again; the engine itself speeds up while busy and dims after an error.
+  react?(event: AgentEvent): void
+}
+
+export const AGENT_EVENTS = ["busy", "idle", "done", "error"] as const
+export type AgentEvent = (typeof AGENT_EVENTS)[number]
+
+// Parses WALLPAPER_EVENTS ("busy@2,done@12,error@40"): agent events to play at those seconds, for testing reactions.
+export function parseEvents(spec = "") {
+  return spec.split(",").flatMap((part) => {
+    const [name, at] = part.trim().split("@")
+    const event = AGENT_EVENTS.find((e) => e === name)
+    return event && at && Number.isFinite(Number(at)) ? [{ event, at: Number(at) }] : []
+  })
 }
 
 export interface Wallpaper {
@@ -221,6 +236,9 @@ const HYSTERESIS = 150
 const PERSISTENCE = 0.45
 // How often the scene advances and redraws; wallpapers move slowly, so this stays low to save CPU and output.
 const FPS = 15
+// While the agent works the scene runs a little faster, least of all when calm; after an error it dims slightly.
+const BUSY_PACE = { calm: 1.12, lively: 1.25, teeming: 1.4 }
+const ERROR_SHADE = 0.85
 // Real-pixel mode: scene pixels per character cell. Cells are about twice as tall as wide, so 3x6 keeps pixels square.
 const PX_W = 3
 const PX_H = 6
@@ -384,6 +402,7 @@ export interface Engine {
   readonly wallpaper: Wallpaper | undefined
   start(wallpaper: Wallpaper, settings: Settings): void
   stop(): void
+  react(event: AgentEvent): void
 }
 
 // Post-processes OpenCode's final frame: cells painted with neutral OpenCode theme surfaces are replaced by the scene, drawn
@@ -403,6 +422,11 @@ export function createEngine(
   let wallpaper: Wallpaper | undefined
   let settings: Settings | undefined
   let scene: Scene | undefined
+  // The agent's state, kept across wallpaper switches; pace and shade ease toward it.
+  let busy = false
+  let failed = false
+  let pace = 1
+  let shade = 1
   let frames = 0
   let dumped = false
   let base = -2
@@ -616,15 +640,18 @@ export function createEngine(
     if (advanced) {
       const dt = lastStep ? Math.min(0.2, (now - lastStep) / 1000) : 1 / FPS
       lastStep = now
-      scene.step(dt)
+      const ease = 1 - Math.exp(-dt / 2.5)
+      pace += ((busy ? BUSY_PACE[settings!.activity] : 1) - pace) * ease
+      shade += ((failed ? ERROR_SHADE : 1) - shade) * ease
+      scene.step(dt * pace)
       scene.render()
     }
-    paint(buf, px, scene.W, scene.H, advanced, pixels, DESATURATE[settings!.time])
+    paint(buf, px, scene.W, scene.H, advanced, pixels, DESATURATE[settings!.time], shade)
   }
 
   // Everything after the scene has drawn its frame. It never touches the scene object: each wallpaper's scene is a
   // different class, and the optimizer would otherwise fall back to slow code for this whole function after a switch.
-  const paint = (buf: OptimizedBuffer, px: Uint8Array, PW: number, PH: number, advanced: boolean, pixels: boolean, desaturate: number) => {
+  const paint = (buf: OptimizedBuffer, px: Uint8Array, PW: number, PH: number, advanced: boolean, pixels: boolean, desaturate: number, shade: number) => {
     const W = buf.width
     const H = buf.height
     if (advanced) {
@@ -633,7 +660,7 @@ export function createEngine(
       for (let p = 0; p < px.length; p += 4) {
         const l = px[p] * 0.2126 + px[p + 1] * 0.7152 + px[p + 2] * 0.0722
         for (let c = 0; c < 3; c++) {
-          const v = px[p + c] + (l - px[p + c]) * desaturate
+          const v = (px[p + c] + (l - px[p + c]) * desaturate) * shade
           const h = fresh ? v : history[p + c] * PERSISTENCE + v * (1 - PERSISTENCE)
           history[p + c] = h
           px[p + c] = h
@@ -792,6 +819,8 @@ export function createEngine(
       wallpaper = next
       settings = chosen
       scene = next.create(chosen)
+      if (busy) scene.react?.("busy")
+      if (failed) scene.react?.("error")
       renderer.addPostProcessFn(postProcess)
       lastStep = 0
       lastTarget = ""
@@ -817,6 +846,12 @@ export function createEngine(
       if (savedTransport !== undefined) renderer.kittyImageTransport = savedTransport
       savedTransport = undefined
       renderer.requestRender()
+    },
+    react(event) {
+      log(`agent ${event}`)
+      busy = event === "busy"
+      if (event !== "idle") failed = event === "error"
+      scene?.react?.(event)
     },
   }
   return engine

@@ -156,6 +156,7 @@ class Space extends Canvas {
       if (s.x < 0) s.x += this.A
     }
     this.stepComet(dt)
+    this.stepGloom(dt)
     if (this.activity !== "calm") {
       this.travel(this.station, 0.12, 20, cdt)
       this.travel(this.satellite, 0.18, 30, cdt)
@@ -192,6 +193,10 @@ class Space extends Canvas {
       this.drawUfo()
     }
     this.finish()
+  }
+
+  protected override visit() {
+    if (this.comet.x < -5) this.comet.next = 0
   }
 
   // The nebula, the Milky Way and the far half of the rings never move, so they are painted once per size.
@@ -361,7 +366,8 @@ class Space extends Canvas {
     const { W, H, hdr, look } = this
     if (look.lighting === "night") return
     const [sx, sy] = this.starPos
-    const strength = look.lighting === "front" ? 1 : 1.4
+    // After an error the star dims, as if behind a passing dust cloud.
+    const strength = (look.lighting === "front" ? 1 : 1.4) * (1 - smoothstep(0, 1, this.gloom) * 0.6)
     const reach = 0.45 * H
     for (let y = Math.max(0, Math.floor(sy - reach)); y < Math.min(H, sy + reach); y++)
       for (let x = Math.max(0, Math.floor(sx - reach)); x < Math.min(W, sx + reach); x++) {
