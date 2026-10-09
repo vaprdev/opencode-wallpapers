@@ -1,4 +1,4 @@
-import { deflateSync } from "node:zlib"
+import { deflateSync, inflateSync } from "node:zlib"
 
 const table = new Uint32Array(256).map((_, n) => {
   let c = n
@@ -42,4 +42,23 @@ export function encodePng(rgba: Uint8Array, width: number, height: number) {
     o += p.length
   }
   return png
+}
+
+// Decodes the PNGs encodePng writes: 8-bit RGBA, unfiltered rows.
+export function decodePng(png: Uint8Array) {
+  const view = new DataView(png.buffer, png.byteOffset, png.byteLength)
+  const width = view.getUint32(16)
+  const height = view.getUint32(20)
+  if (png[24] !== 8 || png[25] !== 6) throw new Error("only 8-bit RGBA PNGs are supported")
+  const idat: Uint8Array[] = []
+  for (let o = 8; o < png.length; o += 12 + view.getUint32(o)) {
+    if (new TextDecoder().decode(png.subarray(o + 4, o + 8)) === "IDAT") idat.push(png.subarray(o + 8, o + 8 + view.getUint32(o)))
+  }
+  const raw = inflateSync(Buffer.concat(idat))
+  const rgba = new Uint8Array(width * height * 4)
+  for (let y = 0; y < height; y++) {
+    if (raw[y * (width * 4 + 1)] !== 0) throw new Error("only unfiltered PNG rows are supported")
+    rgba.set(raw.subarray(y * (width * 4 + 1) + 1, (y + 1) * (width * 4 + 1)), y * width * 4)
+  }
+  return { rgba, width, height }
 }
