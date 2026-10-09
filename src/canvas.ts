@@ -51,8 +51,9 @@ export abstract class Canvas {
   private colB = new Int32Array(0)
   private colF = new Float32Array(0)
 
-  // How overcast the scene is: eases to 1 after the agent fails and back to 0 once it works again. Scenes call
-  // stepGloom from step and darken their light or bring in clouds by it.
+  // How overcast the scene is: eases to 1 after the agent fails and back to 0 with any other event (the engine sends
+  // idle once an error is a couple of minutes old). Scenes call stepGloom from step and darken their light or bring in
+  // clouds by it.
   protected gloom = 0
   private gloomy = false
 
@@ -60,7 +61,7 @@ export abstract class Canvas {
   abstract render(): void
 
   react(event: AgentEvent) {
-    if (event !== "idle") this.gloomy = event === "error"
+    this.gloomy = event === "error"
     if (event === "done") this.visit()
   }
 

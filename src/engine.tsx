@@ -238,6 +238,8 @@ const FPS = 15
 // While the agent works the scene runs a little faster, least of all when calm; after an error it dims slightly.
 const BUSY_PACE = { calm: 1.12, lively: 1.25, teeming: 1.4 }
 const ERROR_SHADE = 0.85
+// An error's gloom lifts on its own after this long, if the agent hasn't started working again first.
+const GLOOM_MS = 120_000
 // Saver mode's rate after IDLE_MS without keyboard, mouse or agent activity.
 const IDLE_FPS = 5
 const IDLE_MS = 30_000
@@ -434,6 +436,7 @@ export function createEngine(
   // The agent's state, kept across wallpaper switches; pace and shade ease toward it.
   let busy = false
   let failed = false
+  let lifting: ReturnType<typeof setTimeout> | undefined
   let pace = 1
   let shade = 1
   // The outgoing scene while a crossfade runs, and how far the incoming one has faded in (0 to 1) over fadeLength seconds.
@@ -944,8 +947,10 @@ export function createEngine(
       if (scene) {
         // Going back to the outgoing scene reverses the fade. Otherwise the more visible of the two fades out.
         const back = shows(from?.wallpaper, from?.settings) ? from : undefined
+        // Created first, so a scene that throws leaves the current one running.
+        const incoming = back ? back.scene : create(next, chosen)
         if (back || !from || fade >= 0.5) from = { scene, wallpaper: wallpaper!, settings: settings! }
-        scene = back ? back.scene : create(next, chosen)
+        scene = incoming
         fade = back ? 1 - fade : 0
         wallpaper = next
         settings = chosen
@@ -954,10 +959,11 @@ export function createEngine(
         lastTarget = ""
         return
       }
+      const created = create(next, chosen)
       engine.stop()
       wallpaper = next
       settings = chosen
-      scene = create(next, chosen)
+      scene = created
       renderer.addPostProcessFn(postProcess)
       lastStep = 0
       lastTarget = ""
@@ -1002,7 +1008,9 @@ export function createEngine(
     react(event) {
       log(`agent ${event}`)
       busy = event === "busy"
-      if (event !== "idle") failed = event === "error"
+      failed = event === "error"
+      clearTimeout(lifting)
+      if (failed) lifting = setTimeout(() => engine.react("idle"), GLOOM_MS)
       scene?.react?.(event)
       from?.scene.react?.(event)
     },

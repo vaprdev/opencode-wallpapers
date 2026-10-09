@@ -11,7 +11,8 @@ export interface Scene {
   step(dt: number): void
   render(): void
   // Optional: what the OpenCode agent is doing. Scenes bring on a rare visitor when a task is done and turn overcast
-  // after an error until the agent works again; the engine itself speeds up while busy and dims after an error.
+  // after an error until the next event (the engine sends idle a couple of minutes later); the engine itself speeds up
+  // while busy and dims after an error.
   react?(event: AgentEvent): void
   // Optional reaction to a click on open background, in screen heights: x runs 0..W/H across and y 0..1 down.
   poke?(x: number, y: number): void
