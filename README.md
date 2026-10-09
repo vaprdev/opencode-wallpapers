@@ -14,6 +14,7 @@ with Unicode block characters and kept readable behind text.
 | Farm | ![Farm by day](screenshots/farm.png) | ![Farm at sunset](screenshots/farm-sunset.png) | ![Farm at night](screenshots/farm-night.png) |
 | Tundra | ![Tundra by day](screenshots/tundra.png) | ![Tundra at sunset](screenshots/tundra-sunset.png) | ![Tundra at night](screenshots/tundra-night.png) |
 | Beach | ![Beach by day](screenshots/beach.png) | ![Beach at sunset](screenshots/beach-sunset.png) | ![Beach at night](screenshots/beach-night.png) |
+| Prehistoric | ![Prehistoric by day](screenshots/prehistoric.png) | ![Prehistoric at sunset](screenshots/prehistoric-sunset.png) | ![Prehistoric at night](screenshots/prehistoric-night.png) |
 
 ## Wallpapers
 
@@ -26,6 +27,7 @@ with Unicode block characters and kept readable behind text.
 | `farm` | Rolling fields with a red barn, a turning windmill and swaying corn, and a tractor now and then. |
 | `tundra` | Snowy peaks, a frozen lake, igloos and a snowman under falling snow, with a snowy owl now and then. |
 | `beach` | Waves washing up a sandy beach between swaying palms, with a sailboat on the horizon now and then. |
+| `prehistoric` | A smoking volcano over ferns and cycads, with a T. rex stomping by now and then. |
 
 ## Install
 
@@ -67,6 +69,7 @@ Every wallpaper has three activity levels, which set how much is going on behind
 | `farm` | Barn, windmill, fields and corn | Adds grazing cows and pecking chickens | Adds a farmer, pigs in the mud and crows over the corn |
 | `tundra` | Peaks, igloos, a snowman and falling snow | Adds waddling penguins and an arctic fox | Adds a polar bear, an ice fisher and another snowman |
 | `beach` | Sea, waves, sand and palm trees | Adds leaping dolphins and seagulls | Adds a crab, a surfer, an umbrella and a sandcastle |
+| `prehistoric` | Volcano, smoke, ferns and cycads | Adds a browsing sauropod and circling pterosaurs | Adds a triceratops herd, dragonflies and a lake with something in it |
 
 ## Time of day
 
@@ -86,6 +89,8 @@ sunset from 6pm (and at dawn, 6 to 7am), night from 8pm. Pick one in the menu to
   aurora at night, with warm light from the igloos.
 - **Beach:** turquoise water by day, a glittering path under the setting sun, and a moon path at night with glowing
   bioluminescent waves.
+- **Prehistoric:** a hazy blue sky over glowing lava by day, backlit dinosaurs at sunset, and a moonlit night where
+  red and orange lava runs down the volcano, lights its smoke and shimmers on the lake.
 
 ## Terminals
 
