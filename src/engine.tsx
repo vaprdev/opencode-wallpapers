@@ -776,7 +776,8 @@ export function createEngine(
       dumped = true
       void Bun.write(
         options.dump,
-        JSON.stringify({ W, H, char: Array.from(char), fg: Array.from(fg, (v) => v & 255), bg: Array.from(bg, (v) => v & 255) }),
+        // Characters beyond ASCII live in a grapheme pool, so the frame's text comes along to recover them.
+        JSON.stringify({ W, H, char: Array.from(char), text: new TextDecoder().decode(buf.getRealCharBytes(true)), fg: Array.from(fg, (v) => v & 255), bg: Array.from(bg, (v) => v & 255) }),
       )
     }
   }

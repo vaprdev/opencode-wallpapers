@@ -8,19 +8,21 @@ const QUADS = [0x20, 0x2598, 0x259d, 0x2580, 0x2596, 0x258c, 0x259e, 0x259b, 0x2
 const CW = 8
 const CH = 16
 
-export type Cells = { W: number; H: number; char: ArrayLike<number>; fg: ArrayLike<number>; bg: ArrayLike<number> }
+export type Cells = { W: number; H: number; char: ArrayLike<number>; text?: string; fg: ArrayLike<number>; bg: ArrayLike<number> }
 
 export function cellsToPng(cells: Cells) {
   const W = cells.W * CW
   const H = cells.H * CH
   const img = new Uint8Array(W * H * 4)
+  // Cells with the top bit set point into OpenTUI's grapheme pool; the dump's text has the real characters.
+  const rows = cells.text?.split("\n").map((line) => Array.from(line, (c) => c.codePointAt(0)!))
   for (let cy = 0; cy < cells.H; cy++)
     for (let cx = 0; cx < cells.W; cx++) {
       const i = cy * cells.W + cx
-      const ch = cells.char[i]
+      const ch = cells.char[i] >= 0x80000000 ? (rows?.[cy]?.[cx] ?? 0x3f) : cells.char[i]
       const oct = ch === 0x20 ? -1 : OCTANTS.indexOf(ch)
       const quad = QUADS.indexOf(ch)
-      const gl = ch > 32 && ch < 127 ? glyph(ch) : undefined
+      const gl = oct < 0 && quad < 0 && ch > 32 ? glyph(ch) : undefined
       for (let y = 0; y < CH; y++)
         for (let x = 0; x < CW; x++) {
           const lit =

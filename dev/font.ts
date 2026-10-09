@@ -20,7 +20,17 @@ const glyphs: Uint8Array[] = DATA.map((hex) => {
   return out
 })
 
+// The few non-ASCII characters the wallpaper settings dialog uses.
+const EXTRA = new Map(
+  Object.entries({ "‹": "0008142200", "›": "0022140800", "←": "081c2a0808", "↑": "04027f0204", "→": "08082a1c08", "↓": "10207f2010" }).map(([char, hex]) => [
+    char.codePointAt(0)!,
+    Uint8Array.from({ length: 5 }, (_, i) => parseInt(hex.slice(i * 2, i * 2 + 2), 16)),
+  ]),
+)
+
 export function glyph(code: number): Uint8Array | undefined {
-  if (code < 32 || code > 126) return glyphs[31] // '?'
+  const extra = EXTRA.get(code)
+  if (extra) return extra
+  if (code < 32 || code > 126) return undefined
   return glyphs[code - 32]
 }

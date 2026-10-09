@@ -47,18 +47,12 @@ Update with `git pull` in the clone.
 
 ## Use
 
-| Command | Effect |
-| --- | --- |
-| `/wallpaper` | Open the wallpaper settings: wallpaper, activity, and time of day. ↑/↓ picks a setting, Enter or ←/→ changes it in place, Escape closes |
-| `/wallpaper ocean` | Switch to a wallpaper by id |
-| `/wallpaper off` | Turn the wallpaper off |
-| `/wallpaper calm` | Scenery with rare events (default) |
-| `/wallpaper lively` | A few creatures |
-| `/wallpaper teeming` | The full cast |
-| `/wallpaper day` | Daytime; also `sunset` and `night` |
-| `/wallpaper auto` | Time of day follows your clock (default) |
+Type `/wallpaper` to open the wallpaper menu:
 
-The same actions are in the command palette under **Wallpapers**. Your choice persists across restarts.
+![The wallpaper menu](screenshots/menu.png)
+
+Use ↑/↓ to pick a setting, and Enter or ←/→ to change it. The wallpaper changes as you go, and Escape closes the
+menu. Your choice is kept across restarts.
 
 ## Activity
 
@@ -77,7 +71,7 @@ Every wallpaper has three activity levels, which set how much is going on behind
 ## Time of day
 
 Every wallpaper has a day, sunset and night look. By default the time of day follows your clock: day from 7am,
-sunset from 6pm (and at dawn, 6 to 7am), night from 8pm. Pick one in the picker to keep it fixed.
+sunset from 6pm (and at dawn, 6 to 7am), night from 8pm. Pick one in the menu to keep it fixed.
 
 - **Ocean:** sunlit water by day, golden light at sunset, and at night dark moonlit water with glowing plankton
   and, in teeming, a diver's torch.
