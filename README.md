@@ -35,7 +35,17 @@ with Unicode block characters and kept readable behind text.
 
 ## Install
 
-Requires OpenCode 2. Clone the repository into OpenCode's plugin directory and restart OpenCode:
+Requires OpenCode 2. Install the plugin and restart OpenCode:
+
+```sh
+opencode plugin add opencode-wallpapers
+```
+
+This adds `opencode-wallpapers` to `plugins` in `~/.config/opencode/cli.json`. Add `@0.1.0` to pin a version. Update
+with `opencode plugin update opencode-wallpapers`, and uninstall with `opencode plugin remove opencode-wallpapers`
+(include the version if you pinned one).
+
+To run from source instead, clone the repository into OpenCode's plugin directory:
 
 ```sh
 git clone https://github.com/vaprdev/opencode-wallpapers.git ~/.config/opencode/plugins/wallpapers
@@ -49,7 +59,7 @@ To keep the clone elsewhere, add its absolute path to `plugins` in `~/.config/op
 }
 ```
 
-Update with `git pull` in the clone.
+Update a clone with `git pull`.
 
 ## Use
 
