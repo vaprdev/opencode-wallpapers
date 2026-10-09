@@ -8,7 +8,9 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "check": "bun dev/check.ts"
+    "check": "bun dev/check.ts",
+    "screenshots": "bun dev/screenshots.ts",
+    "screenshots:update": "bun dev/screenshots.ts --update"
   },
   "peerDependencies": {
     "@opentui/core": ">=0.5.14",

@@ -1,5 +1,6 @@
 // Renders a wallpaper's scene directly (no terminal conversion) to PNGs at the given scene times in seconds:
 // bun dev/snap.ts <wallpaper> [calm|lively|teeming] [day|sunset|night] [seconds...]
+import "./seed"
 import { mkdirSync } from "node:fs"
 import { ACTIVITIES, TIMES } from "../src/engine"
 import { WALLPAPERS } from "../wallpapers"
