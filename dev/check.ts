@@ -2,8 +2,8 @@
 // flicker (cells whose glyph changes per frame; lower is calmer): bun dev/check.ts [wallpaper...]
 import { mkdirSync, rmSync } from "node:fs"
 import { ACTIVITIES, TIMES } from "../src/engine"
-import { WALLPAPERS } from "../wallpapers"
 import { H, W, mockScreen, text } from "./mock"
+import { wallpapers } from "./wallpapers"
 
 mkdirSync("dev/out", { recursive: true })
 const debug = `${process.cwd()}/dev/out/check.log`
@@ -12,11 +12,11 @@ process.env.WALLPAPER_DEBUG = debug
 process.env.WALLPAPER_OCTANTS = "1"
 
 const ids = process.argv.slice(2)
-const unknown = ids.filter((id) => !WALLPAPERS.some((w) => w.id === id))
-if (unknown.length) throw new Error(`unknown wallpaper ${unknown.join(", ")}; available: ${WALLPAPERS.map((w) => w.id).join(", ")}`)
+const unknown = ids.filter((id) => !wallpapers.some((w) => w.id === id))
+if (unknown.length) throw new Error(`unknown wallpaper ${unknown.join(", ")}; available: ${wallpapers.map((w) => w.id).join(", ")}`)
 const screen = mockScreen()
 let failed = false
-const runs = (ids.length ? WALLPAPERS.filter((w) => ids.includes(w.id)) : WALLPAPERS).flatMap((w) => ACTIVITIES.flatMap((activity) => TIMES.map((time) => ({ wallpaper: w, activity, time }))))
+const runs = (ids.length ? wallpapers.filter((w) => ids.includes(w.id)) : wallpapers).flatMap((w) => ACTIVITIES.flatMap((activity) => TIMES.map((time) => ({ wallpaper: w, activity, time }))))
 for (const { wallpaper, activity, time } of runs) {
   screen.engine.start(wallpaper, { activity, time })
   let previous = new Uint32Array(W * H)

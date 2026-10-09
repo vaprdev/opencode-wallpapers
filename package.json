@@ -4,7 +4,8 @@
   "type": "module",
   "license": "MIT",
   "exports": {
-    "./tui": "./tui.tsx"
+    "./tui": "./tui.tsx",
+    "./api": "./src/api.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

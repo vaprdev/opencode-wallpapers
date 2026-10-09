@@ -2,14 +2,18 @@ import { Plugin } from "@opencode/plugin/tui"
 import { RGBA, TextAttributes } from "@opentui/core"
 import { For, createEffect, createSignal } from "solid-js"
 import { ACTIVITIES, TIMES, createEngine, type Activity, type Time } from "./src/engine"
+import { loadWallpapers } from "./src/load"
 import { WALLPAPERS } from "./wallpapers"
 
 export default Plugin.define({
   id: "wallpapers",
-  setup(context) {
+  async setup(context) {
     const [stored, update] = context.storage.store<{ wallpaper: string; activity?: Activity; time?: Time | "auto" }>("wallpapers", {
       initial: { wallpaper: "", activity: "calm", time: "auto" },
     })
+    const external = await loadWallpapers(context.options.wallpapers, WALLPAPERS)
+    if (external.skipped.length) context.ui.toast.show({ message: `Skipped wallpapers:\n${external.skipped.join("\n")}`, variant: "error" })
+    const wallpapers = [...WALLPAPERS, ...external.wallpapers]
     const engine = createEngine(context, { dump: process.env.WALLPAPER_DUMP })
     // Environment overrides for development; they win over the stored choice.
     const pinned = process.env.WALLPAPER
@@ -49,8 +53,8 @@ export default Plugin.define({
         })
         return { message: t ? `Wallpaper time: ${t}` : `Wallpaper time follows your clock (${timeAt(new Date())} now)` }
       }
-      const wallpaper = WALLPAPERS.find((w) => w.id === arg)
-      if (!wallpaper) return { message: `No wallpaper "${arg}". Available: ${WALLPAPERS.map((w) => w.id).join(", ")}`, error: true }
+      const wallpaper = wallpapers.find((w) => w.id === arg)
+      if (!wallpaper) return { message: `No wallpaper "${arg}". Available: ${wallpapers.map((w) => w.id).join(", ")}`, error: true }
       await update((draft) => {
         draft.wallpaper = arg
       })
@@ -67,17 +71,17 @@ export default Plugin.define({
     const rows: Row[] = [
       {
         title: "Wallpaper",
-        values: () => ["off", ...WALLPAPERS.map((w) => w.id)],
+        values: () => ["off", ...wallpapers.map((w) => w.id)],
         value: () => stored.wallpaper || "off",
-        label: (v) => WALLPAPERS.find((w) => w.id === v)?.name ?? "Off",
-        describe: (v) => WALLPAPERS.find((w) => w.id === v)?.description ?? "No wallpaper",
+        label: (v) => wallpapers.find((w) => w.id === v)?.name ?? "Off",
+        describe: (v) => wallpapers.find((w) => w.id === v)?.description ?? "No wallpaper",
       },
       {
         title: "Activity",
         values: () => ACTIVITIES,
         value: activity,
         label: capitalize,
-        describe: (v) => (WALLPAPERS.find((w) => w.id === stored.wallpaper) ?? WALLPAPERS[0]).activity[v as Activity],
+        describe: (v) => (wallpapers.find((w) => w.id === stored.wallpaper) ?? wallpapers[0]).activity[v as Activity],
       },
       {
         title: "Time of day",
@@ -180,10 +184,15 @@ export default Plugin.define({
       append: "app",
       render() {
         createEffect(() => {
-          const wallpaper = WALLPAPERS.find((w) => w.id === (pinned ?? stored.wallpaper))
+          const wallpaper = wallpapers.find((w) => w.id === (pinned ?? stored.wallpaper))
           const level = ACTIVITIES.find((a) => a === pinnedActivity) ?? activity()
-          if (wallpaper) engine.start(wallpaper, { activity: level, time: time() })
-          else engine.stop()
+          if (!wallpaper) return engine.stop()
+          // Wallpapers from other packages may throw; that must not take down the plugin and its commands.
+          try {
+            engine.start(wallpaper, { activity: level, time: time() })
+          } catch (error) {
+            notify(`${wallpaper.name} wallpaper failed to start: ${error instanceof Error ? error.message : String(error)}`, "error")
+          }
         })
         context.keymap.layer(() => ({
           mode: "global",

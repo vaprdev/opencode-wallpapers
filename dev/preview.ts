@@ -2,16 +2,16 @@
 // bun dev/preview.ts <wallpaper> [calm|lively|teeming] [day|sunset|night] [seconds]
 import { mkdirSync } from "node:fs"
 import { ACTIVITIES, TIMES } from "../src/engine"
-import { WALLPAPERS } from "../wallpapers"
 import { cellsToPng } from "./cells"
 import { FPS, H, W, mockScreen, text } from "./mock"
+import { wallpapers } from "./wallpapers"
 
 const [id, ...rest] = process.argv.slice(2)
 const activity = ACTIVITIES.find((a) => rest.includes(a)) ?? "calm"
 const time = TIMES.find((t) => rest.includes(t)) ?? "day"
 const seconds = rest.find((arg) => /^[\d.]+$/.test(arg)) ?? "20"
-const wallpaper = WALLPAPERS.find((w) => w.id === id)
-if (!wallpaper) throw new Error(`usage: bun dev/preview.ts <${WALLPAPERS.map((w) => w.id).join("|")}> [seconds]`)
+const wallpaper = wallpapers.find((w) => w.id === id)
+if (!wallpaper) throw new Error(`usage: bun dev/preview.ts <${wallpapers.map((w) => w.id).join("|")}> [seconds]`)
 process.env.WALLPAPER_OCTANTS = "1"
 mkdirSync("dev/out", { recursive: true })
 const screen = mockScreen()

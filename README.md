@@ -107,24 +107,8 @@ per character cell. Wallpapers update at 15 frames per second.
 
 ## Add a wallpaper
 
-1. Create `wallpapers/<id>.ts`. Extend `Canvas` from `src/canvas.ts`, implement `step(dt)` and `render()`, and export
-   a `Wallpaper` with an id, name, description, scrim colors for each time of day, what each activity level shows, and
-   `create({ activity, time })`.
-   `wallpapers/ocean.ts` is the example.
-2. Add it to `wallpapers/index.ts`.
-3. Check it:
-
-```sh
-bun install
-bun run typecheck
-bun dev/check.ts <id>            # errors, frame cost, and flicker at every activity level and time of day
-bun dev/snap.ts <id> teeming night 30  # scene PNGs at an activity level, time of day, and times
-bun dev/preview.ts <id> 20       # terminal-cell rendering behind text, as a PNG
-bun dev/pixel-check.ts <id>      # real-pixel mode against a mock kitty renderer
-```
-
-`dev/pty.ts` and `dev/pty-kitty.ts` drive a real OpenCode in a pseudo-terminal, and `WALLPAPER_DUMP=<file>` saves one
-frame of terminal cells that `dev/cells.ts` turns into a PNG.
+[CONTRIBUTING.md](CONTRIBUTING.md) explains how wallpapers work and the dev tools for making them, and how to load
+wallpapers from a package of your own with the plugin's `wallpapers` option.
 
 ## License
 
