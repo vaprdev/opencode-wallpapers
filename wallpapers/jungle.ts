@@ -1,6 +1,7 @@
 import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
 import type { Activity, Settings, Time, Wallpaper } from "../src/engine"
 import { TAU, clamp, fbm1, hash, lerp, rand, smoothstep, type RGB } from "../src/math"
+import { WeatherLayer } from "../src/weather"
 
 // The scene runs slower than real time, which keeps it calm behind text.
 const TIME_SCALE = 0.35
@@ -66,6 +67,10 @@ const LOOKS: Record<Time, Look> = {
   },
 }
 
+// The rainy season (summer and autumn) thickens the mist toward these colors, dims the light shafts and swells the
+// waterfall.
+const RAINY_MIST: Record<Time, RGB> = { day: [0.36, 0.46, 0.42], sunset: [0.3, 0.16, 0.16], night: [0.01, 0.04, 0.07] }
+
 // Daytime colors.
 const TRUNK: RGB = [0.24, 0.17, 0.1]
 const CANOPY: RGB = [0.1, 0.28, 0.09]
@@ -115,6 +120,8 @@ class Jungle extends Canvas {
   private creatureTime = 0
   private readonly activity: Activity
   private readonly look: Look
+  private readonly weather: WeatherLayer
+  private readonly rainy: boolean
   private lighting: Lighting = { style: "front", dir: DAYLIGHT }
   private background = new Float32Array(0)
   private leaves: Leaf[] = []
@@ -128,7 +135,13 @@ class Jungle extends Canvas {
   constructor(settings: Settings) {
     super()
     this.activity = settings.activity
-    this.look = LOOKS[settings.time]
+    const rainy = settings.season === "summer" || settings.season === "autumn"
+    this.rainy = rainy
+    const look = LOOKS[settings.time]
+    const wet = RAINY_MIST[settings.time]
+    this.look = rainy ? { ...look, mist: [mixRGB(look.mist[0], wet, 0.55), mixRGB(look.mist[1], wet, 0.4), look.mist[2]], far: mixRGB(look.far, wet, 0.4), shafts: look.shafts * 0.25 } : look
+    // Without a weather setting, the rainy season brings a light shower.
+    this.weather = new WeatherLayer(settings.weather ?? (rainy ? "rain" : "clear"), settings.time, 0.66, !settings.weather)
     const count = this.look.night ? 0 : { calm: 0, lively: 2, teeming: 4 }[settings.activity]
     this.butterflies = Array.from({ length: count }, (_, i) => ({ x: 0.3 + i * 0.3, y: 0.5, wx: 0.3 + i * 0.3, wy: 0.5, wanderT: 0, phase: i * 2.3 }))
     const flies = this.look.night ? { calm: 16, lively: 30, teeming: 48 }[settings.activity] : 0
@@ -154,6 +167,7 @@ class Jungle extends Canvas {
       f.y = clamp(f.y + f.vy * dt, 0.25, 0.95)
     }
     this.stepToucan(dt)
+    this.weather.step(dt)
     for (const b of this.butterflies) this.stepButterfly(b, cdt)
   }
 
@@ -172,6 +186,7 @@ class Jungle extends Canvas {
     for (const b of this.butterflies) this.drawButterfly(b)
     this.drawMotes()
     for (const l of this.leaves) this.drawLeaf(l)
+    this.weather.draw(this.hdr, this.W, this.H)
     this.finish()
   }
 
@@ -193,7 +208,7 @@ class Jungle extends Canvas {
     )
     // A rocky cliff with the waterfall pouring over it.
     const fx = 0.55 * A
-    this.falls = { x: fx * H, top: 0.27 * H, bottom: 0.66 * H, half: 0.018 * H }
+    this.falls = { x: fx * H, top: 0.27 * H, bottom: 0.66 * H, half: (this.rainy ? 0.026 : 0.018) * H }
     const rock = mixRGB(this.paint(ROCK), look.far, 0.35)
     const boulders: [number, number, number, number][] = [
       [0, 0.47, 0.085, 0.2],
