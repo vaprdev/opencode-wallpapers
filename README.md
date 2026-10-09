@@ -81,6 +81,13 @@ Type `/wallpaper` to open the wallpaper menu:
 Use ↑/↓ to pick a setting, and Enter or ←/→ to change it. The wallpaper crossfades to each choice as you go, and
 Escape closes the menu. Your choice is kept across restarts.
 
+- **Shuffle** switches to a different wallpaper every hour, or each time OpenCode starts.
+- **Per project** remembers a wallpaper for each project directory. A project starts from the global choice until you
+  pick one there.
+- **Brightness** is subtle, normal or vivid. Brighter scenes get a firmer scrim behind text, so it stays readable.
+
+With a light OpenCode theme the scene is washed out toward white and text gets a pale scrim instead of a dark one.
+
 ## Activity
 
 Every wallpaper has three activity levels, which set how much is going on behind your work:

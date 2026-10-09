@@ -49,7 +49,12 @@ export type Scrim = readonly [RGB, RGB, RGB]
 export interface Settings {
   readonly activity: Activity
   readonly time: Time
+  // Defaults to normal. Changing only this restyles the running scene instead of restarting it.
+  readonly brightness?: Brightness
 }
+
+export const BRIGHTNESSES = ["subtle", "normal", "vivid"] as const
+export type Brightness = (typeof BRIGHTNESSES)[number]
 
 // How much is going on in the scene. calm is scenery with rare events; teeming is the full cast.
 export const ACTIVITIES = ["calm", "lively", "teeming"] as const
@@ -68,18 +73,30 @@ const LOWER_HALF = 0x2584
 const BLOCKS_START = 0x2580
 const BLOCKS_END = 0x259f
 const SPACE = 32
-// Scrim reach in cells horizontally and half-cells vertically, how dark it gets, and how fast sparse text saturates it.
+// Scrim reach in cells horizontally and half-cells vertically.
 const SCRIM_X = 4
 const SCRIM_Y = 4
-const SCRIM = 0.93
-const SCRIM_GAIN = 3.5
+// Share of the distance to white that light-theme scrims keep, so dark text sits on a pale tint of the scene.
+const LIGHT_SCRIM = 0.15
 
-// Compress the scene into a range that keeps text readable on top of it.
-const EMPTY = new Uint8Array(256)
-for (let v = 0; v < 256; v++) {
-  const x = v / 255
-  const soft = (x * 1.0) / (1 + x * 0.9)
-  EMPTY[v] = Math.round(soft * 255)
+// Each brightness compresses the scene into a range that keeps text readable on top of it, after scaling it by gain,
+// and sets how far scrims cover the scene (scrim) and how fast sparse text saturates them (reach): brighter scenes
+// need firmer scrims. In a light theme the scene is instead lifted toward white, with black at wash.
+function level(gain: number, wash: number, scrim: number, reach: number) {
+  const dark = new Uint8Array(256)
+  const light = new Uint8Array(256)
+  for (let v = 0; v < 256; v++) {
+    const x = (v / 255) * gain
+    const soft = x / (1 + x * 0.9)
+    dark[v] = Math.round(soft * 255)
+    light[v] = Math.round((wash + (1 - wash) * Math.min(1, soft * 1.9)) * 255)
+  }
+  return { dark, light, scrim, reach }
+}
+const LEVELS: Record<Brightness, ReturnType<typeof level>> = {
+  subtle: level(0.6, 0.65, 0.9, 3),
+  normal: level(1, 0.5, 0.93, 3.5),
+  vivid: level(1.6, 0.35, 0.96, 4.5),
 }
 // Night scenes keep their color: it is what separates them from light text.
 const DESATURATE = { day: 0.22, sunset: 0.22, night: 0.04 }
@@ -379,14 +396,15 @@ function key(bg: Uint16Array, o: number) {
   return ((bg[o] & 255) << 16) | ((bg[o + 1] & 255) << 8) | (bg[o + 2] & 255)
 }
 
-// OpenCode theme surfaces are dark, near-neutral grays; colored backgrounds (diffs, selections, badges) are left alone.
-function isSurface(k: number) {
+// OpenCode theme surfaces are near-neutral grays, dark or (in a light theme) light; colored backgrounds (diffs,
+// selections, badges) are left alone.
+function isSurface(k: number, light: boolean) {
   if (k < 0) return true
   const r = (k >> 16) & 255
   const g = (k >> 8) & 255
   const b = k & 255
   const luma = r * 0.2126 + g * 0.7152 + b * 0.0722
-  return luma < 70 && Math.max(r, g, b) - Math.min(r, g, b) < 24
+  return (light ? luma > 170 : luma < 70) && Math.max(r, g, b) - Math.min(r, g, b) < 24
 }
 
 // A full-screen renderable at the very back of the tree, so its image placement is drawn before any UI.
@@ -470,6 +488,7 @@ export function createEngine(
   let imageCell = new Uint8Array(0)
   let grid = new Float32Array(0)
   let gridBlur = new Float32Array(0)
+  let light = false
 
   // Box-filters the scene down to the 2x4-per-cell octant grid, then applies an unsharp mask.
   const buildGrid = (px: Uint8Array, PW: number, PH: number, GW: number, GH: number) => {
@@ -567,7 +586,7 @@ export function createEngine(
   }
 
   // Builds the scene image with the text scrim and tints baked in, for the cells marked in imageCell.
-  const publishImage = (px: Uint8Array, PW: number, PH: number, W: number, H: number, MH: number, scrim: Scrim) => {
+  const publishImage = (px: Uint8Array, PW: number, PH: number, W: number, H: number, MH: number, scrim: Scrim, look: (typeof LEVELS)[Brightness], curve: Uint8Array) => {
     if (imagePixels.length !== PW * PH * 4) imagePixels = new Uint8Array(PW * PH * 4)
     const img = imagePixels
     const cw = PW / W
@@ -575,7 +594,7 @@ export function createEngine(
     for (let iy = 0; iy < PH; iy++) {
       const row = Math.min(H - 1, Math.floor(iy / chh))
       const depth = row / Math.max(1, H - 1)
-      const [deepR, deepG, deepB] = scrimAt(scrim, depth)
+      const [deepR, deepG, deepB] = scrimAt(scrim, depth, light)
       const my = clamp01((iy + 0.5) / (chh / 2) - 0.5, MH - 1)
       const my0 = Math.floor(my)
       const my1 = Math.min(MH - 1, my0 + 1)
@@ -590,11 +609,11 @@ export function createEngine(
         const m =
           (mask[my0 * W + mx0] * (1 - fx) + mask[my0 * W + mx1] * fx) * (1 - fy) +
           (mask[my1 * W + mx0] * (1 - fx) + mask[my1 * W + mx1] * fx) * fy
-        const k = SCRIM * Math.min(1, m * SCRIM_GAIN)
+        const k = look.scrim * Math.min(1, m * look.reach)
         const p = (iy * PW + ix) * 4
-        img[p] = EMPTY[px[p]] * (1 - k) + deepR * k
-        img[p + 1] = EMPTY[px[p + 1]] * (1 - k) + deepG * k
-        img[p + 2] = EMPTY[px[p + 2]] * (1 - k) + deepB * k
+        img[p] = curve[px[p]] * (1 - k) + deepR * k
+        img[p + 1] = curve[px[p + 1]] * (1 - k) + deepG * k
+        img[p + 2] = curve[px[p + 2]] * (1 - k) + deepB * k
         img[p + 3] = 255
         applyTint(img, p, cellTint[ci])
       }
@@ -773,6 +792,7 @@ export function createEngine(
     const cells = W * H
 
     if (frames++ % 10 === 0) {
+      light = context.themeMode === "light"
       counts.clear()
       for (let i = 0; i < cells; i++) {
         const k = key(bg, i * 4)
@@ -784,8 +804,10 @@ export function createEngine(
       surfaces.clear()
       tints.clear()
       surfaces.add(base)
-      for (const [k, n] of counts) if (k !== base && n > cells * 0.002 && isSurface(k)) surfaces.add(k)
+      for (const [k, n] of counts) if (k !== base && n > cells * 0.002 && isSurface(k, light)) surfaces.add(k)
     }
+    const look = LEVELS[settings!.brightness ?? "normal"]
+    const curve = light ? look.light : look.dark
 
     // Soft scrim: a blurred mask of where text is, at half-cell vertical resolution. The scene fades to
     // near-black under and around text with no hard edge, so letters and the spaces between them match.
@@ -833,10 +855,12 @@ export function createEngine(
     layerPlaced = false
 
     const q = quad
+    const cover = look.scrim
+    const reach = look.reach
     for (let y = 0; y < H; y++) {
       const mTop = y * 2 * W
       const mBottom = (y * 2 + 1) * W
-      const [deepR, deepG, deepB] = scrimAt(scrim, y / Math.max(1, H - 1))
+      const [deepR, deepG, deepB] = scrimAt(scrim, y / Math.max(1, H - 1), light)
       for (let x = 0; x < W; x++) {
         const i = y * W + x
         if (imageCell[i]) continue
@@ -845,15 +869,15 @@ export function createEngine(
         const edgeTint = isBlock(ch) ? tintOf(fgKey(fg, o)) : NO_TINT
         const edge = edgeTint !== NO_TINT
         if (!surface[i] && !edge) continue
-        const st = SCRIM * Math.min(1, mask[mTop + x] * SCRIM_GAIN)
-        const sb = SCRIM * Math.min(1, mask[mBottom + x] * SCRIM_GAIN)
+        const st = cover * Math.min(1, mask[mTop + x] * reach)
+        const sb = cover * Math.min(1, mask[mBottom + x] * reach)
         // Eight square sub-pixels per cell, 2 wide by 4 tall, in row-major order.
         for (let s = 0; s < 8; s++) {
           const a = ((y * 4 + (s >> 1)) * GW + x * 2 + (s & 1)) * 3
           const k = s < 4 ? st : sb
-          q[s * 3] = EMPTY[grid[a] | 0] * (1 - k) + deepR * k
-          q[s * 3 + 1] = EMPTY[grid[a + 1] | 0] * (1 - k) + deepG * k
-          q[s * 3 + 2] = EMPTY[grid[a + 2] | 0] * (1 - k) + deepB * k
+          q[s * 3] = curve[grid[a] | 0] * (1 - k) + deepR * k
+          q[s * 3 + 1] = curve[grid[a + 1] | 0] * (1 - k) + deepG * k
+          q[s * 3 + 2] = curve[grid[a + 2] | 0] * (1 - k) + deepB * k
         }
         if (edge && (ch === UPPER_HALF || ch === LOWER_HALF)) {
           const f = ch === UPPER_HALF ? 0 : 12
@@ -889,7 +913,7 @@ export function createEngine(
 
     // Build next frame's image now; the back layer places it before OpenCode draws, so text lands on top.
     if (pixels && (advanced || !nextImage)) {
-      const image = publishImage(px, PW, PH, W, H, MH, scrim)
+      const image = publishImage(px, PW, PH, W, H, MH, scrim, look, curve)
       if (image) {
         nextImage?.dispose()
         nextImage = image
@@ -913,7 +937,12 @@ export function createEngine(
     },
     start(next, chosen, seconds = FADE) {
       const shows = (w?: Wallpaper, s?: Settings) => w === next && s?.activity === chosen.activity && s.time === chosen.time
-      if (shows(wallpaper, settings)) return
+      // Only brightness changed: restyle the running scene.
+      if (shows(wallpaper, settings)) {
+        settings = chosen
+        renderer.requestRender()
+        return
+      }
       if (scene) {
         // Going back to the outgoing scene reverses the fade. Otherwise the more visible of the two fades out.
         const back = shows(from?.wallpaper, from?.settings) ? from : undefined
@@ -983,13 +1012,15 @@ export function createEngine(
   return engine
 }
 
-// The scrim color at a depth (0 top, 1 bottom), blending top to middle to bottom.
-function scrimAt(scrim: Scrim, depth: number): RGB {
+// The scrim color at a depth (0 top, 1 bottom), blending top to middle to bottom; in a light theme, a pale tint of it.
+function scrimAt(scrim: Scrim, depth: number, light: boolean): RGB {
   const upper = depth < 0.5
   const from = upper ? scrim[0] : scrim[1]
   const to = upper ? scrim[1] : scrim[2]
   const t = upper ? depth * 2 : depth * 2 - 1
-  return [from[0] + (to[0] - from[0]) * t, from[1] + (to[1] - from[1]) * t, from[2] + (to[2] - from[2]) * t]
+  const color: RGB = [from[0] + (to[0] - from[0]) * t, from[1] + (to[1] - from[1]) * t, from[2] + (to[2] - from[2]) * t]
+  if (!light) return color
+  return [255 - (255 - color[0]) * LIGHT_SCRIM, 255 - (255 - color[1]) * LIGHT_SCRIM, 255 - (255 - color[2]) * LIGHT_SCRIM]
 }
 
 function blendScrim(a: Scrim, b: Scrim, t: number): Scrim {
