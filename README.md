@@ -121,7 +121,11 @@ bun dev/check.ts <id>            # errors, frame cost, and flicker at every acti
 bun dev/snap.ts <id> teeming night 30  # scene PNGs at an activity level, time of day, and times
 bun dev/preview.ts <id> 20       # terminal-cell rendering behind text, as a PNG
 bun dev/pixel-check.ts <id>      # real-pixel mode against a mock kitty renderer
+bun run screenshots:update       # re-render the gallery screenshots (teeming at 45 s)
 ```
+
+CI runs the typecheck, `dev/check.ts` (failing on errors and flicker) and `bun run screenshots`, which fails when the
+gallery is out of date. Dev renders seed `Math.random`, so they are reproducible.
 
 `dev/pty.ts` and `dev/pty-kitty.ts` drive a real OpenCode in a pseudo-terminal, and `WALLPAPER_DUMP=<file>` saves one
 frame of terminal cells that `dev/cells.ts` turns into a PNG.
