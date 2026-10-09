@@ -1,12 +1,39 @@
 {
   "name": "opencode-wallpapers",
-  "private": true,
+  "version": "0.1.0",
+  "description": "Animated wallpapers for the OpenCode terminal UI",
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "tui",
+    "terminal",
+    "wallpaper",
+    "animation",
+    "opentui"
+  ],
+  "homepage": "https://github.com/vaprdev/opencode-wallpapers#readme",
+  "bugs": {
+    "url": "https://github.com/vaprdev/opencode-wallpapers/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vaprdev/opencode-wallpapers.git"
+  },
   "type": "module",
   "license": "MIT",
   "exports": {
-    "./tui": "./tui.tsx"
+    "./tui": "./dist/tui.js"
+  },
+  "files": [
+    "dist",
+    "CHANGELOG.md"
+  ],
+  "publishConfig": {
+    "access": "public"
   },
   "scripts": {
+    "build": "bun dev/build.ts",
+    "prepack": "bun run build",
     "typecheck": "tsc --noEmit",
     "check": "bun dev/check.ts"
   },
@@ -14,6 +41,17 @@
     "@opentui/core": ">=0.5.14",
     "@opentui/solid": ">=0.5.14",
     "solid-js": ">=1.9.0"
+  },
+  "peerDependenciesMeta": {
+    "@opentui/core": {
+      "optional": true
+    },
+    "@opentui/solid": {
+      "optional": true
+    },
+    "solid-js": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@opencode/plugin": "2.0.25",
