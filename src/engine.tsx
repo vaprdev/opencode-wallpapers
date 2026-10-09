@@ -806,6 +806,7 @@ export function createEngine(
     }
     const hit = clear && pressed === cell
     pressed = -1
+    log(`click ${event.x},${event.y} ${hit ? "pokes" : "ignored"}`)
     if (!hit || !scene?.poke) return
     scene.poke(((event.x + 0.5) / openW) * (scene.W / scene.H), (event.y + 0.5) / (open.length / openW))
     renderer.requestRender()
