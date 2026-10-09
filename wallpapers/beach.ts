@@ -1,5 +1,7 @@
 import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
+import { eggWait } from "../src/egg"
 import type { Activity, Settings, Time, Wallpaper } from "../src/engine"
+import { bird, flyAway, startle, type Flier } from "../src/flock"
 import { TAU, clamp, fbm1, hash, hash2, lerp, rand, smoothstep, type RGB } from "../src/math"
 import { driftClouds, makeClouds, makeStars, paintClouds, paintSky, paintStars, type Cloud, type Orb, type Star } from "../src/sky"
 
@@ -8,6 +10,8 @@ const TIME_SCALE = 0.35
 // Animals and people move at a quarter of scene speed.
 const CREATURE_SPEED = 0.25
 const HORIZON = 0.5
+// How long the message in a bottle stays, in scene seconds.
+const BOTTLE = 95
 
 // What changes with the time of day. Sea, sand and foam get their own colors; at night the foam glows with
 // bioluminescence instead of turning white. Objects and animals have one daytime color each, darkened by tint.
@@ -141,6 +145,10 @@ class Beach extends Canvas {
   private splashes: { x: number; y: number; vx: number; vy: number; age: number }[] = []
   private crab = { x: 0.5, dir: 1, rest: 0, phase: 0 }
   private surfer = { x: -0.2, phase: 0 }
+  private startled: Flier[] = []
+  // The easter egg: a message in a bottle drifts in, washes up on the wet sand for a while, and floats away again.
+  // t counts scene seconds.
+  private bottle = { wait: eggWait() * TIME_SCALE, t: -1 }
 
   constructor(settings: Settings) {
     super()
@@ -166,6 +174,17 @@ class Beach extends Canvas {
       s.y += s.vy * dt
     }
     this.splashes = this.splashes.filter((s) => s.age < 1.2)
+    this.startled = flyAway(this.startled, dt, this.A)
+    const b = this.bottle
+    if (b.t >= 0) b.t += dt
+    if (b.t > BOTTLE) {
+      b.t = -1
+      b.wait = eggWait() * TIME_SCALE
+    }
+    if (b.t < 0) {
+      b.wait -= dt
+      if (b.wait <= 0) b.t = 0
+    }
     if (this.activity === "teeming") {
       const c = this.crab
       c.phase += cdt * 10
@@ -182,6 +201,11 @@ class Beach extends Canvas {
     }
   }
 
+  // A few gulls take off from the sand or water below the click.
+  poke(x: number, y: number) {
+    startle(this.startled, x, Math.max(y, HORIZON + 0.08), 4)
+  }
+
   render() {
     this.hdr.set(this.background)
     paintStars(this.hdr, this.W, this.H, this.stars, this.time, 0.45, this.look.stars > 50 ? 0.5 : 0.3)
@@ -191,8 +215,10 @@ class Beach extends Canvas {
     for (const d of this.dolphins) this.drawDolphin(d)
     if (this.activity === "teeming") this.drawSurfer()
     this.drawSplashes()
+    if (this.bottle.t >= 0) this.drawBottle()
     if (this.activity !== "calm" && !this.look.night) this.drawGulls()
     if (this.activity === "teeming") this.drawCrab()
+    for (const b of this.startled) this.shape(bird(b, this.H, 0.03 * this.H, this.paint([0.75, 0.78, 0.82])), this.lighting, 0.5)
     // Trunks are drawn each frame, over the sea, since they cross the water.
     for (const p of this.palms) {
       this.drawTrunk(p)
@@ -501,6 +527,37 @@ class Beach extends Canvas {
         0.5,
       )
     }
+  }
+
+  // A green glass bottle with a cork and a rolled note inside, bobbing in on the waves, lying on the wet sand, then
+  // carried back out and away along the shore.
+  private drawBottle() {
+    const { A, H } = this
+    const t = this.bottle.t
+    const land = 0.38 * A
+    // On the wet sand, just where the highest swash reaches.
+    const beached = 0.75 + 0.01 * Math.sin(land * 2.3 + 1)
+    const come = smoothstep(0, 22, t)
+    const go = smoothstep(52, BOTTLE, t)
+    const x = lerp(lerp(-0.08, land, come), A + 0.1, go)
+    const afloat = 1 - smoothstep(18, 22, t) + smoothstep(52, 56, t)
+    const y = lerp(lerp(0.62, beached, come), 0.66, smoothstep(52, 62, t)) + Math.sin(this.time * 1.4) * 0.004 * clamp(afloat, 0, 1)
+    const tilt = 0.35 + Math.sin(this.time * 1.1) * 0.25 * clamp(afloat, 0, 1)
+    const S = 0.09 * H
+    const ca = Math.cos(tilt)
+    const sa = Math.sin(tilt)
+    const P = (u: number, v: number): [number, number] => [x * H + (u * ca - v * sa) * S, y * H + (u * sa + v * ca) * S]
+    this.shape(
+      [
+        cap(...P(-0.35, 0), ...P(0.15, 0), 0.14 * S, 0.14 * S, this.paint([0.2, 0.5, 0.3])),
+        cap(...P(0.15, 0), ...P(0.38, 0), 0.07 * S, 0.05 * S, this.paint([0.2, 0.5, 0.3])),
+        cap(...P(0.38, 0), ...P(0.46, 0), 0.055 * S, 0.055 * S, this.paint([0.5, 0.32, 0.18])),
+      ],
+      this.lighting,
+      0.6,
+    )
+    this.shape([cap(...P(-0.28, 0.01), ...P(0.08, 0.01), 0.07 * S, 0.07 * S, this.paint([0.88, 0.82, 0.62]))], this.lighting, 0.3)
+    this.add(...P(-0.1, -0.1), this.look.light[0] * 0.5, this.look.light[1] * 0.5, this.look.light[2] * 0.5)
   }
 
   // A red crab scuttling sideways across the sand, claws up, pausing now and then.
