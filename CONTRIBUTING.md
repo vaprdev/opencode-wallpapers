@@ -13,8 +13,9 @@ cp wallpapers/template.ts wallpapers/meadow.ts   # then change its id to "meadow
 WALLPAPER_MODULES=$PWD/wallpapers/meadow.ts bun dev/snap.ts meadow teeming night 30
 ```
 
-`wallpapers/template.ts` is a short, commented wallpaper with hills, a tree, a balloon and birds. It covers everything
-below. `wallpapers/beach.ts` is a complete outdoor wallpaper. `WALLPAPER_MODULES` (comma-separated absolute paths) adds
+`wallpapers/template.ts` is a short, commented wallpaper with hills, a tree, a balloon and birds. It covers the
+basics below. `wallpapers/farm.ts` is a complete outdoor wallpaper with seasons, weather, agent reactions, clicks and
+an easter egg. `WALLPAPER_MODULES` (comma-separated absolute paths) adds
 wallpapers that aren't registered in `wallpapers/index.ts` to the dev tools.
 
 ## How a wallpaper works
@@ -28,14 +29,15 @@ export const meadow: Wallpaper = {
   description: "Rolling hills with a tree under drifting clouds",
   activity: { calm: "…", lively: "…", teeming: "…" }, // what each level shows, for the menu
   scrim: { day: [top, middle, bottom], sunset: […], night: […] }, // see Scrim
-  create: (settings) => new Meadow(settings), // settings.activity and settings.time
+  create: (settings) => new Meadow(settings), // activity and time, and optionally season and weather
 }
 ```
 
-A new scene is created whenever the wallpaper, activity or time of day changes, so a scene never has to switch looks
-on its own. At 15 frames per second the engine calls `resize(W, H)` with the grid it needs, then `step(dt)` with the
-elapsed seconds, then `render()`, and reads `pixels`. Extend `Canvas` (from `src/canvas.ts`) and you only write
-`step` and `render`.
+A new scene is created whenever the wallpaper, activity, time of day, season or weather changes, so a scene never has
+to switch looks on its own; while the old scene crossfades into the new one, both run. Up to 15 times a second the
+engine calls `resize(W, H)` with the grid it needs, then `step(dt)` with the elapsed seconds (several times per frame
+when idle at 5 fps, never more than 0.1 s at a time), then `render()`, and reads `pixels`. Extend `Canvas` (from
+`src/canvas.ts`) and you only write `step` and `render`. Brightness is applied by the engine, so scenes ignore it.
 
 The grid is small: a 160x45 terminal is 320x180 sub-pixels in character mode (2x4 per cell), and 480x270 in pixel mode.
 `bun dev/snap.ts` renders at 720x400. Anything thinner than about 2 sub-pixels flickers or vanishes, so size things as
@@ -156,6 +158,17 @@ sunset scenes by about a fifth and night scenes barely, so night keeps its color
 Night must not use white or gray highlights, because OpenCode's text is white. Use saturated, tinted colors instead:
 cobalt and teal moonlight, a gold moon, amber lamps and windows, tinted stars, glowing plankton or fireflies.
 
+## Seasons and weather
+
+`settings.season` is spring, summer, autumn or winter, or missing for the classic look. Change what the season would
+really change (blossom, leaves, snow, crowds) and nothing for indoor or timeless scenes.
+
+`settings.weather` is clear, overcast, rain, snow or fog, or missing for the wallpaper's own weather. Outdoor scenes
+make one `WeatherLayer` (from `src/weather.ts`) with the weather, time of day and horizon, and call its `cover()` in
+`layout()` right after painting the sky, `step(dt)` in `step`, and `draw()` at the end of `render()` before `finish()`.
+Skip stars when `covered` is set, and color clouds with `scud` when it is. Passing `light` as the last argument gives a
+seasonal shower or flurry without the cloud deck, as the farm does in winter. `wallpapers/farm.ts` shows all of it.
+
 ## Scrim
 
 Text gets a soft scrim that fades the scene toward a dark color around it. `scrim` gives that color (0 to 255) for
@@ -171,6 +184,21 @@ Check that text stays readable with `bun dev/preview.ts` at every time of day.
 
 Check `this.activity` in the constructor (what exists) and in `step` and `render` (what moves and draws). Things can
 change with the time of day too: an owl instead of an eagle at night, fireflies instead of birds.
+
+## Agent reactions, clicks and easter eggs
+
+All optional, and all on `Scene`:
+
+- `react(event)` hears the agent: `busy`, `done`, `error` or `idle`. `Canvas` implements it: override `visit()` to
+  bring on your rare visitor when a task is done, call `stepGloom(dt)` in `step`, and darken your light or paint
+  storm clouds by `this.gloom` (0 to 1), which rises after an error and falls with the next event. `makeStorm()` and
+  `paintStorm()` in `src/sky.ts` give dark clouds that drift like the others. The engine also speeds the scene up a
+  little while the agent works and dims it after an error, so a scene that does nothing still reacts.
+- `poke(x, y)` is a click on open background, in screen heights (x from 0 to `A`, y from 0 to 1). Keep the reaction
+  small: `startle()`, `flyAway()` and `bird()` in `src/flock.ts` send a few birds up from the click.
+- For a very rare surprise, count down `eggWait() * TIME_SCALE` scene seconds (from `src/egg.ts`), and call
+  `eggWait(true)` once it is over to start the next wait. The wait is shared by every scene, so a settings change
+  doesn't restart it.
 
 ## Rules
 
@@ -202,13 +230,21 @@ a lot with machine load, so compare against an existing wallpaper measured back 
 
 ```sh
 bun run typecheck
-bun dev/check.ts [id...]                          # every activity and time: errors, ms/frame, flicker
-bun dev/snap.ts <id> [activity] [time] [seconds...] # scene PNGs in dev/out/, and ms per render
-bun dev/preview.ts <id> [activity] [time] [seconds] # terminal cells behind text, as a PNG
+bun dev/check.ts [id...] [season] [weather]       # every activity and time: errors, ms/frame, flicker
+bun dev/snap.ts <id> [activity] [time] [season] [weather] [seconds...] # scene PNGs in dev/out/, and ms per render
+bun dev/preview.ts <id> [activity] [time] [season] [weather] [seconds] # terminal cells behind text, as a PNG
 bun dev/pixel-check.ts [id] [activity] [time]     # real-pixel mode against a mock kitty terminal
+bun dev/poke.ts <id> [activity] [time] <fx> <fy> [seconds...] # click at a point (fractions of the screen)
+bun dev/fade.ts <id>:day <id>:night 50            # a frame halfway through a crossfade, and its cost
+bun dev/gif.ts <id> [activity] [time]             # a looping GIF at 3x speed in dev/out
+bun run screenshots                               # fails if the README gallery is out of date
+bun run screenshots:update                        # re-renders it (teeming at 45 s)
+bun dev/gif.ts all                                # re-renders the README's GIFs
 ```
 
 - `check.ts` runs the real engine on a mock 160x45 screen. "cells change per frame" is flicker: lower is calmer.
+  `--quiet` prints only failures, and it fails on flicker above `--max-flicker` (150) and, if given, on frames slower
+  than `--max-ms`; CI runs `--quiet --max-ms=60`. Dev renders seed `Math.random`, so they are reproducible.
   Errors thrown in `step` or `render` show up here; inside OpenCode they are only logged to `WALLPAPER_DEBUG`.
 - `snap.ts` renders the scene directly, before terminal conversion, for judging the art.
 - `preview.ts` shows what the terminal will show, scrim included.
@@ -218,7 +254,11 @@ bun dev/pixel-check.ts [id] [activity] [time]     # real-pixel mode against a mo
   `XDG_STATE_HOME` and `XDG_CACHE_HOME`) and `OPENCODE_CLI_CONFIG_CONTENT='{"plugins":["/path/to/this/repo"]}'`.
 - `WALLPAPER_DUMP=<file>` makes the plugin write one frame of terminal cells after about 8 seconds, and
   `bun dev/cells.ts <file> <png>` renders it.
-- `WALLPAPER=<id>`, `WALLPAPER_ACTIVITY` and `WALLPAPER_TIME` pin a wallpaper inside OpenCode without changing the
+- `WALLPAPER_EVENTS="busy@2,done@12,error@30"` plays agent events at those seconds, in OpenCode or `dev/snap.ts`.
+  `WALLPAPER_EGG=1` brings every easter egg on a few seconds in. `WALLPAPER_CLOCK=17:59` starts auto's clock there,
+  to watch a time-of-day fade, and `WALLPAPER_DUMP_FADE=<file>` dumps the first frame past the middle of a crossfade.
+- `WALLPAPER=<id>`, `WALLPAPER_ACTIVITY`, `WALLPAPER_TIME`, `WALLPAPER_SEASON` and `WALLPAPER_WEATHER` pin a
+  wallpaper inside OpenCode without changing the
   saved choice, and `WALLPAPER_DEBUG=<file>` logs engine errors and stats.
 
 ## Adding a wallpaper to this repository
@@ -226,16 +266,18 @@ bun dev/pixel-check.ts [id] [activity] [time]     # real-pixel mode against a mo
 1. Put it in `wallpapers/<id>.ts` as a named export, and add it to `wallpapers/index.ts`.
 2. Run `bun run typecheck` and `bun dev/check.ts <id>`, and look at `dev/snap.ts` and `dev/preview.ts` output at every
    time of day.
-3. Add it to the README's wallpaper, activity and time-of-day sections, and add `screenshots/<id>.png`,
-   `<id>-sunset.png` and `<id>-night.png`, rendered with `bun dev/snap.ts <id> teeming <time> 45`.
+3. Add it to the README's wallpaper, activity, time-of-day, agent reaction and click sections, and to the gallery and
+   GIF grid. Add its best-looking time of day to `BEST` in `dev/gif.ts`, then run `bun run screenshots:update` and
+   `bun dev/gif.ts all`.
 
 ## Your own package
 
-A wallpaper package depends on this repository and imports the API from `opencode-wallpapers/api`, which has
-`Canvas`, `cap`, `ell`, the sky and math helpers, and the `Wallpaper` types, with no OpenCode or OpenTUI dependency:
+A wallpaper package imports the API from `opencode-wallpapers/api`, which has `Canvas`, `cap`, `ell`, the sky,
+weather, flock, egg and math helpers, and the `Wallpaper` types, with no OpenCode or OpenTUI dependency. The npm
+package ships it compiled, with type declarations:
 
 ```sh
-bun add github:vaprdev/opencode-wallpapers
+bun add -d opencode-wallpapers
 ```
 
 ```ts
@@ -259,14 +301,12 @@ to modules or package directories:
 
 ```json
 {
-  "plugins": [
-    { "package": "/Users/you/.config/opencode/plugins/wallpapers", "options": { "wallpapers": ["~/code/meadow"] } }
-  ]
+  "plugins": [{ "package": "opencode-wallpapers", "options": { "wallpapers": ["~/code/meadow"] } }]
 }
 ```
 
-`package` is the absolute path to this plugin; if it's in OpenCode's `plugins` directory, the entry adds the options to
-it. Package names work in `wallpapers` too, if the package is installed in this plugin's own `node_modules`.
+`package` is `opencode-wallpapers` when installed from npm, or the absolute path to a clone. Package names work in
+`wallpapers` too, if the package is installed in this plugin's own `node_modules`.
 
 Loaded wallpapers appear in the `/wallpaper` menu after the built-in ones. A module that fails to load, or a wallpaper
 that doesn't look like a `Wallpaper` or reuses a taken id, is skipped with an error toast naming it, and a wallpaper

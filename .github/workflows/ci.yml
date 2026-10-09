@@ -23,6 +23,8 @@ jobs:
           key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
+      # The npm package's dist/: the compiled plugin, the wallpaper API and its declarations.
+      - run: bun run build
       # Fails on errors and flicker; the frame budget is generous because CI machines are slower and noisier.
       - run: bun dev/check.ts --quiet --max-ms=60
 

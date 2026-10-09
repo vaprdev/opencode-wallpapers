@@ -7,18 +7,40 @@ with Unicode block characters and kept readable behind text.
 
 > This project is not affiliated with, endorsed by, or sponsored by OpenCode or its maintainers.
 
-| | Day | Sunset | Night |
-| --- | --- | --- | --- |
-| Ocean | ![Ocean by day](screenshots/ocean.png) | ![Ocean at sunset](screenshots/ocean-sunset.png) | ![Ocean at night](screenshots/ocean-night.png) |
-| Desert | ![Desert by day](screenshots/desert.png) | ![Desert at sunset](screenshots/desert-sunset.png) | ![Desert at night](screenshots/desert-night.png) |
-| Jungle | ![Jungle by day](screenshots/jungle.png) | ![Jungle at sunset](screenshots/jungle-sunset.png) | ![Jungle at night](screenshots/jungle-night.png) |
-| Space | ![Space by day](screenshots/space.png) | ![Space at sunset](screenshots/space-sunset.png) | ![Space at night](screenshots/space-night.png) |
-| Farm | ![Farm by day](screenshots/farm.png) | ![Farm at sunset](screenshots/farm-sunset.png) | ![Farm at night](screenshots/farm-night.png) |
-| Tundra | ![Tundra by day](screenshots/tundra.png) | ![Tundra at sunset](screenshots/tundra-sunset.png) | ![Tundra at night](screenshots/tundra-night.png) |
-| Beach | ![Beach by day](screenshots/beach.png) | ![Beach at sunset](screenshots/beach-sunset.png) | ![Beach at night](screenshots/beach-night.png) |
-| City | ![City by day](screenshots/city.png) | ![City at sunset](screenshots/city-sunset.png) | ![City at night](screenshots/city-night.png) |
-| Zen garden | ![Zen garden by day](screenshots/zen.png) | ![Zen garden at sunset](screenshots/zen-sunset.png) | ![Zen garden at night](screenshots/zen-night.png) |
-| Prehistoric | ![Prehistoric by day](screenshots/prehistoric.png) | ![Prehistoric at sunset](screenshots/prehistoric-sunset.png) | ![Prehistoric at night](screenshots/prehistoric-night.png) |
+## Install
+
+Requires OpenCode 2. Install the plugin and restart OpenCode:
+
+```sh
+opencode plugin add opencode-wallpapers
+```
+
+This adds `opencode-wallpapers` to `plugins` in `~/.config/opencode/cli.json`. Add `@0.1.0` to pin a version. Update
+with `opencode plugin update opencode-wallpapers`, and uninstall with `opencode plugin remove opencode-wallpapers`
+(include the version if you pinned one).
+
+To run from source instead, clone the repository into OpenCode's plugin directory, or anywhere else and add its
+absolute path to `plugins` in `~/.config/opencode/cli.json`. Update a clone with `git pull`.
+
+```sh
+git clone https://github.com/vaprdev/opencode-wallpapers.git ~/.config/opencode/plugins/wallpapers
+```
+
+## Use
+
+Type `/wallpaper` to open the wallpaper menu:
+
+![The wallpaper menu](screenshots/menu.png)
+
+Use ↑/↓ to pick a setting, and Enter or ←/→ to change it. The wallpaper crossfades to each choice as you go, and
+Escape closes the menu. Your choices are kept across restarts.
+
+- **Brightness** is subtle, normal or vivid. Brighter scenes get a firmer scrim behind text, so it stays readable.
+- **Shuffle** switches to a different wallpaper every hour, or each time OpenCode starts.
+- **Per project** remembers a wallpaper for each project directory. A project starts from the global choice until you
+  pick one there.
+
+With a light OpenCode theme the scene is washed out toward white and text gets a pale scrim instead of a dark one.
 
 ## Wallpapers
 
@@ -35,60 +57,7 @@ with Unicode block characters and kept readable behind text.
 | `zen` | A koi pond under a red bridge, raked gravel, stone lanterns and falling cherry petals, with a heron now and then. |
 | `prehistoric` | A smoking volcano over ferns and cycads, with a T. rex stomping by now and then. |
 
-At teeming, played back at 3x speed:
-
-| | |
-| --- | --- |
-| ![Ocean in motion](screenshots/ocean.gif) | ![Desert in motion](screenshots/desert.gif) |
-| ![Jungle in motion](screenshots/jungle.gif) | ![Space in motion](screenshots/space.gif) |
-| ![Farm in motion](screenshots/farm.gif) | ![Tundra in motion](screenshots/tundra.gif) |
-| ![Beach in motion](screenshots/beach.gif) | |
-
-## Install
-
-Requires OpenCode 2. Install the plugin and restart OpenCode:
-
-```sh
-opencode plugin add opencode-wallpapers
-```
-
-This adds `opencode-wallpapers` to `plugins` in `~/.config/opencode/cli.json`. Add `@0.1.0` to pin a version. Update
-with `opencode plugin update opencode-wallpapers`, and uninstall with `opencode plugin remove opencode-wallpapers`
-(include the version if you pinned one).
-
-To run from source instead, clone the repository into OpenCode's plugin directory:
-
-```sh
-git clone https://github.com/vaprdev/opencode-wallpapers.git ~/.config/opencode/plugins/wallpapers
-```
-
-To keep the clone elsewhere, add its absolute path to `plugins` in `~/.config/opencode/cli.json` instead:
-
-```json
-{
-  "plugins": ["/path/to/opencode-wallpapers"]
-}
-```
-
-Update a clone with `git pull`.
-
-## Use
-
-Type `/wallpaper` to open the wallpaper menu:
-
-![The wallpaper menu](screenshots/menu.png)
-
-Use ↑/↓ to pick a setting, and Enter or ←/→ to change it. The wallpaper crossfades to each choice as you go, and
-Escape closes the menu. Your choice is kept across restarts.
-
-- **Shuffle** switches to a different wallpaper every hour, or each time OpenCode starts.
-- **Per project** remembers a wallpaper for each project directory. A project starts from the global choice until you
-  pick one there.
-- **Brightness** is subtle, normal or vivid. Brighter scenes get a firmer scrim behind text, so it stays readable.
-
-With a light OpenCode theme the scene is washed out toward white and text gets a pale scrim instead of a dark one.
-
-## Activity
+### Activity
 
 Every wallpaper has three activity levels, which set how much is going on behind your work:
 
@@ -105,11 +74,11 @@ Every wallpaper has three activity levels, which set how much is going on behind
 | `zen` | Garden, pond ripples, petals and a bamboo fountain | Adds koi circling under the lily pads | Adds more koi, a frog on a lily pad and dragonflies |
 | `prehistoric` | Volcano, smoke, ferns and cycads | Adds a browsing sauropod and circling pterosaurs | Adds a triceratops herd, dragonflies and a lake with something in it |
 
-## Time of day
+### Time of day
 
 Every wallpaper has a day, sunset and night look. By default the time of day follows your clock: day from 7am,
-sunset from 6pm (and at dawn, 6 to 7am), night from 8pm, fading from one to the next over a minute and a half. Pick
-one in the menu to keep it fixed.
+sunset from 6pm (and at dawn, 6 to 7am), night from 8pm, fading from one to the next over 45 seconds. Pick one in the
+menu to keep it fixed.
 
 - **Ocean:** sunlit water by day, golden light at sunset, and at night dark moonlit water with glowing plankton
   and, in teeming, a diver's torch.
@@ -131,22 +100,48 @@ one in the menu to keep it fixed.
 - **Prehistoric:** a hazy blue sky over glowing lava by day, backlit dinosaurs at sunset, and a moonlit night where
   red and orange lava runs down the volcano, lights its smoke and shimmers on the lake.
 
+## Seasons and weather
+
+By default the season follows the calendar: spring from March, summer from June, autumn from September, winter from
+December, flipped in the southern hemisphere once a location (below) puts you there. Pick a season in the menu to keep
+it fixed.
+
+- **Farm:** blossom, wildflowers and young corn in spring; ripe corn and fireflies in summer; gold fields, dry corn,
+  pumpkins and falling leaves in autumn; snow on the fields, roofs and bare trees in winter, with a light flurry.
+- **Desert:** a wildflower bloom and flowering saguaros in spring, and a dusting of snow on the mesas in winter.
+- **Jungle:** the rainy season (summer and autumn) brings thicker mist, a fuller waterfall and a light shower.
+- **Beach:** a crowd of umbrellas, sunbathers and swimmers in summer, and an empty beach with cooler water in autumn and
+  winter.
+- **Zen garden:** cherry blossom in spring, green leaves in summer, red and gold leaves falling in autumn, and bare
+  branches under a light snowfall in winter.
+- **Ocean, space, tundra, city and prehistoric** look the same all year.
+
+| Spring | Summer | Autumn | Winter |
+| --- | --- | --- | --- |
+| ![Farm in spring](screenshots/farm-spring.png) | ![Farm in summer](screenshots/farm-summer.png) | ![Farm in autumn](screenshots/farm-autumn.png) | ![Farm in winter](screenshots/farm-winter.png) |
+
+Every wallpaper except ocean and space can show rain with splashes, snow, fog or an overcast sky, tinted blue rather
+than white at night. The menu's weather setting:
+
+- **Off** (the default): each wallpaper's own weather, such as the tundra's snowfall and the seasonal showers above.
+- **Local**: the real weather where you are, from [Open-Meteo](https://open-meteo.com) (free, no API key), checked at
+  most every 30 minutes. It needs a place: `/wallpaper location Berlin` or `/wallpaper location 52.52,13.41`, or the
+  `WALLPAPER_LOCATION` variable. Nothing is fetched unless you pick Local, your location is never guessed, and if the
+  lookup fails the sky stays clear.
+- **Clear, Rain, Snow, Fog**: always that weather. `/wallpaper weather overcast` is also available.
+
+![Farm in the rain](screenshots/farm-rain.png)
+
 ## Agent reactions
 
 Wallpapers quietly follow what the agent is doing:
 
 - **Working:** the scene moves a little faster while any session runs, barely at all when calm.
-- **Done:** when the last running session finishes, the wallpaper's rare visitor shows up: the whale, a tumbleweed,
-  a toucan (fireflies flashing together at night), a comet, the tractor, a snowy owl or a sailboat.
-- **Error:** after a failed run, dark clouds roll in (in the ocean and jungle the light shafts fade, in space the
-  star dims) and the scene darkens slightly. It clears once the agent works again.
-
-## Power
-
-Wallpapers animate at 15 frames per second. On **Saver**, the default, they slow to 5 frames per second after 30
-seconds without typing, mouse or agent activity, and pause while the terminal window is in the background (in
-terminals that report focus, such as Ghostty, kitty, iTerm2 and tmux). Any input brings back full speed at once.
-**Smooth** always runs at 15.
+- **Done:** when the last running session finishes, the wallpaper's visitor shows up: the whale, a tumbleweed, a
+  toucan (fireflies flashing together at night), a comet, the tractor, a snowy owl, a sailboat, the blimp, the heron or
+  the T. rex.
+- **Error:** after a failed run, dark clouds roll in (in the ocean and jungle the light shafts fade, in space the star
+  dims) and the scene darkens slightly. It clears when the agent works again, or after a couple of minutes.
 
 ## Clicks and surprises
 
@@ -162,41 +157,19 @@ every click; dialogs, popups and text are never pokes.
 | `farm` | The nearest cow looks up and turns toward you | A flying saucer beams up a cow |
 | `tundra` | The penguins hop | A yeti looms out of the snow and waves |
 | `beach` | Gulls take off | A message in a bottle washes up for a while |
+| `city` | Pigeons burst up off the street | A caped superhero flies over the towers |
+| `zen` | A ripple on the pond, or sparrows up out of the garden | A tanuki with a leaf on its head sits by the pond |
+| `prehistoric` | Little feathered dinosaurs flap up out of the ferns | A time machine arrives in a flash and leaves trails of fire |
 
 Click reactions that involve animals need the lively or teeming level. The rare events come along about once every
-hour or two of watching, never sooner than half an hour apart.
+hour or two of watching, never sooner than half an hour apart, and changing settings doesn't reset the wait.
 
-## Seasons
+## Power
 
-By default the season follows the calendar: spring from March, summer from June, autumn from September, winter from
-December. They flip for a location (see Weather) in the southern hemisphere: given as `latitude,longitude`, or as a
-place name once Local weather has looked it up. Pick a season in the menu to keep it fixed.
-
-- **Farm:** blossom, wildflowers and young corn in spring; ripe corn and fireflies in summer; gold fields, dry corn,
-  pumpkins and falling leaves in autumn; snow on the fields, roofs and bare trees in winter, with a light flurry.
-- **Desert:** a wildflower bloom and flowering saguaros in spring, and a dusting of snow on the mesas in winter.
-- **Jungle:** the rainy season (summer and autumn) brings thicker mist, a fuller waterfall and a light shower.
-- **Beach:** a crowd of umbrellas, sunbathers and swimmers in summer, and an empty beach with cooler water in autumn and
-  winter.
-- **Ocean, space and tundra** look the same all year: underwater, in orbit and on the ice there is no season to show.
-
-| Spring | Summer | Autumn | Winter |
-| --- | --- | --- | --- |
-| ![Farm in spring](screenshots/farm-spring.png) | ![Farm in summer](screenshots/farm-summer.png) | ![Farm in autumn](screenshots/farm-autumn.png) | ![Farm in winter](screenshots/farm-winter.png) |
-
-## Weather
-
-Outdoor wallpapers (desert, jungle, farm, tundra and beach) can show rain with splashes, snow, fog or overcast skies. At
-night, rain and snow are tinted blue rather than white. The menu's weather setting:
-
-- **Off** (the default): each wallpaper's own weather, such as the tundra's snowfall and the seasonal showers above.
-- **Local**: the real weather where you are, from [Open-Meteo](https://open-meteo.com) (free, no API key), checked at
-  most every 30 minutes. It needs a place: `/wallpaper location Berlin` or `/wallpaper location 52.52,13.41`, or the
-  `WALLPAPER_LOCATION` variable. Nothing is fetched unless you pick Local, your location is never guessed, and if the
-  lookup fails the sky stays clear.
-- **Clear, Rain, Snow, Fog**: always that weather. `/wallpaper weather overcast` is also available.
-
-![Farm in the rain](screenshots/farm-rain.png)
+Wallpapers animate at 15 frames per second. On **Saver**, the default, they slow to 5 frames per second after 30
+seconds without typing, mouse or agent activity, and pause while the terminal window is in the background (in
+terminals that report focus, such as Ghostty, kitty, iTerm2 and tmux). Any input brings back full speed at once.
+**Smooth** always runs at 15.
 
 ## Terminals
 
@@ -218,10 +191,35 @@ the scene toward a dark tint around it. Scenes render in HDR with bloom and tone
 per character cell. While one look fades into another, both scenes render and blend, scrim included, so only
 transitions cost extra.
 
-## Add a wallpaper
+## Make a wallpaper
 
-[CONTRIBUTING.md](CONTRIBUTING.md) explains how wallpapers work and the dev tools for making them, and how to load
+[CONTRIBUTING.md](CONTRIBUTING.md) explains how wallpapers work, the dev tools for making them, and how to load
 wallpapers from a package of your own with the plugin's `wallpapers` option.
+
+## Gallery
+
+At teeming, played back at 3x speed:
+
+| | |
+| --- | --- |
+| ![Ocean in motion](screenshots/ocean.gif) | ![Desert in motion](screenshots/desert.gif) |
+| ![Jungle in motion](screenshots/jungle.gif) | ![Space in motion](screenshots/space.gif) |
+| ![Farm in motion](screenshots/farm.gif) | ![Tundra in motion](screenshots/tundra.gif) |
+| ![Beach in motion](screenshots/beach.gif) | ![City in motion](screenshots/city.gif) |
+| ![Zen garden in motion](screenshots/zen.gif) | ![Prehistoric in motion](screenshots/prehistoric.gif) |
+
+| | Day | Sunset | Night |
+| --- | --- | --- | --- |
+| Ocean | ![Ocean by day](screenshots/ocean.png) | ![Ocean at sunset](screenshots/ocean-sunset.png) | ![Ocean at night](screenshots/ocean-night.png) |
+| Desert | ![Desert by day](screenshots/desert.png) | ![Desert at sunset](screenshots/desert-sunset.png) | ![Desert at night](screenshots/desert-night.png) |
+| Jungle | ![Jungle by day](screenshots/jungle.png) | ![Jungle at sunset](screenshots/jungle-sunset.png) | ![Jungle at night](screenshots/jungle-night.png) |
+| Space | ![Space by day](screenshots/space.png) | ![Space at sunset](screenshots/space-sunset.png) | ![Space at night](screenshots/space-night.png) |
+| Farm | ![Farm by day](screenshots/farm.png) | ![Farm at sunset](screenshots/farm-sunset.png) | ![Farm at night](screenshots/farm-night.png) |
+| Tundra | ![Tundra by day](screenshots/tundra.png) | ![Tundra at sunset](screenshots/tundra-sunset.png) | ![Tundra at night](screenshots/tundra-night.png) |
+| Beach | ![Beach by day](screenshots/beach.png) | ![Beach at sunset](screenshots/beach-sunset.png) | ![Beach at night](screenshots/beach-night.png) |
+| City | ![City by day](screenshots/city.png) | ![City at sunset](screenshots/city-sunset.png) | ![City at night](screenshots/city-night.png) |
+| Zen garden | ![Zen garden by day](screenshots/zen.png) | ![Zen garden at sunset](screenshots/zen-sunset.png) | ![Zen garden at night](screenshots/zen-night.png) |
+| Prehistoric | ![Prehistoric by day](screenshots/prehistoric.png) | ![Prehistoric at sunset](screenshots/prehistoric-sunset.png) | ![Prehistoric at night](screenshots/prehistoric-night.png) |
 
 ## License
 
