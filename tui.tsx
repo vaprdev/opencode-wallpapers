@@ -3,14 +3,18 @@ import { RGBA, TextAttributes } from "@opentui/core"
 import { For, createEffect, createSignal, onCleanup } from "solid-js"
 import { ACTIVITIES, BRIGHTNESSES, POWERS, SEASONS, TIMES, WEATHERS, createEngine, parseEvents, type Activity, type AgentEvent, type Brightness, type Power, type Season, type Time, type Weather } from "./src/engine"
 import { REFRESH, coordinatesOf, forecast, type Forecast } from "./src/forecast"
+import { loadWallpapers } from "./src/load"
 import { WALLPAPERS } from "./wallpapers"
 
 export default Plugin.define({
   id: "wallpapers",
-  setup(context) {
+  async setup(context) {
     const [stored, update] = context.storage.store<Stored>("wallpapers", {
       initial: { wallpaper: "", activity: "calm", time: "auto", power: "saver" },
     })
+    const external = await loadWallpapers(context.options.wallpapers, WALLPAPERS)
+    if (external.skipped.length) context.ui.toast.show({ message: `Skipped wallpapers:\n${external.skipped.join("\n")}`, variant: "error" })
+    const wallpapers = [...WALLPAPERS, ...external.wallpapers]
     const engine = createEngine(context, { dump: process.env.WALLPAPER_DUMP, dumpFade: process.env.WALLPAPER_DUMP_FADE })
     // Environment overrides for development; they win over the stored choice.
     const pinned = process.env.WALLPAPER
@@ -36,7 +40,7 @@ export default Plugin.define({
     // A project without its own change time yet counts from the global one.
     const due = (state: Stored) => Date.now() - (state.changed?.[scope(state)] ?? state.changed?.[""] ?? 0) >= HOUR
     const other = (id: string) => {
-      const others = WALLPAPERS.filter((w) => w.id !== id)
+      const others = wallpapers.filter((w) => w.id !== id)
       return others[Math.floor(Math.random() * others.length)].id
     }
     // Switches to a different wallpaper once an hour has passed. The check repeats under the storage lock, so several
@@ -166,8 +170,8 @@ export default Plugin.define({
         })
         return { message: `Wallpaper brightness: ${b}` }
       }
-      const wallpaper = WALLPAPERS.find((w) => w.id === arg)
-      if (!wallpaper) return { message: `No wallpaper "${arg}". Available: ${WALLPAPERS.map((w) => w.id).join(", ")}`, error: true }
+      const wallpaper = wallpapers.find((w) => w.id === arg)
+      if (!wallpaper) return { message: `No wallpaper "${arg}". Available: ${wallpapers.map((w) => w.id).join(", ")}`, error: true }
       await update((draft) => choose(draft, arg))
       return { message: `${wallpaper.name} wallpaper on` }
     }
@@ -182,10 +186,10 @@ export default Plugin.define({
     const rows: Row[] = [
       {
         title: "Wallpaper",
-        values: () => ["off", ...WALLPAPERS.map((w) => w.id)],
+        values: () => ["off", ...wallpapers.map((w) => w.id)],
         value: () => shown() || "off",
-        label: (v) => WALLPAPERS.find((w) => w.id === v)?.name ?? "Off",
-        describe: (v) => WALLPAPERS.find((w) => w.id === v)?.description ?? "No wallpaper",
+        label: (v) => wallpapers.find((w) => w.id === v)?.name ?? "Off",
+        describe: (v) => wallpapers.find((w) => w.id === v)?.description ?? "No wallpaper",
         set: apply,
       },
       {
@@ -224,7 +228,7 @@ export default Plugin.define({
         values: () => ACTIVITIES,
         value: activity,
         label: capitalize,
-        describe: (v) => (WALLPAPERS.find((w) => w.id === shown()) ?? WALLPAPERS[0]).activity[v as Activity],
+        describe: (v) => (wallpapers.find((w) => w.id === shown()) ?? wallpapers[0]).activity[v as Activity],
         set: apply,
       },
       {
@@ -376,7 +380,7 @@ export default Plugin.define({
       render() {
         let chosen = ""
         createEffect(() => {
-          const wallpaper = WALLPAPERS.find((w) => w.id === (pinned ?? shown()))
+          const wallpaper = wallpapers.find((w) => w.id === (pinned ?? shown()))
           const level = ACTIVITIES.find((a) => a === pinnedActivity) ?? activity()
           const choice = timeChoice()
           const seasonChoice = pinnedSeason ?? seasonSetting()
@@ -387,11 +391,16 @@ export default Plugin.define({
           const slow = key === chosen
           chosen = key
           if (!wallpaper) return engine.stop()
-          engine.start(
-            wallpaper,
-            { activity: level, time: choice === "auto" ? timeAt(now()) : choice, brightness: brightness(), season: season(), weather: weather() },
-            slow ? CLOCK_FADE : undefined,
-          )
+          // Wallpapers from other packages may throw; that must not take down the plugin and its commands.
+          try {
+            engine.start(
+              wallpaper,
+              { activity: level, time: choice === "auto" ? timeAt(now()) : choice, brightness: brightness(), season: season(), weather: weather() },
+              slow ? CLOCK_FADE : undefined,
+            )
+          } catch (error) {
+            notify(`${wallpaper.name} wallpaper failed to start: ${error instanceof Error ? error.message : String(error)}`, "error")
+          }
         })
         createEffect(() => engine.power(power()))
         createEffect(() => {

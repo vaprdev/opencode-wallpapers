@@ -1,8 +1,8 @@
 import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
-import type { Activity, Settings, Time, Wallpaper } from "../src/engine"
 import { eggWait } from "../src/egg"
 import { TAU, clamp, fbm1, hash, lerp, rand, smoothstep, type RGB } from "../src/math"
 import { driftClouds, makeClouds, makeStars, makeStorm, paintClouds, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
+import type { Activity, Settings, Time, Wallpaper } from "../src/wallpaper"
 import { WeatherLayer } from "../src/weather"
 
 // The scene runs slower than real time, which keeps it calm behind text.

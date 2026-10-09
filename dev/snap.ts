@@ -4,8 +4,8 @@
 import "./seed"
 import { mkdirSync } from "node:fs"
 import { ACTIVITIES, SEASONS, TIMES, WEATHERS, parseEvents } from "../src/engine"
-import { WALLPAPERS } from "../wallpapers"
 import { encodePng } from "./png"
+import { wallpapers } from "./wallpapers"
 
 const [id, ...rest] = process.argv.slice(2)
 const activity = ACTIVITIES.find((a) => rest.includes(a)) ?? "calm"
@@ -13,8 +13,8 @@ const time = TIMES.find((t) => rest.includes(t)) ?? "day"
 const season = SEASONS.find((s) => rest.includes(s))
 const weather = WEATHERS.find((w) => rest.includes(w))
 const times = rest.filter((arg) => /^[\d.]+$/.test(arg))
-const wallpaper = WALLPAPERS.find((w) => w.id === id)
-if (!wallpaper) throw new Error(`usage: bun dev/snap.ts <${WALLPAPERS.map((w) => w.id).join("|")}> [seconds...]`)
+const wallpaper = wallpapers.find((w) => w.id === id)
+if (!wallpaper) throw new Error(`usage: bun dev/snap.ts <${wallpapers.map((w) => w.id).join("|")}> [seconds...]`)
 mkdirSync("dev/out", { recursive: true })
 const scene = wallpaper.create({ activity, time, season, weather })
 scene.resize(720, 400)

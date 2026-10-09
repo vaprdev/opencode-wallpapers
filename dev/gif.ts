@@ -6,6 +6,7 @@
 import { mkdirSync } from "node:fs"
 import { ACTIVITIES, TIMES, type Settings, type Time, type Wallpaper } from "../src/engine"
 import { WALLPAPERS } from "../wallpapers"
+import { wallpapers } from "./wallpapers"
 
 const SPEED = 3
 const FPS = 12.5
@@ -34,8 +35,8 @@ if (args[0] === "all") {
   await write("screenshots/hero.gif", hero.map((wallpaper) => ({ wallpaper, settings: { activity: "teeming", time: BEST[wallpaper.id] ?? "day" }, seconds: HERO_SECONDS })), 720, 400, 0)
 }
 if (args[0] !== "all") {
-  const wallpaper = WALLPAPERS.find((w) => w.id === args[0])
-  if (!wallpaper) throw new Error(`usage: bun dev/gif.ts <all|${WALLPAPERS.map((w) => w.id).join("|")}> [activity] [time] [WxH] [seconds]`)
+  const wallpaper = wallpapers.find((w) => w.id === args[0])
+  if (!wallpaper) throw new Error(`usage: bun dev/gif.ts <all|${wallpapers.map((w) => w.id).join("|")}> [activity] [time] [WxH] [seconds]`)
   const activity = ACTIVITIES.find((a) => args.includes(a)) ?? "teeming"
   const time = TIMES.find((t) => args.includes(t)) ?? BEST[wallpaper.id] ?? "day"
   const size = (args.find((arg) => /^\d+x\d+$/.test(arg)) ?? "480x268").split("x").map(Number)

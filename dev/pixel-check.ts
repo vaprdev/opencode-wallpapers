@@ -2,12 +2,12 @@
 // send: bun dev/pixel-check.ts [wallpaper] [calm|lively|teeming] [day|sunset|night]
 import { mkdirSync } from "node:fs"
 import { ACTIVITIES, TIMES } from "../src/engine"
-import { WALLPAPERS } from "../wallpapers"
 import { H, W, mockScreen, text } from "./mock"
 import { encodePng } from "./png"
+import { wallpapers } from "./wallpapers"
 
-const wallpaper = WALLPAPERS.find((w) => w.id === (process.argv[2] ?? WALLPAPERS[0].id))
-if (!wallpaper) throw new Error(`usage: bun dev/pixel-check.ts [${WALLPAPERS.map((w) => w.id).join("|")}]`)
+const wallpaper = wallpapers.find((w) => w.id === (process.argv[2] ?? wallpapers[0].id))
+if (!wallpaper) throw new Error(`usage: bun dev/pixel-check.ts [${wallpapers.map((w) => w.id).join("|")}]`)
 process.env.WALLPAPER_PIXELS = "1"
 mkdirSync("dev/out", { recursive: true })
 const RESERVED = 0x40000010

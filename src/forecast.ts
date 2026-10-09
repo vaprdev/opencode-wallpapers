@@ -1,6 +1,6 @@
 // Real weather for the "local" weather setting, from Open-Meteo (free, no API key). Nothing is fetched unless the user
 // picks local weather. Each place is looked up at most once per REFRESH, and any failure reads as clear.
-import type { Weather } from "./engine"
+import type { Weather } from "./wallpaper"
 
 export const REFRESH = 30 * 60_000
 

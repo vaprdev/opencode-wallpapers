@@ -1,7 +1,7 @@
 import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
 import { eggWait } from "../src/egg"
-import type { Activity, Settings, Time, Wallpaper } from "../src/engine"
 import { TAU, clamp, fbm1, fbm2, hash, hash2, lerp, rand, smoothstep, type RGB } from "../src/math"
+import type { Activity, Settings, Time, Wallpaper } from "../src/wallpaper"
 
 // The scene runs slower than real time, which keeps it calm behind text.
 const TIME_SCALE = 0.35

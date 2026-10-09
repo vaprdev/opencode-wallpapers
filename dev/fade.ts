@@ -2,15 +2,15 @@
 // frame cost before and during the fade: bun dev/fade.ts <id[:activity][:time]> <id[:activity][:time]> [percent] [seconds]
 import { mkdirSync, rmSync } from "node:fs"
 import { ACTIVITIES, FADE, TIMES } from "../src/engine"
-import { WALLPAPERS } from "../wallpapers"
 import { cellsToPng } from "./cells"
 import { FPS, H, W, mockScreen, text } from "./mock"
+import { wallpapers } from "./wallpapers"
 
 const [a, b, percent = "50", seconds = String(FADE)] = process.argv.slice(2)
 const parse = (arg = "") => {
   const [id, ...rest] = arg.split(":")
-  const wallpaper = WALLPAPERS.find((w) => w.id === id)
-  if (!wallpaper) throw new Error(`usage: bun dev/fade.ts <id[:activity][:time]> <id[:activity][:time]> [percent] [seconds]; ids: ${WALLPAPERS.map((w) => w.id).join(", ")}`)
+  const wallpaper = wallpapers.find((w) => w.id === id)
+  if (!wallpaper) throw new Error(`usage: bun dev/fade.ts <id[:activity][:time]> <id[:activity][:time]> [percent] [seconds]; ids: ${wallpapers.map((w) => w.id).join(", ")}`)
   return { wallpaper, settings: { activity: ACTIVITIES.find((v) => rest.includes(v)) ?? "calm", time: TIMES.find((v) => rest.includes(v)) ?? "day" } }
 }
 const from = parse(a)

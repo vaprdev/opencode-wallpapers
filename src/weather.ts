@@ -1,7 +1,7 @@
 // Weather shared by outdoor wallpapers: an overcast cloud deck, rain streaks with splashes, snow and fog. A scene makes
 // one WeatherLayer, calls cover() in layout right after painting its sky, step() with its scaled dt, and draw() at the
 // end of render, just before finish().
-import type { Time, Weather } from "./engine"
+import type { Time, Weather } from "./wallpaper"
 import { clamp, fbm2, hash, smoothstep, type RGB } from "./math"
 
 interface Palette {

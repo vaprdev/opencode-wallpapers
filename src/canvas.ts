@@ -1,4 +1,4 @@
-import type { AgentEvent } from "./engine"
+import type { AgentEvent } from "./wallpaper"
 import { clamp, type RGB } from "./math"
 
 // Bloom is computed at 1/BLOOM resolution, then again at half that for the wide halo.

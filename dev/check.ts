@@ -4,9 +4,9 @@
 import { mkdirSync, rmSync } from "node:fs"
 import { parseArgs } from "node:util"
 import { ACTIVITIES, SEASONS, TIMES, WEATHERS } from "../src/engine"
-import { WALLPAPERS } from "../wallpapers"
 import { H, W, mockScreen, text } from "./mock"
 import { seed } from "./seed"
+import { wallpapers } from "./wallpapers"
 
 mkdirSync("dev/out", { recursive: true })
 const debug = `${process.cwd()}/dev/out/check.log`
@@ -20,13 +20,13 @@ const maxFlicker = Number(args.values["max-flicker"])
 const season = SEASONS.find((s) => args.positionals.includes(s))
 const weather = WEATHERS.find((w) => args.positionals.includes(w))
 const ids = args.positionals.filter((arg) => arg !== season && arg !== weather)
-const unknown = ids.filter((id) => !WALLPAPERS.some((w) => w.id === id))
-if (unknown.length) throw new Error(`unknown wallpaper ${unknown.join(", ")}; available: ${WALLPAPERS.map((w) => w.id).join(", ")}`)
+const unknown = ids.filter((id) => !wallpapers.some((w) => w.id === id))
+if (unknown.length) throw new Error(`unknown wallpaper ${unknown.join(", ")}; available: ${wallpapers.map((w) => w.id).join(", ")}`)
 const screen = mockScreen()
 let failed = 0
 let slowest = { ms: -1, name: "" }
 let busiest = { flicker: -1, name: "" }
-const runs = (ids.length ? WALLPAPERS.filter((w) => ids.includes(w.id)) : WALLPAPERS).flatMap((w) => ACTIVITIES.flatMap((activity) => TIMES.map((time) => ({ wallpaper: w, activity, time }))))
+const runs = (ids.length ? wallpapers.filter((w) => ids.includes(w.id)) : wallpapers).flatMap((w) => ACTIVITIES.flatMap((activity) => TIMES.map((time) => ({ wallpaper: w, activity, time }))))
 for (const { wallpaper, activity, time } of runs) {
   // Same random stream per combination, so a run's numbers don't depend on which others ran before it.
   seed(1)

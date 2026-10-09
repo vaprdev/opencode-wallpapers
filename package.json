@@ -22,7 +22,11 @@
   "type": "module",
   "license": "MIT",
   "exports": {
-    "./tui": "./dist/tui.js"
+    "./tui": "./dist/tui.js",
+    "./api": {
+      "types": "./dist/api.d.ts",
+      "default": "./dist/api.js"
+    }
   },
   "files": [
     "dist",

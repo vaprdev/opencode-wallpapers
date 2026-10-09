@@ -220,42 +220,8 @@ transitions cost extra.
 
 ## Add a wallpaper
 
-1. Create `wallpapers/<id>.ts`. Extend `Canvas` from `src/canvas.ts`, implement `step(dt)` and `render()`, and export
-   a `Wallpaper` with an id, name, description, scrim colors for each time of day, what each activity level shows, and
-   `create({ activity, time, season, weather })`. Without a season, show the classic look.
-   `wallpapers/ocean.ts` is the example. Outdoor scenes get weather from a `WeatherLayer` (`src/weather.ts`):
-   `cover()` after painting the sky, `step()`, and `draw()` before `finish()`; `wallpapers/farm.ts` shows it.
-2. Add it to `wallpapers/index.ts`, and its best-looking time of day to `BEST` in `dev/gif.ts`.
-3. Check it:
-
-```sh
-bun install
-bun run typecheck
-bun dev/check.ts <id>            # errors, frame cost, and flicker at every activity level and time of day
-bun dev/snap.ts <id> teeming night 30  # scene PNGs at an activity level, time of day, and times
-bun dev/snap.ts <id> winter snow 30    # ...also by season and weather; check.ts and preview.ts take them too
-bun dev/preview.ts <id> 20       # terminal-cell rendering behind text, as a PNG
-bun dev/pixel-check.ts <id>      # real-pixel mode against a mock kitty renderer
-bun run screenshots:update       # re-render the gallery screenshots (teeming at 45 s)
-bun dev/gif.ts <id> teeming night  # a looping GIF at 3x speed in dev/out
-bun dev/gif.ts all               # regenerate the README's GIFs in screenshots/
-bun dev/fade.ts <id>:day <id>:night 50  # a frame halfway through a crossfade, and its cost
-```
-
-CI runs the typecheck, `dev/check.ts` (failing on errors and flicker) and `bun run screenshots`, which fails when the
-gallery is out of date. Dev renders seed `Math.random`, so they are reproducible.
-bun dev/poke.ts <id> lively day 0.5 0.8 1 4  # click at a point (fractions of the screen), PNGs 1 and 4 s later
-```
-
-To react to clicks, implement `poke(x, y)` on the scene. For the rare event, wait `eggWait()` from `src/egg.ts`;
-`WALLPAPER_EGG=1` brings it on a few seconds in, for `dev/snap.ts` and live testing.
-
-`dev/pty.ts` and `dev/pty-kitty.ts` drive a real OpenCode in a pseudo-terminal, and `WALLPAPER_DUMP=<file>` saves one
-frame of terminal cells that `dev/cells.ts` turns into a PNG. `WALLPAPER_EVENTS="busy@2,done@12,error@30"` plays
-agent events (`busy`, `idle`, `done`, `error`) at those seconds, in OpenCode or `dev/snap.ts`; `WALLPAPER_DEBUG=<file>`
-logs the events that arrive. Scenes react by overriding `Canvas.visit()` and by calling
-`stepGloom(dt)` in `step` and drawing with `gloom`. `WALLPAPER_DUMP_FADE=<file>` saves the first frame past
-the middle of a crossfade instead, and `WALLPAPER_CLOCK=17:59` starts auto's clock at that time to try its fades.
+[CONTRIBUTING.md](CONTRIBUTING.md) explains how wallpapers work and the dev tools for making them, and how to load
+wallpapers from a package of your own with the plugin's `wallpapers` option.
 
 ## License
 

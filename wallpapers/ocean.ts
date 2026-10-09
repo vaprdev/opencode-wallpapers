@@ -1,7 +1,7 @@
 import { Canvas, cap, ell, type Lighting } from "../src/canvas"
 import { eggWait } from "../src/egg"
-import type { Activity, Settings, Time, Wallpaper } from "../src/engine"
 import { TAU, clamp, fbm1, hash, hash2, hashString, hsv, lerp, noise1, rand, smoothstep, type RGB } from "../src/math"
+import type { Activity, Settings, Time, Wallpaper } from "../src/wallpaper"
 
 // Depth of the water surface as a fraction of the height.
 const SURFACE = 0.065
