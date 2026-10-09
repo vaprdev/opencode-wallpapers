@@ -10,7 +10,7 @@ export default Plugin.define({
     const [stored, update] = context.storage.store<{ wallpaper: string; activity?: Activity; time?: Time | "auto" }>("wallpapers", {
       initial: { wallpaper: "", activity: "calm", time: "auto" },
     })
-    const engine = createEngine(context, { dump: process.env.WALLPAPER_DUMP })
+    const engine = createEngine(context, { dump: process.env.WALLPAPER_DUMP, dumpFade: process.env.WALLPAPER_DUMP_FADE })
     // Environment overrides for development; they win over the stored choice.
     const pinned = process.env.WALLPAPER
     const pinnedActivity = process.env.WALLPAPER_ACTIVITY
@@ -18,13 +18,13 @@ export default Plugin.define({
     // Settings saved before these options existed have none.
     const activity = () => stored.activity ?? "calm"
     const timeSetting = () => stored.time ?? "auto"
-    // Auto follows the local clock, checked once a minute.
-    const [now, setNow] = createSignal(new Date())
-    const clock = setInterval(() => setNow(new Date()), 60_000)
-    const time = () => {
-      const setting = TIMES.find((t) => t === pinnedTime) ?? timeSetting()
-      return setting === "auto" ? timeAt(now()) : setting
-    }
+    // Auto follows the local clock, checked once a minute. WALLPAPER_CLOCK=HH:MM starts the clock there, for trying
+    // auto's transitions.
+    const [hour, minute] = (process.env.WALLPAPER_CLOCK ?? "").split(":").map(Number)
+    const skew = process.env.WALLPAPER_CLOCK ? new Date().setHours(hour, minute, 0, 0) - Date.now() : 0
+    const [now, setNow] = createSignal(new Date(Date.now() + skew))
+    const clock = setInterval(() => setNow(new Date(Date.now() + skew)), 60_000)
+    const timeChoice = () => TIMES.find((t) => t === pinnedTime) ?? timeSetting()
 
     // The scene follows the agent: busy while any session runs, then done, error or idle once the last one stops. A
     // subagent's failure is left to its parent; repeated end events for a session count once.
@@ -203,11 +203,17 @@ export default Plugin.define({
     const unslot = context.ui.slot({
       append: "app",
       render() {
+        let chosen = ""
         createEffect(() => {
           const wallpaper = WALLPAPERS.find((w) => w.id === (pinned ?? stored.wallpaper))
           const level = ACTIVITIES.find((a) => a === pinnedActivity) ?? activity()
-          if (wallpaper) engine.start(wallpaper, { activity: level, time: time() })
-          else engine.stop()
+          const choice = timeChoice()
+          // With the same choices as last time, only the clock can have moved auto on to a new time of day: that fades slowly.
+          const key = `${wallpaper?.id} ${level} ${choice}`
+          const slow = key === chosen
+          chosen = key
+          if (!wallpaper) return engine.stop()
+          engine.start(wallpaper, { activity: level, time: choice === "auto" ? timeAt(now()) : choice }, slow ? CLOCK_FADE : undefined)
         })
         context.keymap.layer(() => ({
           mode: "global",
@@ -263,6 +269,9 @@ export default Plugin.define({
 function capitalize(text: string) {
   return text[0].toUpperCase() + text.slice(1)
 }
+
+// Seconds auto takes to fade into the next time of day when the clock crosses into it.
+const CLOCK_FADE = 90
 
 // Day from 7am, sunset around dawn and dusk, night from 8pm.
 function timeAt(date: Date): Time {
