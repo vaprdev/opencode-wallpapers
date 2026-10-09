@@ -3,6 +3,8 @@
 Animated wallpapers for the OpenCode terminal UI. A slow, quiet scene fills the background behind everything, drawn
 with Unicode block characters and kept readable behind text.
 
+![Beach, tundra, jungle, desert and space wallpapers in motion](screenshots/hero.gif)
+
 > This project is not affiliated with, endorsed by, or sponsored by OpenCode or its maintainers.
 
 | | Day | Sunset | Night |
@@ -26,6 +28,15 @@ with Unicode block characters and kept readable behind text.
 | `farm` | Rolling fields with a red barn, a turning windmill and swaying corn, and a tractor now and then. |
 | `tundra` | Snowy peaks, a frozen lake, igloos and a snowman under falling snow, with a snowy owl now and then. |
 | `beach` | Waves washing up a sandy beach between swaying palms, with a sailboat on the horizon now and then. |
+
+At teeming, played back at 3x speed:
+
+| | |
+| --- | --- |
+| ![Ocean in motion](screenshots/ocean.gif) | ![Desert in motion](screenshots/desert.gif) |
+| ![Jungle in motion](screenshots/jungle.gif) | ![Space in motion](screenshots/space.gif) |
+| ![Farm in motion](screenshots/farm.gif) | ![Tundra in motion](screenshots/tundra.gif) |
+| ![Beach in motion](screenshots/beach.gif) | |
 
 ## Install
 
@@ -111,7 +122,7 @@ per character cell. Wallpapers update at 15 frames per second.
    a `Wallpaper` with an id, name, description, scrim colors for each time of day, what each activity level shows, and
    `create({ activity, time })`.
    `wallpapers/ocean.ts` is the example.
-2. Add it to `wallpapers/index.ts`.
+2. Add it to `wallpapers/index.ts`, and its best-looking time of day to `BEST` in `dev/gif.ts`.
 3. Check it:
 
 ```sh
@@ -121,6 +132,8 @@ bun dev/check.ts <id>            # errors, frame cost, and flicker at every acti
 bun dev/snap.ts <id> teeming night 30  # scene PNGs at an activity level, time of day, and times
 bun dev/preview.ts <id> 20       # terminal-cell rendering behind text, as a PNG
 bun dev/pixel-check.ts <id>      # real-pixel mode against a mock kitty renderer
+bun dev/gif.ts <id> teeming night  # a looping GIF at 3x speed in dev/out
+bun dev/gif.ts all               # regenerate the README's GIFs in screenshots/
 ```
 
 `dev/pty.ts` and `dev/pty-kitty.ts` drive a real OpenCode in a pseudo-terminal, and `WALLPAPER_DUMP=<file>` saves one
