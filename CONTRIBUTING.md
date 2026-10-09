@@ -273,11 +273,12 @@ bun dev/gif.ts all                                # re-renders the README's GIFs
 ## Your own package
 
 A wallpaper package imports the API from `opencode-wallpapers/api`, which has `Canvas`, `cap`, `ell`, the sky,
-weather, flock, egg and math helpers, and the `Wallpaper` types, with no OpenCode or OpenTUI dependency. The npm
-package ships it compiled, with type declarations:
+weather, flock, egg and math helpers, and the `Wallpaper` types, with no OpenCode or OpenTUI dependency. It isn't on
+npm yet, so build a clone of this repository and depend on it by path:
 
 ```sh
-bun add -d opencode-wallpapers
+(cd ~/code/opencode-wallpapers && bun install && bun run build)
+bun add -d ~/code/opencode-wallpapers
 ```
 
 ```ts
@@ -305,7 +306,7 @@ to modules or package directories:
 }
 ```
 
-`package` is `opencode-wallpapers` when installed from npm, or the absolute path to a clone. Package names work in
+`package` is the absolute path to your clone of this plugin. Package names work in
 `wallpapers` too, if the package is installed in this plugin's own `node_modules`.
 
 Loaded wallpapers appear in the `/wallpaper` menu after the built-in ones. A module that fails to load, or a wallpaper
