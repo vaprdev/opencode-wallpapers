@@ -1,5 +1,6 @@
 import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
 import type { Activity, Settings, Time, Wallpaper } from "../src/engine"
+import { eggWait } from "../src/egg"
 import { TAU, clamp, fbm1, hash, lerp, rand, smoothstep, type RGB } from "../src/math"
 import { driftClouds, makeClouds, makeStars, makeStorm, paintClouds, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
 
@@ -8,6 +9,9 @@ const TIME_SCALE = 0.35
 // Animals and people move at a quarter of scene speed.
 const CREATURE_SPEED = 0.25
 const HORIZON = 0.55
+// How long the yeti's visit and a penguin's two hops last, in creature time.
+const YETI = 12
+const HOP = 0.2
 
 // What changes with the time of day. Snow, ice and mountains get their own colors (never plain white at night);
 // animals and objects have one daytime color each, darkened by tint at sunset and night.
@@ -118,6 +122,8 @@ interface Walker {
   phase: number
   rest: number
   moving: boolean
+  // Creature time into a hop after a click; negative while waiting its turn, Infinity when not hopping.
+  hop: number
 }
 
 class Tundra extends Canvas {
@@ -136,6 +142,9 @@ class Tundra extends Canvas {
   private fox: Walker | undefined
   private bear: Walker | undefined
   private fisher = { tug: 0, next: 8 }
+  // The easter egg: a yeti looms out of the snow on the far field, looks about, waves and fades away. t is creature
+  // time since it began.
+  private yeti = { wait: eggWait() * TIME_SCALE, t: -1, x: 0 }
 
   constructor(settings: Settings) {
     super()
@@ -144,7 +153,7 @@ class Tundra extends Canvas {
     this.stars = makeStars(this.look.stars, 0.45)
     this.clouds = makeClouds(this.look.clouds.puffy ? 3 : 4, this.look.clouds.puffy, 0.06, 0.28)
     this.flakes = Array.from({ length: { calm: 70, lively: 100, teeming: 130 }[settings.activity] }, () => ({ x: Math.random() * 4, y: Math.random(), z: Math.random(), s: Math.random() }))
-    const walker = (x: number, y: number): Walker => ({ x, y, wx: x, wy: y, wanderT: 0, face: 1, phase: Math.random() * TAU, rest: 0, moving: false })
+    const walker = (x: number, y: number): Walker => ({ x, y, wx: x, wy: y, wanderT: 0, face: 1, phase: Math.random() * TAU, rest: 0, moving: false, hop: Infinity })
     if (settings.activity !== "calm") {
       this.penguins = Array.from({ length: settings.activity === "teeming" ? 5 : 3 }, (_, i) => walker(0.6 + i * 0.12, 0.78 + (i % 2) * 0.015))
       this.fox = walker(0.9, 0.88)
@@ -181,6 +190,28 @@ class Tundra extends Canvas {
       f.next = rand(6, 14)
     }
     f.tug = Math.max(0, f.tug - cdt * 1.5)
+    for (const p of this.penguins) p.hop += cdt
+    const y = this.yeti
+    if (y.t < 0) {
+      y.wait -= dt
+      if (y.wait > 0) return
+      y.t = 0
+      y.x = rand(0.56, 0.6) * this.A
+      return
+    }
+    y.t += cdt
+    if (y.t < YETI) return
+    y.t = -1
+    y.wait = eggWait(true) * TIME_SCALE
+  }
+
+  // The penguins hop, one after another, nearest the click first.
+  poke(x: number, y: number) {
+    const order = [...this.penguins].sort((a, b) => Math.hypot(a.x - x, a.y - y) - Math.hypot(b.x - x, b.y - y))
+    order.forEach((p, i) => {
+      if (p.hop < HOP) return
+      p.hop = -i * 0.03
+    })
   }
 
   render() {
@@ -190,6 +221,7 @@ class Tundra extends Canvas {
     paintClouds(this.hdr, this.W, this.H, this.clouds, this.look.clouds.top, this.look.clouds.bottom, this.look.clouds.alpha, this.look.clouds.puffy)
     paintStorm(this.hdr, this.W, this.H, this.storm, this.look.clouds.top, this.look.clouds.bottom, this.gloom)
     if (this.owl.x > -5) this.drawOwl()
+    if (this.yeti.t >= 0) this.drawYeti()
     if (this.bear) this.drawBear(this.bear)
     if (this.activity === "teeming") this.drawFisher()
     for (const p of [...this.penguins].sort((a, b) => a.y - b.y)) this.drawPenguin(p)
@@ -437,7 +469,7 @@ class Tundra extends Canvas {
     const S = 0.07 * H * this.depthScale(p.y)
     const rock = p.moving ? Math.sin(p.phase) * 0.14 : Math.sin(p.phase) * 0.03
     const x = p.x * H
-    const y = p.y * H
+    const y = (p.y - (p.hop >= 0 && p.hop < HOP ? Math.abs(Math.sin((p.hop / HOP) * TAU)) * 0.025 * this.depthScale(p.y) : 0)) * H
     const cr = Math.cos(rock)
     const sr = Math.sin(rock)
     const P = (u: number, v: number): [number, number] => [x + (u * p.face * cr - v * sr) * S, y + (u * p.face * sr + v * cr) * S]
@@ -458,6 +490,39 @@ class Tundra extends Canvas {
     this.shape([ell(...P(0.07, -0.38), 0.13 * S, 0.3 * S, rock, belly)], this.lighting, 0.6)
     this.shape([cap(...P(0.13, -0.84), ...P(0.26, -0.81), 0.035 * S, 0.012 * S, orange)], this.lighting, 0.5)
     this.add(...P(0.09, -0.86), 0.5, 0.5, 0.5)
+  }
+
+  // A shaggy silhouette on the far snowfield, fading in and out of the falling snow. It stands, looks around, shuffles
+  // a few steps and raises an arm before it fades. Fading blends toward the snow behind it rather than using alpha,
+  // so overlapping parts don't show through each other.
+  private drawYeti() {
+    const { H, look } = this
+    const t = this.yeti.t
+    const fade = smoothstep(0, 1.5, t) * (1 - smoothstep(10, 12, t))
+    const walk = smoothstep(4, 8, t)
+    const x = (this.yeti.x + walk * 0.06) * H
+    const y = 0.645 * H
+    const S = 0.1 * H
+    const P = (u: number, v: number): [number, number] => [x + u * S, y + v * S]
+    const step = t > 4 && t < 8 ? Math.sin(t * 6) * 0.06 : 0
+    const turn = Math.sin(clamp((t - 1.5) / 2.5, 0, 1) * TAU) * 0.04
+    const wave = smoothstep(8, 8.6, t) * (1 - smoothstep(9.6, 10, t))
+    const c = lerpRGB(look.snow, scaleRGB(look.shade, 0.45), fade)
+    this.shape(
+      [
+        cap(...P(-0.1, -0.4), ...P(-0.1 + step, 0), 0.075 * S, 0.06 * S, c),
+        cap(...P(0.1, -0.4), ...P(0.1 - step, 0), 0.075 * S, 0.06 * S, c),
+        ell(...P(0, -0.6), 0.22 * S, 0.3 * S, 0, c),
+        ell(...P(0, -0.8), 0.26 * S, 0.14 * S, 0, c),
+        ell(...P(turn, -0.98), 0.1 * S, 0.11 * S, 0, c),
+        cap(...P(turn, -1.0), ...P(turn * 0.5, -1.1), 0.08 * S, 0.02 * S, c),
+        cap(...P(-0.24, -0.8), ...P(-0.3, -0.36), 0.065 * S, 0.055 * S, c),
+        cap(...P(0.24, -0.8), ...P(lerp(0.3, 0.42, wave), lerp(-0.36, -1.18, wave) + Math.sin(t * 9) * 0.04 * wave), 0.065 * S, 0.055 * S, c),
+      ],
+      this.lighting,
+      0,
+    )
+    if (look.style === "rim") for (const s of [-1, 1]) this.add(...P(turn + s * 0.035, -0.99), 0.5 * fade, 0.3 * fade, 0.04 * fade)
   }
 
   // An arctic fox trotting across the snow, bushy tail out behind.

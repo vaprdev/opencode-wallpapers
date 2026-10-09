@@ -1,5 +1,6 @@
 import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
 import type { Activity, Settings, Time, Wallpaper } from "../src/engine"
+import { eggWait } from "../src/egg"
 import { TAU, clamp, fbm1, hash, lerp, rand, smoothstep, type RGB } from "../src/math"
 
 // The scene runs slower than real time, which keeps it calm behind text.
@@ -9,6 +10,8 @@ const CREATURE_SPEED = 0.25
 // When a task finishes at night, the fireflies flash together once a scene second for this long.
 const CHORUS = 3
 const RAY_N = 1024
+// How long the sloth's visit lasts, in creature time.
+const SLOTH = 24
 
 // What changes with the time of day. Plants and animals have one daytime color each; tint darkens them into
 // silhouettes at sunset and night, while the mist, distant trees, water and light shafts get their own colors.
@@ -128,6 +131,12 @@ class Jungle extends Canvas {
   // Scene seconds left of the fireflies flashing in unison.
   private chorus = 0
   private pollen = Array.from({ length: 40 }, () => ({ x: Math.random() * 4, y: 0.1 + Math.random() * 0.7, s: Math.random() }))
+  // A click sets the monkey swinging harder: kick is how hard, fading away, and swing is the phase of that swing.
+  private monkey = { kick: 0, swing: 0 }
+  // The vine in the left corner, in screen heights, which the sloth climbs down.
+  private liana = { x: 0, length: 0, phase: 0 }
+  // The easter egg: a sloth lowers itself down the vine, smiles at you, and climbs back up. t is creature time.
+  private sloth = { wait: eggWait() * TIME_SCALE, t: -1 }
 
   constructor(settings: Settings) {
     super()
@@ -161,6 +170,19 @@ class Jungle extends Canvas {
     for (const b of this.butterflies) this.stepButterfly(b, cdt)
     this.stepGloom(dt)
     this.chorus = Math.max(0, this.chorus - dt)
+    const m = this.monkey
+    m.kick *= Math.exp(-cdt * 0.5)
+    m.swing += cdt * 6
+    const sl = this.sloth
+    if (sl.t < 0) {
+      sl.wait -= dt
+      if (sl.wait <= 0) sl.t = 0
+      return
+    }
+    sl.t += cdt
+    if (sl.t < SLOTH) return
+    sl.t = -1
+    sl.wait = eggWait(true) * TIME_SCALE
   }
 
   // The toucan doesn't fly at night, so the fireflies flash together instead.
@@ -169,11 +191,21 @@ class Jungle extends Canvas {
     else if (this.toucan.x < -5) this.toucan.next = 0
   }
 
+  // The monkey gets a push and swings harder for a while.
+  poke(x: number) {
+    if (this.activity === "calm") return
+    const m = this.monkey
+    // Start the extra swing from rest so the push never makes it jump, swinging away from the click.
+    if (m.kick < 0.05) m.swing = x < this.rightBranch(0.71 * this.A)[0] / this.H ? Math.PI : 0
+    m.kick = 1
+  }
+
   render() {
     this.hdr.set(this.background)
     this.drawShafts()
     this.drawFalls()
     if (this.toucan.x > -5) this.drawToucan(this.toucan)
+    if (this.sloth.t >= 0) this.drawSloth()
     if (this.activity !== "calm") this.drawMonkey()
     if (this.activity === "teeming") {
       this.drawMacaw(0.795, -1, 0)
@@ -230,9 +262,10 @@ class Jungle extends Canvas {
     )
     // Vines hanging from the canopy, clear of the waterfall.
     for (let i = 0; i < 7; i++) {
-      const vx = (0.06 + (i / 6) * 0.88) * A
-      if (Math.abs(vx - fx) < 0.06) continue
-      this.drawVine(vx * H, (0.25 + hash(i * 2.2) * 0.35) * H, hash(i * 4.4) * TAU)
+      const vine = { x: (0.06 + (i / 6) * 0.88) * A, length: 0.25 + hash(i * 2.2) * 0.35, phase: hash(i * 4.4) * TAU }
+      if (Math.abs(vine.x - fx) < 0.06) continue
+      if (i === 0) this.liana = vine
+      this.drawVine(vine.x * H, vine.length * H, vine.phase)
     }
     // Two big trunks with buttress roots, and the branches the animals use.
     this.drawTrunk(0.2 * A * H, 0.045 * H)
@@ -436,7 +469,8 @@ class Jungle extends Canvas {
   private drawMonkey() {
     const H = this.H
     const [ax, ay] = this.rightBranch(0.71 * this.A)
-    const swing = (this.look.night ? 0.05 : 0.35) * Math.sin(this.creatureTime * 1.2)
+    const m = this.monkey
+    const swing = (this.look.night ? 0.05 : 0.35) * Math.sin(this.creatureTime * 1.2) + (this.look.night ? 0.2 : 0.4) * m.kick * Math.sin(m.swing)
     const cs = Math.cos(swing)
     const sn = Math.sin(swing)
     const P = (u: number, v: number): [number, number] => [ax + (u * cs - v * sn) * H, ay + (u * sn + v * cs) * H]
@@ -454,6 +488,44 @@ class Jungle extends Canvas {
     )
     this.shape(parts, this.lighting, 0.7)
     for (const s of [-1, 1]) this.add(...P(s * 0.005, 0.167), 0.01, 0.01, 0.01)
+  }
+
+  // A three-toed sloth hanging from the corner vine by its long arms, lowering itself hand over hand out of the
+  // leaves, stopping to turn its smiling face toward you, then climbing back up.
+  private drawSloth() {
+    const H = this.H
+    const t = this.sloth.t
+    const v = this.liana
+    const s = lerp(0.2, 0.75, smoothstep(0, 10, t) * (1 - smoothstep(14, 24, t)))
+    const at = (q: number): [number, number] => [(v.x + Math.sin(q * Math.PI * 0.8 + v.phase) * 0.02 * q) * H, q * v.length * H]
+    const [gx, gy] = at(s)
+    const S = 0.17 * H
+    const climbing = (t < 10 || t > 14) && t < 24
+    const reach = climbing ? Math.sin(t * 4) * 0.05 : 0
+    const tilt = Math.sin(smoothstep(10, 11, t) * (1 - smoothstep(13, 14, t)) * Math.PI * 0.5) * 0.25
+    const P = (u: number, w: number): [number, number] => [gx + u * S, gy + w * S]
+    const fur = this.paint([0.42, 0.36, 0.27])
+    const claw = this.paint([0.2, 0.16, 0.12])
+    this.shape(
+      [
+        cap(...P(-0.11, 0.24), ...P(-0.02, -0.02 + reach), 0.045 * S, 0.035 * S, fur),
+        cap(...P(0.11, 0.24), ...P(0.02, 0.02 - reach), 0.045 * S, 0.035 * S, fur),
+        cap(...P(-0.09, 0.6), ...P(-0.04, 0.82), 0.05 * S, 0.035 * S, fur),
+        cap(...P(0.09, 0.6), ...P(0.04, 0.82), 0.05 * S, 0.035 * S, fur),
+        ell(...P(0, 0.44), 0.17 * S, 0.24 * S, 0, fur),
+        ell(...P(0, 0.22), 0.1 * S, 0.09 * S, tilt, fur),
+        ell(...P(-0.02, -0.02 + reach), 0.025 * S, 0.02 * S, 0, claw),
+        ell(...P(0.02, 0.02 - reach), 0.025 * S, 0.02 * S, 0, claw),
+      ],
+      this.lighting,
+      0.6,
+    )
+    const ct = Math.cos(tilt)
+    const st = Math.sin(tilt)
+    const F = (u: number, w: number): [number, number] => P(u * ct - (w - 0.22) * st, 0.22 + u * st + (w - 0.22) * ct)
+    this.shape([ell(...F(0, 0.225), 0.075 * S, 0.06 * S, tilt, this.paint([0.82, 0.74, 0.56]))], this.lighting, 0.4)
+    const dark = this.paint(BLACK)
+    this.shape([ell(...F(-0.035, 0.215), 0.028 * S, 0.012 * S, tilt - 0.35, dark), ell(...F(0.035, 0.215), 0.028 * S, 0.012 * S, tilt + 0.35, dark), ell(...F(0, 0.245), 0.014 * S, 0.008 * S, tilt, dark)], this.lighting, 0)
   }
 
   // A scarlet macaw perched upright on the right-hand branch, bobbing its head now and then.

@@ -1,4 +1,5 @@
 import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
+import { eggWait } from "../src/egg"
 import type { Activity, Settings, Time, Wallpaper } from "../src/engine"
 import { TAU, clamp, fbm1, fbm2, hash, hash2, lerp, rand, smoothstep, type RGB } from "../src/math"
 
@@ -13,6 +14,8 @@ const TH = 256
 // Where the planet sits and how big it is: center x as a fraction of the width, y and radius in screen heights.
 const PLANET = { x: 0.68, y: 1.1, r: 0.58 }
 const RING = { tilt: 0.42, flat: 0.24, inner: 1.25, outer: 2.1 }
+// How long a shooting star lasts, in scene seconds.
+const METEOR = 1.2
 
 // The times of day are where we are over the planet: its sunlit side, an orbital sunrise with the star at its edge,
 // or its night side with city lights.
@@ -128,6 +131,9 @@ class Space extends Canvas {
   private station: Traveler = { x: 0.2, y: 0.3, dir: 1, wait: 0 }
   private satellite: Traveler = { x: 1.4, y: 0.15, dir: -1, wait: 0 }
   private rocks: Rock[] = []
+  private meteors: { x: number; y: number; vx: number; vy: number; age: number }[] = []
+  // The easter egg: a long starship cruises across the sky, engines glowing. x < -5 while it waits.
+  private starship = { x: -9, y: 0.2, wait: eggWait() * TIME_SCALE }
 
   constructor(settings: Settings) {
     super()
@@ -157,6 +163,27 @@ class Space extends Canvas {
     }
     this.stepComet(dt)
     this.stepGloom(dt)
+    for (const m of this.meteors) {
+      m.age += dt
+      m.x += m.vx * dt
+      m.y += m.vy * dt
+    }
+    this.meteors = this.meteors.filter((m) => m.age < METEOR)
+    const ship = this.starship
+    if (ship.x < -5) {
+      ship.wait -= dt
+      if (ship.wait <= 0) {
+        ship.x = this.A + 0.4
+        ship.y = rand(0.16, 0.24)
+      }
+    }
+    if (ship.x > -5) {
+      ship.x -= 0.1 * cdt
+      if (ship.x < -0.4) {
+        ship.x = -9
+        ship.wait = eggWait(true) * TIME_SCALE
+      }
+    }
     if (this.activity !== "calm") {
       this.travel(this.station, 0.12, 20, cdt)
       this.travel(this.satellite, 0.18, 30, cdt)
@@ -175,6 +202,12 @@ class Space extends Canvas {
     }
   }
 
+  // A shooting star streaks away from the click, falling toward the planet.
+  poke(x: number, y: number) {
+    const dir = x < this.A / 2 ? 1 : -1
+    this.meteors.push({ x, y, vx: dir * rand(0.25, 0.35), vy: rand(0.08, 0.15), age: 0 })
+  }
+
   render() {
     this.hdr.set(this.background)
     this.drawStars()
@@ -183,10 +216,12 @@ class Space extends Canvas {
     this.drawRingFront()
     this.drawStarGlare()
     this.drawComet()
+    this.drawMeteors()
     if (this.activity !== "calm") {
       this.drawSatellite()
       this.drawStation()
     }
+    if (this.starship.x > -5) this.drawStarship()
     if (this.activity === "teeming") {
       for (const r of this.rocks) this.drawRock(r)
       this.drawAstronaut()
@@ -442,6 +477,56 @@ class Space extends Canvas {
       this.disc(hx + ux * d, hy + uy * d, 0.8 + t * 3, 0.5 * k, 0.75 * k, 1 * k, 0.5 * (1 - t))
     }
     this.disc(hx, hy, 1.4, 2.5, 2.8, 3, 1)
+  }
+
+  // Meteors: a bright head and a fading trail, flaring up and dying away; tinted rather than white at night.
+  private drawMeteors() {
+    const H = this.H
+    const c = this.look.starTints ? STAR_TINTS[0] : WHITE_STAR
+    for (const m of this.meteors) {
+      const k = Math.sin((m.age / METEOR) * Math.PI)
+      const v = Math.hypot(m.vx, m.vy)
+      for (let i = 0; i < 48; i++) {
+        const t = i / 47
+        const d = t * 0.12 * H
+        const a = (1 - t) * k
+        this.add(m.x * H - (m.vx / v) * d, m.y * H - (m.vy / v) * d, c[0] * a, c[1] * a, c[2] * a)
+      }
+      this.disc(m.x * H, m.y * H, 1.1, c[0] * 1.3, c[1] * 1.3, c[2] * 1.3, k)
+    }
+  }
+
+  // A long starship gliding across: a tapered hull with a raised bridge, two engine pods trailing blue glow, rows
+  // of amber windows and blinking running lights.
+  private drawStarship() {
+    const H = this.H
+    const s = this.starship
+    const S = 0.55 * H
+    const x = s.x * H
+    const y = s.y * H
+    const P = (u: number, v: number): [number, number] => [x - u * S, y + v * S]
+    const hull = this.paint([0.7, 0.72, 0.78])
+    const dark = this.paint([0.35, 0.37, 0.42])
+    this.shape(
+      [
+        cap(...P(-0.45, 0.04), ...P(-0.1, 0.06), 0.022 * S, 0.02 * S, dark),
+        cap(...P(-0.45, -0.04), ...P(-0.1, -0.06), 0.022 * S, 0.02 * S, dark),
+        cap(...P(-0.4, 0), ...P(0.5, 0), 0.05 * S, 0.012 * S, hull),
+        cap(...P(-0.15, -0.045), ...P(0.05, -0.04), 0.02 * S, 0.014 * S, hull),
+        ell(...P(0.08, -0.04), 0.035 * S, 0.012 * S, 0, hull),
+      ],
+      this.lighting,
+      0.8,
+    )
+    for (let i = 0; i < 10; i++) this.add(...P(-0.3 + i * 0.06, 0.008), 1.3, 0.65, 0.12)
+    for (const v of [-0.04, 0.04]) {
+      const [ex, ey] = P(-0.47, v)
+      this.disc(ex, ey, 0.016 * S, 0.35, 1, 2.2, 0.9)
+      this.add(ex, ey, 0.3, 0.8, 1.6)
+    }
+    const blink = Math.sin(this.time * 3) > 0.7 ? 1.5 : 0
+    this.add(...P(-0.1, -0.075), blink, 0.1 * blink, 0.1 * blink)
+    this.add(...P(-0.1, 0.075), 0.1 * blink, blink, 0.2 * blink)
   }
 
   // Spacecraft cross the sky slowly, wait offscreen, then come back.

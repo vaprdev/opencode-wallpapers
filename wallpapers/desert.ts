@@ -1,5 +1,7 @@
 import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
+import { eggWait } from "../src/egg"
 import type { Activity, Settings, Time, Wallpaper } from "../src/engine"
+import { bird, flyAway, startle, type Flier } from "../src/flock"
 import { TAU, clamp, fbm1, hash, lerp, rand, smoothstep, type RGB } from "../src/math"
 import { driftClouds, makeStorm, paintStorm } from "../src/sky"
 
@@ -255,6 +257,11 @@ class Desert extends Canvas {
   private flock: Bird[] = []
   private snake: Snake | undefined
   private coyote: Coyote | undefined
+  private startled: Flier[] = []
+  // The easter egg: a roadrunner sprints in from the left, stops mid-screen, then dashes off kicking up dust. t is
+  // creature time; halt is when it stopped, or -1 before then.
+  private roadrunner = { wait: eggWait() * TIME_SCALE, t: -1, x: 0, halt: -1, stride: 0 }
+  private puffs: { x: number; y: number; age: number }[] = []
 
   constructor(settings: Settings) {
     super()
@@ -299,6 +306,14 @@ class Desert extends Canvas {
     this.stepGloom(dt)
     this.stepTumbleweed(dt)
     this.stepCreatures(dt * CREATURE_SPEED)
+    this.startled = flyAway(this.startled, dt, this.A)
+    this.stepRoadrunner(dt, dt * CREATURE_SPEED)
+  }
+
+  // A few birds burst up out of the scrub below the click.
+  poke(x: number, y: number) {
+    const ground = this.frontTop[clamp(Math.round(x * this.H), 0, this.W - 1)] / this.H
+    startle(this.startled, x, y > HORIZON ? y : ground, 5)
   }
 
   render() {
@@ -310,6 +325,8 @@ class Desert extends Canvas {
     if (this.bigBird) this.drawBird(this.bigBird, 0.8, this.look.night ? "owl" : "eagle")
     if (this.coyote) this.drawCoyote(this.coyote)
     if (this.snake) this.drawSnake(this.snake)
+    if (this.roadrunner.t >= 0) this.drawRoadrunner()
+    for (const b of this.startled) this.silhouette(bird(b, this.H, 0.022 * this.H, this.look.flock), 0.4)
     this.drawTumbleweed()
     this.drawDust()
     this.finish()
@@ -507,6 +524,28 @@ class Desert extends Canvas {
       t.x = -9
       t.next = rand(40, 75)
     }
+  }
+
+  private stepRoadrunner(dt: number, cdt: number) {
+    for (const p of this.puffs) p.age += dt
+    this.puffs = this.puffs.filter((p) => p.age < 4)
+    const r = this.roadrunner
+    if (r.t < 0) {
+      r.wait -= dt
+      if (r.wait > 0) return
+      Object.assign(r, { t: 0, x: -0.1, halt: -1, stride: 0 })
+      return
+    }
+    r.t += cdt
+    if (r.halt < 0 && r.x >= 0.55 * this.A) r.halt = r.t
+    if (r.halt >= 0 && r.t < r.halt + 2) return
+    const speed = r.halt < 0 ? 0.25 : 0.5
+    r.x += speed * cdt
+    r.stride += cdt * 40
+    if (Math.floor(r.stride / Math.PI) !== Math.floor((r.stride - cdt * 40) / Math.PI)) this.puffs.push({ x: r.x - 0.01, y: this.ground(r.x / this.A) / this.H, age: 0 })
+    if (r.x < this.A + 0.15) return
+    r.t = -1
+    r.wait = eggWait(true) * TIME_SCALE
   }
 
   private stepCreatures(dt: number) {
@@ -806,6 +845,39 @@ class Desert extends Canvas {
     parts.push(ell(hx, hy, 0.013 * H, 0.009 * H, heading, body))
     this.silhouette(parts, 0.7)
     this.add(hx + Math.cos(heading) * 0.005 * H, hy - 0.002 * H, 0.02, 0.02, 0.02)
+  }
+
+  // A roadrunner: legs a blur while it runs, tail low; standing, it raises its tail and crest and bobs its head.
+  private drawRoadrunner() {
+    const { H, look } = this
+    const r = this.roadrunner
+    for (const p of this.puffs) {
+      const c = scale(look.frontDune, 1.35)
+      this.disc(p.x * H, p.y * H - p.age * 0.006 * H, (0.006 + p.age * 0.005) * H, c[0], c[1], c[2], (1 - p.age / 4) * 0.4)
+    }
+    const running = r.halt < 0 || r.t > r.halt + 2
+    const x = r.x * H
+    const gy = this.ground(r.x / this.A) + 1
+    const S = 0.14 * H
+    const P = (u: number, v: number): [number, number] => [x + u * S, gy + v * S]
+    const bob = running ? 0 : Math.max(0, Math.sin((r.t - r.halt) * 12)) * 0.05
+    const tail = running ? -0.47 : -0.78
+    const body = scale(look.coyote, 0.7)
+    const dark = look.hornTip
+    const legs = running ? [Math.sin(r.stride) * 0.16, -Math.sin(r.stride) * 0.16] : [0.03, -0.03]
+    this.silhouette(
+      [
+        ...legs.map((dx, i) => cap(...P(0, -0.32), ...P(dx, i === 0 && running ? -0.04 * Math.max(0, Math.cos(r.stride)) : 0), 0.02 * S, 0.012 * S, dark)),
+        ell(...P(0, -0.4), 0.2 * S, 0.075 * S, -0.15, body),
+        cap(...P(-0.14, -0.42), ...P(-0.5, tail), 0.05 * S, 0.03 * S, body),
+        cap(...P(0.12, -0.43), ...P(0.22, -0.58 + bob), 0.045 * S, 0.035 * S, body),
+        ell(...P(0.25, -0.62 + bob), 0.07 * S, 0.055 * S, 0, body),
+        cap(...P(0.22, -0.67 + bob), ...P(0.15, running ? -0.71 : -0.79 + bob), 0.035 * S, 0.01 * S, dark),
+        cap(...P(0.3, -0.62 + bob), ...P(0.45, -0.6 + bob), 0.02 * S, 0.006 * S, dark),
+      ],
+      0.7,
+    )
+    this.add(...P(0.27, -0.635 + bob), 0.02, 0.02, 0.02)
   }
 
   // A ball of tangled twigs rolling and hopping across the front dune, its side toward the light brighter.

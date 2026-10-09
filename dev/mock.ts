@@ -21,6 +21,7 @@ export function mockScreen(options: { kitty?: boolean } = {}) {
     off() {},
     stdin: { on() {}, off() {} },
     kittyImageTransport: "raw",
+    root: {} as { onMouse?: unknown },
     ...(options.kitty ? { resolution: { width: W * 8, height: H * 16 }, capabilities: { kitty_graphics: true } } : {}),
   }
   const engine = createEngine({ renderer, data: { listen: () => () => {} } } as never, { layer: (_renderer, draw) => ((layer = draw as typeof layer), { dispose() {} }) })

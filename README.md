@@ -148,6 +148,24 @@ seconds without typing, mouse or agent activity, and pause while the terminal wi
 terminals that report focus, such as Ghostty, kitty, iTerm2 and tmux). Any input brings back full speed at once.
 **Smooth** always runs at 15.
 
+## Clicks and surprises
+
+With mouse support on, clicking an empty patch of background, away from text, nudges the scene. OpenCode still gets
+every click; dialogs, popups and text are never pokes.
+
+| Wallpaper | Click | Very rarely |
+| --- | --- | --- |
+| `ocean` | Bubbles rise, and the fish, shark and octopus dart away | A little yellow submarine putters past |
+| `desert` | Birds burst up out of the scrub | A roadrunner sprints through and stops to look around |
+| `jungle` | The spider monkey swings harder | A sloth lowers itself down a vine to smile at you |
+| `space` | A shooting star | A starship cruises across the sky |
+| `farm` | The nearest cow looks up and turns toward you | A flying saucer beams up a cow |
+| `tundra` | The penguins hop | A yeti looms out of the snow and waves |
+| `beach` | Gulls take off | A message in a bottle washes up for a while |
+
+Click reactions that involve animals need the lively or teeming level. The rare events come along about once every
+hour or two of watching, never sooner than half an hour apart.
+
 ## Terminals
 
 Any truecolor terminal works. Ghostty and kitty get octant characters (2x4 sub-pixels per cell); other terminals get
@@ -191,6 +209,11 @@ bun dev/fade.ts <id>:day <id>:night 50  # a frame halfway through a crossfade, a
 
 CI runs the typecheck, `dev/check.ts` (failing on errors and flicker) and `bun run screenshots`, which fails when the
 gallery is out of date. Dev renders seed `Math.random`, so they are reproducible.
+bun dev/poke.ts <id> lively day 0.5 0.8 1 4  # click at a point (fractions of the screen), PNGs 1 and 4 s later
+```
+
+To react to clicks, implement `poke(x, y)` on the scene. For the rare event, wait `eggWait()` from `src/egg.ts`;
+`WALLPAPER_EGG=1` brings it on a few seconds in, for `dev/snap.ts` and live testing.
 
 `dev/pty.ts` and `dev/pty-kitty.ts` drive a real OpenCode in a pseudo-terminal, and `WALLPAPER_DUMP=<file>` saves one
 frame of terminal cells that `dev/cells.ts` turns into a PNG. `WALLPAPER_EVENTS="busy@2,done@12,error@30"` plays
