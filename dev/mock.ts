@@ -17,10 +17,13 @@ export function mockScreen(options: { kitty?: boolean } = {}) {
     removePostProcessFn: () => (post = undefined),
     requestRender() {},
     getCursorState: () => ({ x: 10, y: 40, visible: true }),
+    on() {},
+    off() {},
+    stdin: { on() {}, off() {} },
     kittyImageTransport: "raw",
     ...(options.kitty ? { resolution: { width: W * 8, height: H * 16 }, capabilities: { kitty_graphics: true } } : {}),
   }
-  const engine = createEngine({ renderer } as never, { layer: (_renderer, draw) => ((layer = draw as typeof layer), { dispose() {} }) })
+  const engine = createEngine({ renderer, data: { listen: () => () => {} } } as never, { layer: (_renderer, draw) => ((layer = draw as typeof layer), { dispose() {} }) })
   return {
     engine,
     buffers,

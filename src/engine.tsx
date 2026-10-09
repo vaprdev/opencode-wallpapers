@@ -58,6 +58,10 @@ export type Activity = (typeof ACTIVITIES)[number]
 export const TIMES = ["day", "sunset", "night"] as const
 export type Time = (typeof TIMES)[number]
 
+// saver slows down when nobody is using OpenCode and stops while the terminal is in the background; smooth never does.
+export const POWERS = ["saver", "smooth"] as const
+export type Power = (typeof POWERS)[number]
+
 
 const UPPER_HALF = 0x2580
 const LOWER_HALF = 0x2584
@@ -246,6 +250,11 @@ const FPS = 15
 // While the agent works the scene runs a little faster, least of all when calm; after an error it dims slightly.
 const BUSY_PACE = { calm: 1.12, lively: 1.25, teeming: 1.4 }
 const ERROR_SHADE = 0.85
+// Saver mode's rate after IDLE_MS without keyboard, mouse or agent activity.
+const IDLE_FPS = 5
+const IDLE_MS = 30_000
+// Scenes clamp each step to 0.1 s, so longer gaps (the idle rate) are split into steps no longer than that.
+const MAX_STEP = 0.1
 // Real-pixel mode: scene pixels per character cell. Cells are about twice as tall as wide, so 3x6 keeps pixels square.
 const PX_W = 3
 const PX_H = 6
@@ -411,6 +420,7 @@ export interface Engine {
   start(wallpaper: Wallpaper, settings: Settings, fade?: number): void
   stop(): void
   react(event: AgentEvent): void
+  power(mode: Power): void
 }
 
 // Post-processes OpenCode's final frame: cells painted with neutral OpenCode theme surfaces are replaced by the scene, drawn
@@ -601,6 +611,46 @@ export function createEngine(
   }
 
   let timer: ReturnType<typeof setInterval> | undefined
+  // The timer's period in ms; 0 while paused.
+  let interval = 0
+  let power: Power = "saver"
+  let focused = true
+  let lastActivity = 0
+  let unlisten: (() => void) | undefined
+
+  // Full rate, the idle rate, or stopped, for the current power mode, focus and activity.
+  const schedule = () => {
+    const saver = power === "saver"
+    const next = !scene || (saver && !focused) ? 0 : saver && Date.now() - lastActivity > IDLE_MS ? 1000 / IDLE_FPS : 1000 / FPS
+    if (next === interval) return
+    clearInterval(timer)
+    timer = next
+      ? setInterval(() => {
+          schedule()
+          renderer.requestRender()
+        }, next)
+      : undefined
+    interval = next
+  }
+  const wake = () => {
+    lastActivity = Date.now()
+    schedule()
+  }
+  const onInput = (data: Buffer | string) => {
+    // Kitty graphics replies are the terminal answering us, not the user.
+    if (!data.toString().startsWith("\x1b_G")) wake()
+  }
+  const onFocus = () => {
+    focused = true
+    // Resume where the scene paused rather than stepping over the time spent in the background.
+    if (!interval) lastStep = 0
+    wake()
+    renderer.requestRender()
+  }
+  const onBlur = () => {
+    focused = false
+    schedule()
+  }
 
   const tintOf = (k: number) => {
     const cached = tints.get(k)
@@ -650,21 +700,23 @@ export function createEngine(
     lastTarget = target
     scene.resize(targetW, targetH)
     from?.scene.resize(targetW, targetH)
-    // The scene advances at most FPS times a second; redraws in between (typing, UI updates) reuse the last frame.
+    // The scene advances at most once per timer interval, and not at all while paused; redraws in between (typing, UI
+    // updates) reuse the last frame.
     const now = performance.now()
-    const advanced = resized || now - lastStep >= 1000 / FPS - 2
+    const advanced = resized || (interval > 0 && now - lastStep >= interval - 2)
     if (advanced) {
-      const dt = lastStep ? Math.min(0.2, (now - lastStep) / 1000) : 1 / FPS
-      lastStep = now
+      const dt = !interval ? 0 : lastStep ? Math.min(0.5, (now - lastStep) / 1000) : 1 / FPS
+      if (interval) lastStep = now
       const ease = 1 - Math.exp(-dt / 2.5)
       pace += ((busy ? BUSY_PACE[settings!.activity] : 1) - pace) * ease
       shade += ((failed ? ERROR_SHADE : 1) - shade) * ease
-      scene.step(dt * pace)
+      const steps = Math.ceil((dt * pace) / MAX_STEP)
+      for (let s = 0; s < steps; s++) scene.step((dt * pace) / steps)
       scene.render()
       fade = Math.min(1, fade + dt / fadeLength)
       if (fade === 1) from = undefined
       if (from) {
-        from.scene.step(dt * pace)
+        for (let s = 0; s < steps; s++) from.scene.step((dt * pace) / steps)
         from.scene.render()
         if (mixed.length !== scene.pixels.length) mixed = new Uint8Array(scene.pixels.length)
         mix(from.scene.pixels, scene.pixels, mixed, smoothstep(0, 1, fade))
@@ -675,7 +727,9 @@ export function createEngine(
     const was = from ?? { wallpaper: wallpaper!, settings: settings! }
     const scrim = blendScrim(was.wallpaper.scrim[was.settings.time], wallpaper!.scrim[settings!.time], t)
     const desaturate = lerp(DESATURATE[was.settings.time], DESATURATE[settings!.time], t)
-    paint(buf, from ? mixed : scene.pixels, scene.W, scene.H, advanced, pixels, desaturate, shade, scrim)
+    // Blending in the previous frame fades at the same speed per second whatever the frame rate.
+    const persistence = interval > 1000 / FPS ? PERSISTENCE ** (interval / (1000 / FPS)) : PERSISTENCE
+    paint(buf, from ? mixed : scene.pixels, scene.W, scene.H, advanced, pixels, desaturate, shade, persistence, scrim)
     if (options.dump && !dumped && frames > 120) {
       dumped = true
       write(buf, options.dump)
@@ -696,7 +750,7 @@ export function createEngine(
 
   // Everything after the scene has drawn its frame. It never touches the scene object: each wallpaper's scene is a
   // different class, and the optimizer would otherwise fall back to slow code for this whole function after a switch.
-  const paint = (buf: OptimizedBuffer, px: Uint8Array, PW: number, PH: number, advanced: boolean, pixels: boolean, desaturate: number, shade: number, scrim: Scrim) => {
+  const paint = (buf: OptimizedBuffer, px: Uint8Array, PW: number, PH: number, advanced: boolean, pixels: boolean, desaturate: number, shade: number, persistence: number, scrim: Scrim) => {
     const W = buf.width
     const H = buf.height
     if (advanced) {
@@ -706,7 +760,7 @@ export function createEngine(
         const l = px[p] * 0.2126 + px[p + 1] * 0.7152 + px[p + 2] * 0.0722
         for (let c = 0; c < 3; c++) {
           const v = (px[p + c] + (l - px[p + c]) * desaturate) * shade
-          const h = fresh ? v : history[p + c] * PERSISTENCE + v * (1 - PERSISTENCE)
+          const h = fresh ? v : history[p + c] * persistence + v * (1 - persistence)
           history[p + c] = h
           px[p + c] = h
         }
@@ -882,7 +936,13 @@ export function createEngine(
       lastTarget = ""
       history = new Float32Array(0)
       previousMask = new Int16Array(0)
-      timer = setInterval(() => renderer.requestRender(), 1000 / FPS)
+      lastActivity = Date.now()
+      focused = true
+      schedule()
+      renderer.on("focus", onFocus)
+      renderer.on("blur", onBlur)
+      renderer.stdin.on("data", onInput)
+      unlisten = context.data.listen(wake)
       layer = (options.layer ?? createLayer)(renderer, drawLayer)
     },
     stop() {
@@ -892,8 +952,12 @@ export function createEngine(
       scene = undefined
       from = undefined
       renderer.removePostProcessFn(postProcess)
-      clearInterval(timer)
-      timer = undefined
+      schedule()
+      renderer.off("focus", onFocus)
+      renderer.off("blur", onBlur)
+      renderer.stdin.off("data", onInput)
+      unlisten?.()
+      unlisten = undefined
       layer?.dispose()
       layer = undefined
       nextImage?.dispose()
@@ -910,6 +974,10 @@ export function createEngine(
       if (event !== "idle") failed = event === "error"
       scene?.react?.(event)
       from?.scene.react?.(event)
+    },
+    power(mode) {
+      power = mode
+      wake()
     },
   }
   return engine

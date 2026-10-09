@@ -134,6 +134,13 @@ Wallpapers quietly follow what the agent is doing:
 - **Error:** after a failed run, dark clouds roll in (in the ocean and jungle the light shafts fade, in space the
   star dims) and the scene darkens slightly. It clears once the agent works again.
 
+## Power
+
+Wallpapers animate at 15 frames per second. On **Saver**, the default, they slow to 5 frames per second after 30
+seconds without typing, mouse or agent activity, and pause while the terminal window is in the background (in
+terminals that report focus, such as Ghostty, kitty, iTerm2 and tmux). Any input brings back full speed at once.
+**Smooth** always runs at 15.
+
 ## Terminals
 
 Any truecolor terminal works. Ghostty and kitty get octant characters (2x4 sub-pixels per cell); other terminals get
@@ -150,8 +157,8 @@ quadrant blocks (2x2). These environment variables tune rendering:
 The plugin post-processes each frame OpenCode draws. Cells painted with OpenCode's neutral surface colors are replaced
 by the scene, while colored backgrounds such as diffs and selections are left alone. Text keeps a soft scrim that fades
 the scene toward a dark tint around it. Scenes render in HDR with bloom and tone mapping, then are fitted to two colors
-per character cell. Wallpapers update at 15 frames per second. While one look fades into another, both scenes render
-and blend, scrim included, so only transitions cost extra.
+per character cell. While one look fades into another, both scenes render and blend, scrim included, so only
+transitions cost extra.
 
 ## Add a wallpaper
 
