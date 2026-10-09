@@ -34,6 +34,9 @@ export type Scrim = readonly [RGB, RGB, RGB]
 export interface Settings {
   readonly activity: Activity
   readonly time: Time
+  // Without a season a wallpaper shows its classic look; without weather it picks its own (see src/weather.ts).
+  readonly season?: Season
+  readonly weather?: Weather
 }
 
 // How much is going on in the scene. calm is scenery with rare events; teeming is the full cast.
@@ -42,6 +45,12 @@ export type Activity = (typeof ACTIVITIES)[number]
 
 export const TIMES = ["day", "sunset", "night"] as const
 export type Time = (typeof TIMES)[number]
+
+export const SEASONS = ["spring", "summer", "autumn", "winter"] as const
+export type Season = (typeof SEASONS)[number]
+
+export const WEATHERS = ["clear", "overcast", "rain", "snow", "fog"] as const
+export type Weather = (typeof WEATHERS)[number]
 
 
 const UPPER_HALF = 0x2580
@@ -787,7 +796,7 @@ export function createEngine(
       return wallpaper
     },
     start(next, chosen) {
-      if (wallpaper === next && settings?.activity === chosen.activity && settings.time === chosen.time) return
+      if (wallpaper === next && settings?.activity === chosen.activity && settings.time === chosen.time && settings.season === chosen.season && settings.weather === chosen.weather) return
       engine.stop()
       wallpaper = next
       settings = chosen

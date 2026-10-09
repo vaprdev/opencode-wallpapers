@@ -1,7 +1,7 @@
 // Runs every wallpaper (or the named ones) at every activity level and time of day through the engine on a mock screen and reports errors, frame cost and
-// flicker (cells whose glyph changes per frame; lower is calmer): bun dev/check.ts [wallpaper...]
+// flicker (cells whose glyph changes per frame; lower is calmer): bun dev/check.ts [wallpaper...] [season] [weather]
 import { mkdirSync, rmSync } from "node:fs"
-import { ACTIVITIES, TIMES } from "../src/engine"
+import { ACTIVITIES, SEASONS, TIMES, WEATHERS } from "../src/engine"
 import { WALLPAPERS } from "../wallpapers"
 import { H, W, mockScreen, text } from "./mock"
 
@@ -11,14 +11,17 @@ rmSync(debug, { force: true })
 process.env.WALLPAPER_DEBUG = debug
 process.env.WALLPAPER_OCTANTS = "1"
 
-const ids = process.argv.slice(2)
+const args = process.argv.slice(2)
+const season = SEASONS.find((s) => args.includes(s))
+const weather = WEATHERS.find((w) => args.includes(w))
+const ids = args.filter((arg) => arg !== season && arg !== weather)
 const unknown = ids.filter((id) => !WALLPAPERS.some((w) => w.id === id))
 if (unknown.length) throw new Error(`unknown wallpaper ${unknown.join(", ")}; available: ${WALLPAPERS.map((w) => w.id).join(", ")}`)
 const screen = mockScreen()
 let failed = false
 const runs = (ids.length ? WALLPAPERS.filter((w) => ids.includes(w.id)) : WALLPAPERS).flatMap((w) => ACTIVITIES.flatMap((activity) => TIMES.map((time) => ({ wallpaper: w, activity, time }))))
 for (const { wallpaper, activity, time } of runs) {
-  screen.engine.start(wallpaper, { activity, time })
+  screen.engine.start(wallpaper, { activity, time, season, weather })
   let previous = new Uint32Array(W * H)
   let changes = 0
   let ms = 0
