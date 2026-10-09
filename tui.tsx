@@ -193,6 +193,57 @@ export default Plugin.define({
         set: apply,
       },
       {
+        title: "Activity",
+        values: () => ACTIVITIES,
+        value: activity,
+        label: capitalize,
+        describe: (v) => (wallpapers.find((w) => w.id === shown()) ?? wallpapers[0]).activity[v as Activity],
+        set: apply,
+      },
+      {
+        title: "Time of day",
+        values: () => ["auto", ...TIMES],
+        value: timeSetting,
+        label: (v) => (v === "auto" ? `Auto (${timeAt(now())})` : capitalize(v)),
+        describe: (v) => (v === "auto" ? "Follows your clock: day from 7am, sunset from 6pm, night from 8pm" : `Always ${v}`),
+        set: apply,
+      },
+      {
+        title: "Season",
+        values: () => ["season auto", ...SEASONS.map((s) => `season ${s}`)],
+        value: () => `season ${seasonSetting()}`,
+        label: (v) => (v === "season auto" ? `Auto (${seasonAt(now(), south())})` : capitalize(v.slice(7))),
+        describe: (v) =>
+          v === "season auto"
+            ? `Follows the calendar in the ${south() ? "southern" : "northern"} hemisphere: spring from ${south() ? "September" : "March"}, summer from ${south() ? "December" : "June"}, autumn from ${south() ? "March" : "September"}, winter from ${south() ? "June" : "December"}`
+            : `Always ${v.slice(7)}. Farm, desert, jungle, beach and the zen garden change with the seasons`,
+        set: apply,
+      },
+      {
+        title: "Weather",
+        values: () => ["off", "local", "clear", "rain", "snow", "fog"].map((w) => `weather ${w}`),
+        value: () => `weather ${weatherSetting()}`,
+        label: (v) => (v === "weather local" ? `Local (${location() ? (local()?.weather ?? "checking") : "no location"})` : capitalize(v.slice(8))),
+        describe: (v) => {
+          if (v === "weather off") return "Each wallpaper's own: snow on the tundra, winter flurries, showers in the jungle's rainy season, rain on the city at night"
+          if (v !== "weather local") return `Always ${v.slice(8)} on outdoor wallpapers`
+          if (!location()) return "Set a place first: /wallpaper location <city or lat,lon>, or WALLPAPER_LOCATION"
+          return `Real weather for ${location()} from Open-Meteo, checked every 30 minutes`
+        },
+        set: apply,
+      },
+      {
+        title: "Brightness",
+        values: () => BRIGHTNESSES,
+        value: brightness,
+        label: capitalize,
+        describe: (v) =>
+          ({ subtle: "A dim scene that stays out of the way", normal: "The standard look", vivid: "A brighter scene, with firmer shade behind text" })[
+            v as Brightness
+          ] + (context.themeMode === "light" ? ", washed out for your light theme" : ""),
+        set: apply,
+      },
+      {
         title: "Shuffle",
         values: () => SHUFFLES,
         value: shuffleSetting,
@@ -224,33 +275,6 @@ export default Plugin.define({
           }),
       },
       {
-        title: "Activity",
-        values: () => ACTIVITIES,
-        value: activity,
-        label: capitalize,
-        describe: (v) => (wallpapers.find((w) => w.id === shown()) ?? wallpapers[0]).activity[v as Activity],
-        set: apply,
-      },
-      {
-        title: "Time of day",
-        values: () => ["auto", ...TIMES],
-        value: timeSetting,
-        label: (v) => (v === "auto" ? `Auto (${timeAt(now())})` : capitalize(v)),
-        describe: (v) => (v === "auto" ? "Follows your clock: day from 7am, sunset from 6pm, night from 8pm" : `Always ${v}`),
-        set: apply,
-      },
-      {
-        title: "Brightness",
-        values: () => BRIGHTNESSES,
-        value: brightness,
-        label: capitalize,
-        describe: (v) =>
-          ({ subtle: "A dim scene that stays out of the way", normal: "The standard look", vivid: "A brighter scene, with firmer shade behind text" })[
-            v as Brightness
-          ] + (context.themeMode === "light" ? ", washed out for your light theme" : ""),
-        set: apply,
-      },
-      {
         title: "Power",
         values: () => POWERS,
         value: power,
@@ -259,30 +283,6 @@ export default Plugin.define({
           v === "saver"
             ? "Slows to 5 fps after 30 seconds without typing, mouse or agent activity, and pauses while the terminal is in the background"
             : "Always 15 fps",
-        set: apply,
-      },
-      {
-        title: "Season",
-        values: () => ["season auto", ...SEASONS.map((s) => `season ${s}`)],
-        value: () => `season ${seasonSetting()}`,
-        label: (v) => (v === "season auto" ? `Auto (${seasonAt(now(), south())})` : capitalize(v.slice(7))),
-        describe: (v) =>
-          v === "season auto"
-            ? `Follows the calendar in the ${south() ? "southern" : "northern"} hemisphere: spring from ${south() ? "September" : "March"}, summer from ${south() ? "December" : "June"}, autumn from ${south() ? "March" : "September"}, winter from ${south() ? "June" : "December"}`
-            : `Always ${v.slice(7)}. Farm, desert, jungle and beach change with the seasons`,
-        set: apply,
-      },
-      {
-        title: "Weather",
-        values: () => ["off", "local", "clear", "rain", "snow", "fog"].map((w) => `weather ${w}`),
-        value: () => `weather ${weatherSetting()}`,
-        label: (v) => (v === "weather local" ? `Local (${location() ? (local()?.weather ?? "checking") : "no location"})` : capitalize(v.slice(8))),
-        describe: (v) => {
-          if (v === "weather off") return "Each wallpaper's own: snow on the tundra, a winter flurry on the farm, showers in the jungle's rainy season"
-          if (v !== "weather local") return `Always ${v.slice(8)} on outdoor wallpapers`
-          if (!location()) return "Set a place first: /wallpaper location <city or lat,lon>, or WALLPAPER_LOCATION"
-          return `Real weather for ${location()} from Open-Meteo, checked every 30 minutes`
-        },
         set: apply,
       },
     ]
