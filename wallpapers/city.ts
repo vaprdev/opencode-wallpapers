@@ -1,7 +1,10 @@
 import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
+import { eggWait } from "../src/egg"
+import { bird, flyAway, startle, type Flier } from "../src/flock"
 import { TAU, clamp, fbm1, hash, hash2, lerp, rand, smoothstep, type RGB } from "../src/math"
-import { driftClouds, makeClouds, makeStars, paintClouds, paintSky, paintStars, type Cloud, type Orb, type Star } from "../src/sky"
+import { driftClouds, makeClouds, makeStars, makeStorm, paintClouds, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
 import type { Activity, Settings, Time, Wallpaper } from "../src/wallpaper"
+import { WeatherLayer } from "../src/weather"
 
 // The scene runs slower than real time, which keeps it calm behind text.
 const TIME_SCALE = 0.35
@@ -160,6 +163,8 @@ const LANES = [
 const TRAFFIC: Record<Activity, [number, number]> = { calm: [7, 16], lively: [2.5, 6], teeming: [1.3, 3.2] }
 const TRAIN_CARS = 5
 const COACH = 0.1
+// How long the superhero takes to fly across, in scene seconds.
+const HERO = 30
 
 interface Tower {
   // Each tier above the first is a setback, inset and standing on the one below.
@@ -231,6 +236,13 @@ class City extends Canvas {
   ]
   private walkers: Walker[] = []
   private rain: { x: number; y: number; speed: number }[] = []
+  // Rain or snow from the weather setting; the city's own night rain only falls without one.
+  private readonly weather: WeatherLayer
+  private readonly wet: boolean
+  private storm = makeStorm()
+  private pigeons: Flier[] = []
+  // The easter egg: a caped superhero flies across the skyline. t counts scene seconds from the start of the flight.
+  private hero = { wait: eggWait() * TIME_SCALE, t: -1, dir: 1 }
 
   constructor(settings: Settings) {
     super()
@@ -238,10 +250,12 @@ class City extends Canvas {
     this.look = LOOKS[settings.time]
     this.stars = makeStars(this.look.stars, 0.45)
     this.clouds = makeClouds(this.look.clouds.puffy ? 3 : 4, this.look.clouds.puffy, 0.04, 0.1)
+    this.weather = new WeatherLayer(settings.weather ?? "clear", settings.time, BANK)
+    this.wet = settings.weather ? settings.weather === "rain" || settings.weather === "snow" : this.look.night && settings.activity === "teeming"
     if (settings.activity !== "teeming") return
     const umbrellas: RGB[] = [[0.1, 0.55, 0.6], [0.6, 0.1, 0.4], [0.65, 0.35, 0.05], [0.3, 0.15, 0.6], [0.6, 0.1, 0.08]]
     this.walkers = Array.from({ length: 5 }, (_, i) => ({ x: 0.15 + i * 0.37, dir: i % 2 ? -1 : 1, phase: Math.random() * TAU, coat: PAINT[(i * 3) % PAINT.length], umbrella: umbrellas[i] }))
-    if (this.look.night) this.rain = Array.from({ length: 70 }, () => ({ x: Math.random() * 2, y: Math.random(), speed: rand(0.9, 1.3) }))
+    if (this.look.night && !settings.weather) this.rain = Array.from({ length: 30 }, () => ({ x: Math.random() * 2, y: Math.random(), speed: rand(0.9, 1.3) }))
   }
 
   step(dt: number) {
@@ -249,6 +263,11 @@ class City extends Canvas {
     this.time += dt
     const cdt = dt * CREATURE_SPEED
     driftClouds(this.clouds, this.A, dt)
+    driftClouds(this.storm, this.A, dt)
+    this.stepGloom(dt)
+    this.weather.step(dt)
+    this.pigeons = flyAway(this.pigeons, dt, this.A)
+    this.stepHero(dt)
     this.stepTraffic(dt)
     this.stepBlimp(dt)
     if (this.activity !== "calm") this.stepTrain(dt)
@@ -275,8 +294,11 @@ class City extends Canvas {
   render() {
     const { W, H, look } = this
     this.hdr.set(this.background)
-    paintStars(this.hdr, W, H, this.visibleStars, this.time, BANK, 0.4)
-    paintClouds(this.hdr, W, H, this.clouds, look.clouds.top, look.clouds.bottom, look.clouds.alpha, look.clouds.puffy)
+    if (!this.weather.covered) paintStars(this.hdr, W, H, this.visibleStars, this.time, BANK, 0.4)
+    const [top, bottom] = this.weather.scud ?? [look.clouds.top, look.clouds.bottom]
+    paintClouds(this.hdr, W, H, this.clouds, top, bottom, look.clouds.alpha, look.clouds.puffy)
+    paintStorm(this.hdr, W, H, this.storm, look.clouds.top, look.clouds.bottom, this.gloom)
+    if (this.hero.t >= 0) this.drawHero()
     this.drawBlimp()
     this.drawRiver()
     this.drawLights()
@@ -288,8 +310,19 @@ class City extends Canvas {
     const a = Math.floor((ROAD + 0.012) * H) * W * 3
     this.hdr.set(this.background.subarray(a, Math.ceil((ROAD + 0.026) * H) * W * 3), a)
     for (const w of this.walkers) this.drawWalker(w)
+    for (const b of this.pigeons) this.shape(bird(b, H, 0.022 * H, this.paint([0.42, 0.44, 0.5])), this.lighting, 0.4)
     this.drawRain()
+    this.weather.draw(this.hdr, W, H)
     this.finish()
+  }
+
+  protected override visit() {
+    if (this.blimp.x < -5) this.blimp.next = 0
+  }
+
+  // Pigeons burst up off the street, the quay or the highway below the click.
+  poke(x: number, y: number) {
+    startle(this.pigeons, x, Math.max(y, QUAY), 5)
   }
 
   // Everything that never moves is painted once per size into `background`, then copied in each frame.
@@ -297,6 +330,7 @@ class City extends Canvas {
     const { W, H, A, look } = this
     this.lighting = look.style === "front" ? { style: "front", dir: DAYLIGHT } : { style: "rim", color: look.light, x: look.orb.x * W, y: look.orb.y * H }
     paintSky(this.hdr, W, H, look.sky, look.orb)
+    this.weather.cover(this.hdr, W, H)
     const sky = this.hdr.slice()
     this.beacons = []
     this.flickers = []
@@ -337,7 +371,7 @@ class City extends Canvas {
     this.water = new Uint8Array(W * H)
     for (let i = Math.floor(BANK * H) * W; i < Math.min(H, Math.ceil(QUAY * H)) * W; i++) this.water[i] = this.hdr[i * 3] === this.river[i * 3] && this.hdr[i * 3 + 2] === this.river[i * 3 + 2] ? 1 : 0
     this.paintLamps()
-    if (look.night && this.activity === "teeming") this.paintWetStreet()
+    if (this.wet) this.paintWetStreet()
     this.background = this.hdr.slice()
     if (this.warm) return
     this.warm = true
@@ -836,6 +870,55 @@ class City extends Canvas {
     this.glow(this.hdr, x - d * 0.083 * H, y - 0.024 * H, 0.006 * H, 0.006 * H, TAILLIGHT, k)
   }
 
+  private stepHero(dt: number) {
+    const h = this.hero
+    if (h.t < 0) {
+      h.wait -= dt
+      if (h.wait > 0) return
+      h.t = 0
+      h.dir = Math.random() < 0.5 ? 1 : -1
+      return
+    }
+    h.t += dt
+    if (h.t < HERO) return
+    h.t = -1
+    h.wait = eggWait(true) * TIME_SCALE
+  }
+
+  // A superhero flying flat out over the towers, one fist forward and a red cape rippling behind.
+  private drawHero() {
+    const { A, H } = this
+    const h = this.hero
+    const p = h.t / HERO
+    const x = (h.dir > 0 ? lerp(-0.15, A + 0.15, p) : lerp(A + 0.15, -0.15, p)) * H
+    const y = (0.27 - 0.07 * Math.sin(p * Math.PI) + Math.sin(this.time * 1.5) * 0.004) * H
+    const S = 0.13 * H
+    const P = (u: number, v: number): [number, number] => [x + u * h.dir * S, y + v * S]
+    // At night the city's light catches the hero from below, so it doesn't vanish into the dark like a silhouette.
+    const tone = (c: RGB): RGB => (this.look.night ? [c[0] * 0.3, c[1] * 0.3, c[2] * 0.3] : this.paint(c))
+    const suit = tone([0.15, 0.3, 0.85])
+    const red = tone([0.85, 0.12, 0.1])
+    const skin = tone([0.85, 0.62, 0.48])
+    const edge = (i: number, v: number): [number, number] => P(0.1 - i * 0.16, v + Math.sin(this.time * 5 - i * 1.1) * 0.025 * i)
+    this.polygon([...[0, 1, 2, 3, 4, 5].map((i) => edge(i, -0.07 - i * 0.008)), ...[5, 4, 3, 2, 1, 0].map((i) => edge(i, 0.05 + i * 0.012))], red)
+    this.shape(
+      [
+        cap(...P(0.15, 0), ...P(-0.25, 0.02), 0.075 * S, 0.06 * S, suit),
+        cap(...P(-0.25, 0), ...P(-0.58, -0.01), 0.05 * S, 0.04 * S, suit),
+        cap(...P(-0.25, 0.04), ...P(-0.56, 0.06), 0.05 * S, 0.04 * S, suit),
+        cap(...P(-0.56, -0.01), ...P(-0.68, -0.015), 0.045 * S, 0.04 * S, red),
+        cap(...P(-0.54, 0.06), ...P(-0.66, 0.065), 0.045 * S, 0.04 * S, red),
+        cap(...P(0.14, -0.03), ...P(0.46, -0.07), 0.035 * S, 0.03 * S, suit),
+        ell(...P(0.49, -0.072), 0.04 * S, 0.036 * S, 0, skin),
+        ell(...P(0.26, -0.05), 0.085 * S, 0.075 * S, 0, skin),
+        ell(...P(0.23, -0.1), 0.08 * S, 0.04 * S, 0.3 * h.dir, tone([0.08, 0.06, 0.06])),
+      ],
+      this.lighting,
+      0.6,
+    )
+    this.shape([cap(...P(-0.2, -0.015), ...P(-0.2, 0.055), 0.016 * S, 0.016 * S, tone([0.95, 0.75, 0.15]))], this.lighting, 0.3)
+  }
+
   // A water taxi or a tour boat on the river, with a wake behind it and lights after dark.
   private drawBoat(b: Boat) {
     const { H, look } = this
@@ -879,15 +962,16 @@ class City extends Canvas {
         cap(...P(0, -0.45), ...P(-swing, 0), 0.04 * S, 0.035 * S, legs),
         cap(...P(0, -0.45), ...P(swing, 0), 0.04 * S, 0.035 * S, legs),
         cap(...P(0, -0.42), ...P(0.01, -0.8), 0.085 * S, 0.075 * S, coat),
-        cap(...P(0.01, -0.76), ...P(swing * 0.5 + (this.rain.length ? 0.12 : 0), this.rain.length ? -0.85 : -0.45), 0.03 * S, 0.026 * S, coat),
+        cap(...P(0.01, -0.76), ...P(swing * 0.5 + (this.wet ? 0.12 : 0), this.wet ? -0.85 : -0.45), 0.03 * S, 0.026 * S, coat),
         ell(...P(0.02, -0.89), 0.06 * S, 0.068 * S, 0, skin),
       ],
       this.lighting,
       0.6,
     )
-    if (!this.rain.length) return
+    if (!this.wet) return
     const [cx, cy] = P(0.08, -1.08)
-    const u: RGB = [w.umbrella[0] * look.glow * 0.9, w.umbrella[1] * look.glow * 0.9, w.umbrella[2] * look.glow * 0.9]
+    // Lit by the street at night, plain colored canopies by day.
+    const u: RGB = look.glow > 0 ? [w.umbrella[0] * look.glow * 0.9, w.umbrella[1] * look.glow * 0.9, w.umbrella[2] * look.glow * 0.9] : this.paint(w.umbrella.map((c) => c * 1.4) as RGB)
     this.polygon(Array.from({ length: 11 }, (_, i) => [cx + Math.cos(Math.PI + (i / 10) * Math.PI) * 0.26 * S, cy + Math.sin(Math.PI + (i / 10) * Math.PI) * 0.13 * S + (i % 2 ? 0 : 0.02 * S)] as const), u)
     this.shape([cap(cx, cy, ...P(0.12, -0.85), 0.012 * S, 0.012 * S, this.paint([0.3, 0.3, 0.32]))], this.lighting, 0)
   }

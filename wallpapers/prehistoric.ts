@@ -1,7 +1,10 @@
 import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
+import { eggWait } from "../src/egg"
+import { bird, flyAway, startle, type Flier } from "../src/flock"
 import { TAU, clamp, fbm1, hash, hash2, lerp, rand, smoothstep, type RGB } from "../src/math"
-import { driftClouds, makeClouds, makeStars, paintClouds, paintSky, paintStars, type Cloud, type Orb, type Star } from "../src/sky"
+import { driftClouds, makeClouds, makeStars, makeStorm, paintClouds, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
 import type { Activity, Settings, Time, Wallpaper } from "../src/wallpaper"
+import { WeatherLayer } from "../src/weather"
 
 // The scene runs slower than real time, which keeps it calm behind text.
 const TIME_SCALE = 0.35
@@ -14,6 +17,9 @@ const CRATER = 0.205
 // Smoke puffs leave the crater on a loop: each one is the same plume at a different age.
 const SMOKE_LIFE = 14
 const SMOKE_PUFFS = 32
+// The time machine's visit, in scene seconds: it flashes in, drives across leaving twin trails of fire, and flashes out.
+const DELOREAN = 14
+const FLASH = 1.2
 
 // What changes with the time of day. Rock, plants and animals have one daytime color each, darkened by tint; lava is
 // its own light and keeps its color, glowing hardest at night.
@@ -176,11 +182,17 @@ class Prehistoric extends Canvas {
   private herd: Walker[] = []
   private dragonflies: { x: number; y: number; tx: number; ty: number; rest: number; face: number; phase: number }[] = []
   private nessie = { t: -1, x: 0, y: 0, dir: 1, wait: 1 }
+  private readonly weather: WeatherLayer
+  private storm = makeStorm()
+  private birds: Flier[] = []
+  // The easter egg: a time-travelling car. t counts scene seconds since it appeared at x0.
+  private delorean = { wait: eggWait() * TIME_SCALE, t: -1, x0: 0 }
 
   constructor(settings: Settings) {
     super()
     this.activity = settings.activity
     this.look = LOOKS[settings.time]
+    this.weather = new WeatherLayer(settings.weather ?? "clear", settings.time, HORIZON)
     this.allStars = makeStars(this.look.stars, 0.5)
     this.clouds = makeClouds(this.look.clouds.puffy ? 4 : 5, this.look.clouds.puffy, 0.06, 0.3)
     if (settings.activity !== "teeming") return
@@ -195,6 +207,11 @@ class Prehistoric extends Canvas {
     const cdt = dt * CREATURE_SPEED
     this.creatureTime += cdt
     driftClouds(this.clouds, this.A, dt)
+    driftClouds(this.storm, this.A, dt)
+    this.stepGloom(dt)
+    this.weather.step(dt)
+    this.birds = flyAway(this.birds, dt, this.A)
+    this.stepDelorean(dt)
     for (const s of this.smoke) {
       s.age += dt
       if (s.age < SMOKE_LIFE) continue
@@ -218,10 +235,12 @@ class Prehistoric extends Canvas {
 
   render() {
     this.hdr.set(this.background)
-    paintStars(this.hdr, this.W, this.H, this.stars, this.time, 0.5, this.look.stars > 50 ? 0.5 : 0.3)
+    if (!this.weather.covered) paintStars(this.hdr, this.W, this.H, this.stars, this.time, 0.5, this.look.stars > 50 ? 0.5 : 0.3)
     const orange = this.look.lava[1]
     flowLava(this.hdr, this.lava.index, this.lava.k, this.lava.along, this.time, orange[0], orange[1], orange[2])
-    paintClouds(this.hdr, this.W, this.H, this.clouds, this.look.clouds.top, this.look.clouds.bottom, this.look.clouds.alpha, this.look.clouds.puffy)
+    const [top, bottom] = this.weather.scud ?? [this.look.clouds.top, this.look.clouds.bottom]
+    paintClouds(this.hdr, this.W, this.H, this.clouds, top, bottom, this.look.clouds.alpha, this.look.clouds.puffy)
+    paintStorm(this.hdr, this.W, this.H, this.storm, this.look.clouds.top, this.look.clouds.bottom, this.gloom)
     this.drawSmoke()
     if (this.activity !== "calm") {
       this.drawPterosaurs()
@@ -236,7 +255,19 @@ class Prehistoric extends Canvas {
     const A = this.A
     for (const [i, x] of [0.01, 0.2, 0.76, 0.99].entries()) this.drawFern(x * A, 1.03, 0.17 + hash(i) * 0.04, i, true)
     if (this.activity === "teeming") for (const d of this.dragonflies) this.drawDragonfly(d)
+    if (this.delorean.t >= 0) this.drawDelorean()
+    for (const b of this.birds) this.shape(bird(b, this.H, 0.024 * this.H, this.paint([0.5, 0.3, 0.2])), this.lighting, 0.4)
+    this.weather.draw(this.hdr, this.W, this.H)
     this.finish()
+  }
+
+  protected override visit() {
+    if (this.rex.x < -5) this.rex.next = 0
+  }
+
+  // Little feathered dinosaurs flap up out of the ferns below the click.
+  poke(x: number, y: number) {
+    startle(this.birds, x, Math.max(y, 0.66), 4)
   }
 
   // The sky, ridge, volcano, forest, ground, lake, trees, cycads and far ferns never move, so they are painted once
@@ -245,6 +276,7 @@ class Prehistoric extends Canvas {
     const { W, H, A, look } = this
     this.lighting = look.style === "front" ? { style: "front", dir: DAYLIGHT } : { style: "rim", color: look.light, x: look.orb.x * W, y: look.orb.y * H }
     paintSky(this.hdr, W, H, look.sky, look.orb)
+    this.weather.cover(this.hdr, W, H)
     const vx = VENT_X * A
     const ridgeTop = new Float32Array(W)
     const volcanoTop = new Float32Array(W)
@@ -690,6 +722,66 @@ class Prehistoric extends Canvas {
     )
     const eye = this.paint([0.95, 0.7, 0.1])
     this.disc(...P(0.52, -0.84 + bob + nod), 0.016 * S, eye[0], eye[1], eye[2], 1)
+  }
+
+  private stepDelorean(dt: number) {
+    const d = this.delorean
+    if (d.t < 0) {
+      d.wait -= dt
+      if (d.wait > 0) return
+      d.t = 0
+      d.x0 = rand(0.12, 0.3) * this.A
+      return
+    }
+    d.t += dt
+    // The trails burn on for a few seconds after it has gone.
+    if (d.t < DELOREAN + 6) return
+    d.t = -1
+    d.wait = eggWait(true) * TIME_SCALE
+  }
+
+  // A stainless gull-wing car from the future arrives in a blue flash, drives across leaving two trails of fire, and
+  // vanishes in another flash.
+  private drawDelorean() {
+    const H = this.H
+    const d = this.delorean
+    const speed = 0.05
+    const x = d.x0 + speed * Math.min(d.t, DELOREAN)
+    const y = 0.958
+    // The trails start at the rear wheel.
+    const along = Math.ceil(Math.max(0, x - 0.054 - d.x0) * H)
+    for (let i = 0; i < along; i++) {
+      const u = d.x0 + i / H
+      const age = d.t - (u - d.x0) / speed
+      const k = Math.exp(-age / 1.8) * (0.7 + 0.3 * Math.sin(i * 1.7 + this.time * 20)) * 0.9
+      if (k < 0.02) continue
+      for (const v of [-0.003, -0.001, 0.005, 0.007]) this.add(u * H, (y + v) * H, 1.2 * k, 0.42 * k, 0.06 * k)
+    }
+    for (const [at, cx] of [[0, d.x0], [DELOREAN, x]]) {
+      const f = (d.t - at) / FLASH
+      if (f < 0 || f > 1) continue
+      const k = Math.sin(f * Math.PI)
+      this.disc(cx * H, (y - 0.03) * H, (0.02 + f * 0.08) * H, 0.25 * k, 0.6 * k, 1.5 * k, 0.5 * k)
+      for (let i = 0; i < 64; i++) {
+        const a = (i / 64) * TAU
+        const r = (0.03 + f * 0.12) * H
+        this.add(cx * H + Math.cos(a) * r, (y - 0.03) * H + Math.sin(a) * r * 0.5, 0.2 * k, 0.55 * k, 1.4 * k)
+      }
+    }
+    const appear = clamp(d.t / (FLASH * 0.5), 0, 1)
+    if (d.t > DELOREAN || appear <= 0) return
+    const S = 0.18 * H
+    const P = (u: number, v: number) => [x * H + u * S, y * H + v * S] as const
+    // Stainless steel catches the moonlight as cobalt at night rather than going gray.
+    const body: RGB = this.look.stars > 50 ? [0.07, 0.11, 0.26] : this.paint([0.62, 0.64, 0.68])
+    const dark = this.paint([0.1, 0.1, 0.12])
+    this.polygon([P(-0.5, -0.05), P(-0.5, -0.2), P(-0.25, -0.24), P(-0.05, -0.36), P(0.15, -0.36), P(0.5, -0.17), P(0.5, -0.08), P(0.45, -0.05)], body, appear)
+    this.polygon([P(-0.12, -0.23), P(-0.02, -0.33), P(0.13, -0.33), P(0.3, -0.22)], dark, appear)
+    this.polygon([P(-0.5, -0.12), P(0.5, -0.12), P(0.5, -0.1), P(-0.5, -0.1)], this.paint([0.3, 0.3, 0.34]), appear)
+    for (const u of [-0.3, 0.3]) this.disc(...P(u, -0.06), 0.075 * S, dark[0], dark[1], dark[2], appear)
+    // The time circuits glow blue at the back, and the tail lights red.
+    this.disc(...P(-0.47, -0.17), 0.03 * S, 0.25, 0.6, 1.6, appear)
+    this.disc(...P(-0.49, -0.1), 0.02 * S, 1.3, 0.08, 0.05, appear * 0.8)
   }
 
   // Walks between random points in a zone, pausing at each to graze.

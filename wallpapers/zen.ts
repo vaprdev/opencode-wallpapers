@@ -1,7 +1,10 @@
 import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
+import { eggWait } from "../src/egg"
+import { bird, flyAway, startle, type Flier } from "../src/flock"
 import { TAU, clamp, fbm1, hash, hash2, lerp, rand, smoothstep, type RGB } from "../src/math"
-import { driftClouds, makeClouds, makeStars, paintClouds, paintSky, paintStars, type Cloud, type Orb, type Star } from "../src/sky"
-import type { Activity, Settings, Time, Wallpaper } from "../src/wallpaper"
+import { driftClouds, makeClouds, makeStars, makeStorm, paintClouds, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
+import type { Activity, Season, Settings, Time, Wallpaper } from "../src/wallpaper"
+import { WeatherLayer } from "../src/weather"
 
 // The scene runs slower than real time, which keeps it calm behind text.
 const TIME_SCALE = 0.35
@@ -10,6 +13,8 @@ const CREATURE_SPEED = 0.25
 // The hills meet the garden here, and the pond mirrors the sky about this line.
 const HORIZON = 0.52
 const GROUND = 0.565
+// The tanuki's visit, in scene seconds: it walks in, sits a while by the pond, then wanders off.
+const TANUKI = { arrive: 15, leave: 38, gone: 62 }
 
 // What changes with the time of day. Stone, wood, plants and animals have one daytime color each, darkened by tint;
 // the sky, hills, gravel, moss, water and petals get their own values.
@@ -216,16 +221,27 @@ class Zen extends Canvas {
   private dragonflies: Dragonfly[] = []
   private fireflies: { x: number; y: number; vx: number; vy: number; phase: number }[] = []
   private drip = 2
+  // Cherry blossom in spring (and without a season), green leaves in summer, red and gold in autumn, bare branches
+  // under a light snowfall in winter.
+  private readonly season: Season
+  private readonly weather: WeatherLayer
+  private storm = makeStorm()
+  private sparrows: Flier[] = []
+  // The easter egg: a tanuki with a leaf on its head. t counts scene seconds since it appeared.
+  private tanuki = { wait: eggWait() * TIME_SCALE, t: -1 }
 
   constructor(settings: Settings) {
     super()
     this.activity = settings.activity
     this.look = LOOKS[settings.time]
+    this.season = settings.season ?? "spring"
+    this.weather = new WeatherLayer(settings.weather ?? (this.season === "winter" ? "snow" : "clear"), settings.time, HORIZON, !settings.weather)
     this.stars = makeStars(this.look.stars, 0.45)
     this.clouds = makeClouds(this.look.clouds.puffy ? 3 : 5, this.look.clouds.puffy, 0.06, 0.26)
     const count = { calm: 0, lively: 3, teeming: 6 }[settings.activity]
     this.koi = Array.from({ length: count }, (_, i) => ({ a: rand(0, TAU), r: 0.32 + (i % 3) * 0.16, dir: i === 4 ? -1 : 1, phase: rand(0, TAU), size: rand(0.85, 1.1), colors: KOI[i] }))
-    this.petals = Array.from({ length: { calm: 16, lively: 22, teeming: 30 }[settings.activity] }, () => this.newPetal(true))
+    const falling = this.season === "spring" || this.season === "autumn"
+    this.petals = Array.from({ length: falling ? { calm: 16, lively: 22, teeming: 30 }[settings.activity] : 0 }, () => this.newPetal(true))
     if (settings.activity === "teeming" && !this.look.night)
       this.dragonflies = [[0.85, 0.18, 0.08], [0.15, 0.4, 0.9]].map((color) => ({ x: rand(0.8, 1.4), y: rand(0.6, 0.75), tx: 1, ty: 0.7, face: 1, rest: rand(0, 2), phase: rand(0, TAU), color: color as RGB }))
     const flies = this.look.night ? { calm: 10, lively: 16, teeming: 26 }[settings.activity] : 0
@@ -238,6 +254,11 @@ class Zen extends Canvas {
     const cdt = dt * CREATURE_SPEED
     this.creatureTime += cdt
     driftClouds(this.clouds, this.A, dt)
+    driftClouds(this.storm, this.A, dt)
+    this.stepGloom(dt)
+    this.weather.step(dt)
+    this.sparrows = flyAway(this.sparrows, dt, this.A)
+    this.stepTanuki(dt)
     for (const r of this.rings) r.age += dt
     this.rings = this.rings.filter((r) => r.age < r.life)
     // Now and then a drop or a water strider rings the surface somewhere.
@@ -274,8 +295,10 @@ class Zen extends Canvas {
 
   render() {
     this.hdr.set(this.background)
-    paintStars(this.hdr, this.W, this.H, this.stars, this.time, 0.45, this.look.stars > 50 ? 0.5 : 0.3)
-    paintClouds(this.hdr, this.W, this.H, this.clouds, this.look.clouds.top, this.look.clouds.bottom, this.look.clouds.alpha, this.look.clouds.puffy)
+    if (!this.weather.covered) paintStars(this.hdr, this.W, this.H, this.stars, this.time, 0.45, this.look.stars > 50 ? 0.5 : 0.3)
+    const [top, bottom] = this.weather.scud ?? [this.look.clouds.top, this.look.clouds.bottom]
+    paintClouds(this.hdr, this.W, this.H, this.clouds, top, bottom, this.look.clouds.alpha, this.look.clouds.puffy)
+    paintStorm(this.hdr, this.W, this.H, this.storm, this.look.clouds.top, this.look.clouds.bottom, this.gloom)
     this.drawWater()
     for (const r of this.rings) this.drawRing(r)
     for (const p of this.petals) if (p.state === 1) this.drawPetal(p)
@@ -292,9 +315,22 @@ class Zen extends Canvas {
     if (this.activity === "teeming") this.drawFrog()
     this.drawHeron()
     for (const d of this.dragonflies) this.drawDragonfly(d)
+    if (this.tanuki.t >= 0) this.drawTanuki()
     for (const p of this.petals) if (p.state !== 1) this.drawPetal(p)
+    for (const b of this.sparrows) this.shape(bird(b, this.H, 0.02 * this.H, this.paint([0.45, 0.33, 0.22])), this.lighting, 0.4)
     this.drawFireflies()
+    this.weather.draw(this.hdr, this.W, this.H)
     this.finish()
+  }
+
+  protected override visit() {
+    if (this.heron.phase === "away") this.heron.next = 0
+  }
+
+  // A click on the pond rings the water; anywhere else, sparrows flit up out of the garden.
+  poke(x: number, y: number) {
+    if (this.wetAt(x, y) > 0.5) return void this.rings.push({ x, y, age: 0, life: 4, strength: 1.2 })
+    startle(this.sparrows, x, Math.max(y, GROUND + 0.03), 4)
   }
 
   // Everything that never moves is painted once per size into `background`, then copied in each frame. The water
@@ -306,6 +342,7 @@ class Zen extends Canvas {
     this.pond = { x: Math.max(0.64 * A, 0.36 * A + rx + 0.06), y: 0.8, rx, ry: 0.14 }
     this.cherry = { x: A - 0.2, y: 0.27 }
     paintSky(this.hdr, W, H, look.sky, look.orb)
+    this.weather.cover(this.hdr, W, H)
     this.drawHills()
     const sky = this.hdr.slice()
     this.drawGround()
@@ -526,7 +563,7 @@ class Zen extends Canvas {
     }
     for (const [x, y, r] of [[0.33 * A, 0.6, 0.045], [this.pond.x + this.pond.rx * 0.62, 0.635, 0.05]]) {
       this.shape([ell(x * H, y * H, r * H, r * 0.6 * H, 0, this.paint([0.16, 0.36, 0.12]))], this.lighting, 0.9)
-      for (let k = 0; k < 40; k++) {
+      for (let k = 0; k < (this.season === "spring" || this.season === "summer" ? 40 : 0); k++) {
         const a = hash(k * 3.7 + x) * TAU
         const d = Math.sqrt(hash(k * 5.1 + y))
         const c = this.paint([0.95, 0.3, 0.5])
@@ -557,6 +594,7 @@ class Zen extends Canvas {
       this.lighting,
       0.6,
     )
+    if (this.season === "winter") return
     const reds: RGB[] = [[0.62, 0.09, 0.05], [0.82, 0.16, 0.07], [0.95, 0.3, 0.1]]
     // Each tier is a flat spray of leaf clusters, darker underneath and brighter on top.
     for (const [cx, cy, w] of [[x + 0.05, 0.2, 0.09], [x + 0.13, 0.28, 0.08], [x - 0.03, 0.3, 0.08], [x + 0.07, 0.36, 0.1], [x - 0.02, 0.41, 0.06]])
@@ -586,7 +624,14 @@ class Zen extends Canvas {
       this.lighting,
       0.6,
     )
-    const pinks: RGB[] = [[0.8, 0.42, 0.55], [0.95, 0.6, 0.72], [1.05, 0.76, 0.84]]
+    if (this.season === "winter") return
+    const foliage: Record<Season, RGB[]> = {
+      spring: [[0.8, 0.42, 0.55], [0.95, 0.6, 0.72], [1.05, 0.76, 0.84]],
+      summer: [[0.14, 0.32, 0.1], [0.2, 0.42, 0.13], [0.28, 0.52, 0.17]],
+      autumn: [[0.66, 0.16, 0.06], [0.88, 0.36, 0.08], [0.98, 0.58, 0.14]],
+      winter: [],
+    }
+    const pinks = foliage[this.season]
     for (let shade = 0; shade < 3; shade++) {
       const parts: Part[] = []
       for (let i = 0; i < 9; i++) {
@@ -596,6 +641,7 @@ class Zen extends Canvas {
       }
       this.shape(parts, this.lighting, 0.7)
     }
+    if (this.season !== "spring") return
     const bloom = this.paint([1.15, 0.85, 0.92])
     for (let k = 0; k < 90; k++) {
       const a = hash(k * 1.9) * TAU
@@ -853,7 +899,9 @@ class Zen extends Canvas {
   private drawPetal(p: Petal) {
     if (p.age < 0) return
     const H = this.H
-    const c = this.look.petal
+    const pink = this.look.petal
+    // Autumn leaves: the petal color shifted to red and gold, keeping its brightness for the time of day.
+    const c: RGB = this.season === "autumn" ? [pink[0], pink[1] * 0.7, pink[2] * 0.25] : pink
     const s = 0.006 * H
     if (p.state === 0) return this.ellipse(p.x * H, p.y * H, s * (0.3 + 0.7 * Math.abs(Math.cos(p.spin))), s * 0.55, c[0], c[1], c[2], 0.9)
     const fade = p.state === 1 ? clamp((25 - p.age) / 5, 0, 1) : clamp(1 - p.age / 6, 0, 1)
@@ -988,6 +1036,60 @@ class Zen extends Canvas {
     )
     if (fly > 0.3) this.shape([cap(...P(0.03, -0.44), ...P(...wingMid), 0.08 * S, 0.06 * S, wing), cap(...P(...wingMid), ...P(...wingTip), 0.06 * S, 0.025 * S, wing), cap(...P(...wingTip), ...P(wingTip[0] - 0.08, wingTip[1] + 0.02), 0.03 * S, 0.012 * S, this.paint([0.15, 0.16, 0.2]))], this.lighting, 0.6)
     if (fly === 0) this.add(...P(head[0] + 0.02, head[1] - 0.005), 0.25, 0.2, 0.02)
+  }
+
+  private stepTanuki(dt: number) {
+    const k = this.tanuki
+    if (k.t < 0) {
+      k.wait -= dt
+      if (k.wait <= 0) k.t = 0
+      return
+    }
+    k.t += dt
+    if (k.t < TANUKI.gone) return
+    k.t = -1
+    k.wait = eggWait(true) * TIME_SCALE
+  }
+
+  // A tanuki with a leaf on its head waddles along the near bank, sits to gaze at the pond, then wanders off. Its eyes
+  // catch the lantern light at night.
+  private drawTanuki() {
+    const { A, H } = this
+    const t = this.tanuki.t
+    const seat = 0.42 * A
+    const sitting = t >= TANUKI.arrive && t < TANUKI.leave
+    const u0 = t < TANUKI.arrive ? lerp(-0.12, seat, t / TANUKI.arrive) : sitting ? seat : lerp(seat, A + 0.12, (t - TANUKI.leave) / (TANUKI.gone - TANUKI.leave))
+    const S = 0.12 * H
+    const P = (u: number, v: number): [number, number] => [u0 * H + u * S, 0.965 * H + v * S]
+    const fur = this.paint([0.5, 0.4, 0.28])
+    const dark = this.paint([0.14, 0.11, 0.09])
+    const pale = this.paint([0.78, 0.7, 0.55])
+    const swing = sitting ? 0 : Math.sin(this.time * 4) * 0.07
+    const sway = Math.sin(this.time * 0.8) * 0.03
+    // Body, tail and head positions for walking on all fours or sitting up.
+    const head: [number, number] = sitting ? [0.08, -0.52 + Math.sin(this.time * 0.5) * 0.01] : [0.3, -0.3]
+    const tail: [[number, number], [number, number]] = sitting ? [[-0.1, -0.05], [-0.42, -0.03 + sway]] : [[-0.26, -0.22], [-0.5, -0.12 + sway]]
+    const parts: Part[] = sitting
+      ? [cap(...P(0.08, -0.22), ...P(0.12, 0), 0.04 * S, 0.035 * S, dark), ell(...P(-0.02, -0.06), 0.15 * S, 0.07 * S, 0, dark), ell(...P(0, -0.26), 0.17 * S, 0.24 * S, 0.15, fur)]
+      : [
+          ...[0.18, -0.16].flatMap((u) => [cap(...P(u, -0.14), ...P(u + swing, 0), 0.045 * S, 0.035 * S, dark), cap(...P(u + 0.03, -0.14), ...P(u + 0.03 - swing, 0), 0.045 * S, 0.035 * S, dark)]),
+          ell(...P(0, -0.2), 0.3 * S, 0.14 * S, 0, fur),
+        ]
+    parts.push(cap(...P(...tail[0]), ...P(...tail[1]), 0.08 * S, 0.07 * S, fur), ell(...P(...head), 0.13 * S, 0.11 * S, 0, fur), ell(...P(head[0] + 0.12, head[1] + 0.03), 0.065 * S, 0.045 * S, 0, pale), ell(...P(head[0] - 0.06, head[1] - 0.1), 0.045 * S, 0.05 * S, -0.3, dark))
+    this.shape(parts, this.lighting, 0.6)
+    const stripe = (k: number): [number, number] => [lerp(tail[0][0], tail[1][0], k), lerp(tail[0][1], tail[1][1], k)]
+    this.shape(
+      [
+        ell(...P(head[0] + 0.04, head[1] - 0.01), 0.075 * S, 0.035 * S, 0, dark),
+        ell(...P(head[0] + 0.18, head[1] + 0.02), 0.022 * S, 0.02 * S, 0, dark),
+        ...[0.45, 0.7, 0.92].map((k) => ell(...P(...stripe(k)), 0.025 * S, 0.075 * S, 0, dark)),
+        ...(sitting ? [ell(...P(0.08, -0.24), 0.09 * S, 0.15 * S, 0.15, pale)] : []),
+      ],
+      this.lighting,
+      0.4,
+    )
+    this.shape([ell(...P(head[0] - 0.01, head[1] - 0.14), 0.075 * S, 0.026 * S, -0.35, this.paint([0.3, 0.58, 0.16])), cap(...P(head[0] + 0.05, head[1] - 0.16), ...P(head[0] + 0.09, head[1] - 0.19), 0.006 * S, 0.004 * S, this.paint([0.3, 0.58, 0.16]))], this.lighting, 0.5)
+    if (this.look.lamps > 0) this.add(...P(head[0] + 0.06, head[1] - 0.02), 0.7 * this.look.lamps, 0.4 * this.look.lamps, 0.05 * this.look.lamps)
   }
 
   // A koi's point along its circling path, in pond coordinates; back runs from the head (0) toward the tail.
