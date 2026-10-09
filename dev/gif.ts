@@ -13,7 +13,7 @@ const FPS = 12.5
 const START = 45
 const FADE = 1.5
 // The time of day each wallpaper looks best at in the README; others use day.
-const BEST: Record<string, Time> = { ocean: "day", desert: "sunset", jungle: "day", space: "sunset", farm: "sunset", tundra: "night", beach: "sunset" }
+const BEST: Record<string, Time> = { ocean: "day", desert: "sunset", jungle: "day", space: "sunset", farm: "sunset", tundra: "night", beach: "sunset", city: "night", zen: "sunset", prehistoric: "sunset" }
 // Wallpapers in the hero GIF at the top of the README, each shown for HERO_SECONDS.
 const HERO = ["beach", "tundra", "jungle", "desert", "space"]
 const HERO_SECONDS = 2
