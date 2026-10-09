@@ -15,6 +15,7 @@ with Unicode block characters and kept readable behind text.
 | Tundra | ![Tundra by day](screenshots/tundra.png) | ![Tundra at sunset](screenshots/tundra-sunset.png) | ![Tundra at night](screenshots/tundra-night.png) |
 | Beach | ![Beach by day](screenshots/beach.png) | ![Beach at sunset](screenshots/beach-sunset.png) | ![Beach at night](screenshots/beach-night.png) |
 | City | ![City by day](screenshots/city.png) | ![City at sunset](screenshots/city-sunset.png) | ![City at night](screenshots/city-night.png) |
+| Zen garden | ![Zen garden by day](screenshots/zen.png) | ![Zen garden at sunset](screenshots/zen-sunset.png) | ![Zen garden at night](screenshots/zen-night.png) |
 
 ## Wallpapers
 
@@ -28,6 +29,7 @@ with Unicode block characters and kept readable behind text.
 | `tundra` | Snowy peaks, a frozen lake, igloos and a snowman under falling snow, with a snowy owl now and then. |
 | `beach` | Waves washing up a sandy beach between swaying palms, with a sailboat on the horizon now and then. |
 | `city` | A skyline over a river, traffic on an elevated highway, and a blimp drifting over now and then. |
+| `zen` | A koi pond under a red bridge, raked gravel, stone lanterns and falling cherry petals, with a heron now and then. |
 
 ## Install
 
@@ -70,6 +72,7 @@ Every wallpaper has three activity levels, which set how much is going on behind
 | `tundra` | Peaks, igloos, a snowman and falling snow | Adds waddling penguins and an arctic fox | Adds a polar bear, an ice fisher and another snowman |
 | `beach` | Sea, waves, sand and palm trees | Adds leaping dolphins and seagulls | Adds a crab, a surfer, an umbrella and a sandcastle |
 | `city` | Skyline, river and light traffic on the highway | Adds a train crossing the bridge and more traffic | Adds neon signs, boats on the river, people on the street, and rain at night |
+| `zen` | Garden, pond ripples, petals and a bamboo fountain | Adds koi circling under the lily pads | Adds more koi, a frog on a lily pad and dragonflies |
 
 ## Time of day
 
@@ -91,6 +94,8 @@ sunset from 6pm (and at dawn, 6 to 7am), night from 8pm. Pick one in the menu to
   bioluminescent waves.
 - **City:** glass towers in the sun by day, backlit towers with the first lit windows at sunset, and at night windows,
   lamps and neon in saturated colors mirrored in the river, with rain and a wet street in teeming.
+- **Zen garden:** a sunlit pond mirroring the sky by day, the setting sun glittering in it at sunset, and at night
+  amber lanterns, fireflies and the gold moon reflected in dark blue water.
 
 ## Terminals
 
