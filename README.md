@@ -14,6 +14,7 @@ with Unicode block characters and kept readable behind text.
 | Farm | ![Farm by day](screenshots/farm.png) | ![Farm at sunset](screenshots/farm-sunset.png) | ![Farm at night](screenshots/farm-night.png) |
 | Tundra | ![Tundra by day](screenshots/tundra.png) | ![Tundra at sunset](screenshots/tundra-sunset.png) | ![Tundra at night](screenshots/tundra-night.png) |
 | Beach | ![Beach by day](screenshots/beach.png) | ![Beach at sunset](screenshots/beach-sunset.png) | ![Beach at night](screenshots/beach-night.png) |
+| City | ![City by day](screenshots/city.png) | ![City at sunset](screenshots/city-sunset.png) | ![City at night](screenshots/city-night.png) |
 
 ## Wallpapers
 
@@ -26,6 +27,7 @@ with Unicode block characters and kept readable behind text.
 | `farm` | Rolling fields with a red barn, a turning windmill and swaying corn, and a tractor now and then. |
 | `tundra` | Snowy peaks, a frozen lake, igloos and a snowman under falling snow, with a snowy owl now and then. |
 | `beach` | Waves washing up a sandy beach between swaying palms, with a sailboat on the horizon now and then. |
+| `city` | A skyline over a river, traffic on an elevated highway, and a blimp drifting over now and then. |
 
 ## Install
 
@@ -67,6 +69,7 @@ Every wallpaper has three activity levels, which set how much is going on behind
 | `farm` | Barn, windmill, fields and corn | Adds grazing cows and pecking chickens | Adds a farmer, pigs in the mud and crows over the corn |
 | `tundra` | Peaks, igloos, a snowman and falling snow | Adds waddling penguins and an arctic fox | Adds a polar bear, an ice fisher and another snowman |
 | `beach` | Sea, waves, sand and palm trees | Adds leaping dolphins and seagulls | Adds a crab, a surfer, an umbrella and a sandcastle |
+| `city` | Skyline, river and light traffic on the highway | Adds a train crossing the bridge and more traffic | Adds neon signs, boats on the river, people on the street, and rain at night |
 
 ## Time of day
 
@@ -86,6 +89,8 @@ sunset from 6pm (and at dawn, 6 to 7am), night from 8pm. Pick one in the menu to
   aurora at night, with warm light from the igloos.
 - **Beach:** turquoise water by day, a glittering path under the setting sun, and a moon path at night with glowing
   bioluminescent waves.
+- **City:** glass towers in the sun by day, backlit towers with the first lit windows at sunset, and at night windows,
+  lamps and neon in saturated colors mirrored in the river, with rain and a wet street in teeming.
 
 ## Terminals
 
