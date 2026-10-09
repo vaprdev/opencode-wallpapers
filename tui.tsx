@@ -1,14 +1,14 @@
 import { Plugin } from "@opencode/plugin/tui"
 import { RGBA, TextAttributes } from "@opentui/core"
 import { For, createEffect, createSignal } from "solid-js"
-import { ACTIVITIES, TIMES, createEngine, type Activity, type Time } from "./src/engine"
+import { ACTIVITIES, POWERS, TIMES, createEngine, type Activity, type Power, type Time } from "./src/engine"
 import { WALLPAPERS } from "./wallpapers"
 
 export default Plugin.define({
   id: "wallpapers",
   setup(context) {
-    const [stored, update] = context.storage.store<{ wallpaper: string; activity?: Activity; time?: Time | "auto" }>("wallpapers", {
-      initial: { wallpaper: "", activity: "calm", time: "auto" },
+    const [stored, update] = context.storage.store<{ wallpaper: string; activity?: Activity; time?: Time | "auto"; power?: Power }>("wallpapers", {
+      initial: { wallpaper: "", activity: "calm", time: "auto", power: "saver" },
     })
     const engine = createEngine(context, { dump: process.env.WALLPAPER_DUMP })
     // Environment overrides for development; they win over the stored choice.
@@ -18,6 +18,7 @@ export default Plugin.define({
     // Settings saved before these options existed have none.
     const activity = () => stored.activity ?? "calm"
     const timeSetting = () => stored.time ?? "auto"
+    const power = () => stored.power ?? "saver"
     // Auto follows the local clock, checked once a minute.
     const [now, setNow] = createSignal(new Date())
     const clock = setInterval(() => setNow(new Date()), 60_000)
@@ -48,6 +49,13 @@ export default Plugin.define({
           draft.time = t ?? "auto"
         })
         return { message: t ? `Wallpaper time: ${t}` : `Wallpaper time follows your clock (${timeAt(new Date())} now)` }
+      }
+      const mode = POWERS.find((p) => p === arg)
+      if (mode) {
+        await update((draft) => {
+          draft.power = mode
+        })
+        return { message: `Wallpaper power: ${mode}` }
       }
       const wallpaper = WALLPAPERS.find((w) => w.id === arg)
       if (!wallpaper) return { message: `No wallpaper "${arg}". Available: ${WALLPAPERS.map((w) => w.id).join(", ")}`, error: true }
@@ -85,6 +93,16 @@ export default Plugin.define({
         value: timeSetting,
         label: (v) => (v === "auto" ? `Auto (${timeAt(now())})` : capitalize(v)),
         describe: (v) => (v === "auto" ? "Follows your clock: day from 7am, sunset from 6pm, night from 8pm" : `Always ${v}`),
+      },
+      {
+        title: "Power",
+        values: () => POWERS,
+        value: power,
+        label: capitalize,
+        describe: (v) =>
+          v === "saver"
+            ? "Slows to 5 fps after 30 seconds without typing, mouse or agent activity, and pauses while the terminal is in the background"
+            : "Always 15 fps",
       },
     ]
     const Picker = () => {
@@ -185,13 +203,14 @@ export default Plugin.define({
           if (wallpaper) engine.start(wallpaper, { activity: level, time: time() })
           else engine.stop()
         })
+        createEffect(() => engine.power(power()))
         context.keymap.layer(() => ({
           mode: "global",
           commands: [
             {
               id: "wallpapers.choose",
               title: "Choose wallpaper",
-              description: "Animated scene behind the UI. Args: wallpaper id, off, calm, lively, teeming, day, sunset, night, auto",
+              description: "Animated scene behind the UI. Args: wallpaper id, off, calm, lively, teeming, day, sunset, night, auto, saver, smooth",
               group: "Wallpapers",
               palette: true,
               slash: { name: "wallpaper", arguments: true },
