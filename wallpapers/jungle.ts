@@ -6,6 +6,8 @@ import { TAU, clamp, fbm1, hash, lerp, rand, smoothstep, type RGB } from "../src
 const TIME_SCALE = 0.35
 // Creatures move and animate at a quarter of scene speed, so they drift rather than dart.
 const CREATURE_SPEED = 0.25
+// When a task finishes at night, the fireflies flash together once a scene second for this long.
+const CHORUS = 3
 const RAY_N = 1024
 
 // What changes with the time of day. Plants and animals have one daytime color each; tint darkens them into
@@ -123,6 +125,8 @@ class Jungle extends Canvas {
   private toucan: Flyer = { x: -9, y: 0.25, dir: 1, next: 14, phase: 0 }
   private butterflies: Butterfly[] = []
   private glowers: { x: number; y: number; vx: number; vy: number; phase: number }[] = []
+  // Scene seconds left of the fireflies flashing in unison.
+  private chorus = 0
   private pollen = Array.from({ length: 40 }, () => ({ x: Math.random() * 4, y: 0.1 + Math.random() * 0.7, s: Math.random() }))
 
   constructor(settings: Settings) {
@@ -155,6 +159,14 @@ class Jungle extends Canvas {
     }
     this.stepToucan(dt)
     for (const b of this.butterflies) this.stepButterfly(b, cdt)
+    this.stepGloom(dt)
+    this.chorus = Math.max(0, this.chorus - dt)
+  }
+
+  // The toucan doesn't fly at night, so the fireflies flash together instead.
+  protected override visit() {
+    if (this.look.night) this.chorus = CHORUS
+    else if (this.toucan.x < -5) this.toucan.next = 0
   }
 
   render() {
@@ -330,8 +342,10 @@ class Jungle extends Canvas {
     const { W, H, hdr, look } = this
     const t = this.time
     const [lr, lg, lb] = look.light
+    // After an error the shafts fade, as if clouds had covered the sun.
+    const overcast = 1 - smoothstep(0, 1, this.gloom) * 0.75
     for (let y = 0; y < H * 0.85; y++) {
-      const fade = Math.pow(1 - y / (H * 0.85), 1.4) * look.shafts
+      const fade = Math.pow(1 - y / (H * 0.85), 1.4) * look.shafts * overcast
       for (let x = 0; x < W; x++) {
         const s = x + y * 0.55
         const ray = RAYS_A[((s * 0.9 + t * 3) | 0) & 1023] * (0.4 + 0.6 * RAYS_B[((s * 0.6 - t * 2) | 0) & 1023]) * fade
@@ -567,8 +581,9 @@ class Jungle extends Canvas {
   private drawMotes() {
     const H = this.H
     if (this.look.night) {
+      const together = this.chorus > 0 ? Math.pow(Math.max(0, Math.sin((CHORUS - this.chorus) * TAU)), 3) : 0
       for (const f of this.glowers) {
-        const k = Math.pow(Math.max(0, Math.sin(this.time * 1.3 + f.phase * 7)), 6)
+        const k = Math.max(together, Math.pow(Math.max(0, Math.sin(this.time * 1.3 + f.phase * 7)), 6))
         if (k < 0.02) continue
         this.disc(f.x * H, f.y * H, 1.3, 0.9 * k * 2, 1.2 * k * 2, 0.3 * k * 2, 0.6)
         this.add(f.x * H, f.y * H, 0.9 * k, 1.2 * k, 0.3 * k)

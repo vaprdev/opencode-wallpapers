@@ -1,7 +1,7 @@
 import { Plugin } from "@opencode/plugin/tui"
 import { RGBA, TextAttributes } from "@opentui/core"
 import { For, createEffect, createSignal } from "solid-js"
-import { ACTIVITIES, TIMES, createEngine, type Activity, type Time } from "./src/engine"
+import { ACTIVITIES, TIMES, createEngine, parseEvents, type Activity, type AgentEvent, type Time } from "./src/engine"
 import { WALLPAPERS } from "./wallpapers"
 
 export default Plugin.define({
@@ -25,6 +25,30 @@ export default Plugin.define({
       const setting = TIMES.find((t) => t === pinnedTime) ?? timeSetting()
       return setting === "auto" ? timeAt(now()) : setting
     }
+
+    // The scene follows the agent: busy while any session runs, then done, error or idle once the last one stops. A
+    // subagent's failure is left to its parent; repeated end events for a session count once.
+    const running = new Map<string, boolean>()
+    let outcome: AgentEvent = "idle"
+    const started = (sessionID: string) => {
+      if (![...running.values()].some(Boolean)) engine.react("busy")
+      running.set(sessionID, true)
+    }
+    const ended = (sessionID: string, result: AgentEvent) => {
+      if (running.get(sessionID) === false) return
+      running.set(sessionID, false)
+      if (outcome !== "error" && !(result === "error" && context.data.session.get(sessionID)?.parentID)) outcome = result
+      if ([...running.values()].some(Boolean)) return
+      engine.react(outcome)
+      outcome = "idle"
+    }
+    const unlisten = [
+      context.data.on("session.execution.started", (event) => started(event.data.sessionID)),
+      context.data.on("session.execution.succeeded", (event) => ended(event.data.sessionID, "done")),
+      context.data.on("session.execution.failed", (event) => ended(event.data.sessionID, "error")),
+      context.data.on("session.execution.interrupted", (event) => ended(event.data.sessionID, "idle")),
+    ]
+    const simulated = parseEvents(process.env.WALLPAPER_EVENTS).map((e) => setTimeout(() => engine.react(e.event), e.at * 1000))
 
     const notify = (message: string, variant: "info" | "error" = "info") => context.ui.toast.show({ message, variant })
     // Applies one /wallpaper argument and says what changed.
@@ -228,6 +252,8 @@ export default Plugin.define({
 
     return () => {
       clearInterval(clock)
+      for (const stop of unlisten) stop()
+      for (const timer of simulated) clearTimeout(timer)
       engine.stop()
       unslot()
     }

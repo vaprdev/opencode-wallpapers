@@ -123,6 +123,16 @@ sunset from 6pm (and at dawn, 6 to 7am), night from 8pm. Pick one in the menu to
 - **Prehistoric:** a hazy blue sky over glowing lava by day, backlit dinosaurs at sunset, and a moonlit night where
   red and orange lava runs down the volcano, lights its smoke and shimmers on the lake.
 
+## Agent reactions
+
+Wallpapers quietly follow what the agent is doing:
+
+- **Working:** the scene moves a little faster while any session runs, barely at all when calm.
+- **Done:** when the last running session finishes, the wallpaper's rare visitor shows up: the whale, a tumbleweed,
+  a toucan (fireflies flashing together at night), a comet, the tractor, a snowy owl or a sailboat.
+- **Error:** after a failed run, dark clouds roll in (in the ocean and jungle the light shafts fade, in space the
+  star dims) and the scene darkens slightly. It clears once the agent works again.
+
 ## Terminals
 
 Any truecolor terminal works. Ghostty and kitty get octant characters (2x4 sub-pixels per cell); other terminals get
@@ -166,7 +176,10 @@ CI runs the typecheck, `dev/check.ts` (failing on errors and flicker) and `bun r
 gallery is out of date. Dev renders seed `Math.random`, so they are reproducible.
 
 `dev/pty.ts` and `dev/pty-kitty.ts` drive a real OpenCode in a pseudo-terminal, and `WALLPAPER_DUMP=<file>` saves one
-frame of terminal cells that `dev/cells.ts` turns into a PNG.
+frame of terminal cells that `dev/cells.ts` turns into a PNG. `WALLPAPER_EVENTS="busy@2,done@12,error@30"` plays
+agent events (`busy`, `idle`, `done`, `error`) at those seconds, in OpenCode or `dev/snap.ts`; `WALLPAPER_DEBUG=<file>`
+logs the events that arrive. Scenes react by overriding `Canvas.visit()` and by calling
+`stepGloom(dt)` in `step` and drawing with `gloom`.
 
 ## License
 
