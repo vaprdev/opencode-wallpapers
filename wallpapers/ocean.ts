@@ -109,7 +109,7 @@ interface Particle {
   seed: number
 }
 
-class Aquarium extends Canvas {
+class Ocean extends Canvas {
   private time = 0
   private rowCol = new Float32Array(0)
   private rayFade = new Float32Array(0)
@@ -1363,9 +1363,9 @@ function buildRays(seed: number) {
   return tex
 }
 
-export const aquarium: Wallpaper = {
-  id: "aquarium",
-  name: "Aquarium",
+export const ocean: Wallpaper = {
+  id: "ocean",
+  name: "Ocean",
   description: "Deep water, god rays, marine snow, and a whale that drifts past now and then",
   activity: {
     calm: "Water, light and the whale",
@@ -1389,5 +1389,5 @@ export const aquarium: Wallpaper = {
       [2, 4, 10],
     ],
   },
-  create: (settings) => new Aquarium(settings),
+  create: (settings) => new Ocean(settings),
 }

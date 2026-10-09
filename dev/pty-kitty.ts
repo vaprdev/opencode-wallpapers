@@ -2,7 +2,7 @@
 // the last image it was sent. Needs this plugin installed: bun dev/pty-kitty.ts [wallpaper] [seconds]
 import { encodePng } from "./png"
 
-const wallpaper = process.argv[2] ?? "aquarium"
+const wallpaper = process.argv[2] ?? "ocean"
 const seconds = Number(process.argv[3] ?? 20)
 const COLS = 160
 const ROWS = 45
