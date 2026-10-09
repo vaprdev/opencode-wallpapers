@@ -185,8 +185,10 @@ export class WeatherLayer {
     const f = this.flakes
     for (let i = 0; i < this.snowCount * 4; i += 4) {
       const z = f[i + 2]
-      const b = (0.25 + z * 0.45) * (0.6 + 0.4 * f[i + 3])
+      const b = (0.35 + z * 0.5) * (0.6 + 0.4 * f[i + 3])
       flake(hdr, W, H, f[i] * W, f[i + 1] * H, p.snow[0], p.snow[1], p.snow[2], b)
+      // Nearer flakes are bigger.
+      if (z > 0.55) flake(hdr, W, H, f[i] * W + 0.8, f[i + 1] * H + 0.6, p.snow[0], p.snow[1], p.snow[2], b)
     }
     const d = this.drops
     for (let i = 0; i < this.rainCount * 3; i += 3) {

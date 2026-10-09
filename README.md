@@ -87,6 +87,38 @@ sunset from 6pm (and at dawn, 6 to 7am), night from 8pm. Pick one in the menu to
 - **Beach:** turquoise water by day, a glittering path under the setting sun, and a moon path at night with glowing
   bioluminescent waves.
 
+## Seasons
+
+By default the season follows the calendar: spring from March, summer from June, autumn from September, winter from
+December. They flip for a location (see Weather) in the southern hemisphere: given as `latitude,longitude`, or as a
+place name once Local weather has looked it up. Pick a season in the menu to keep it fixed.
+
+- **Farm:** blossom, wildflowers and young corn in spring; ripe corn and fireflies in summer; gold fields, dry corn,
+  pumpkins and falling leaves in autumn; snow on the fields, roofs and bare trees in winter, with a light flurry.
+- **Desert:** a wildflower bloom and flowering saguaros in spring, and a dusting of snow on the mesas in winter.
+- **Jungle:** the rainy season (summer and autumn) brings thicker mist, a fuller waterfall and a light shower.
+- **Beach:** a crowd of umbrellas, sunbathers and swimmers in summer, and an empty beach with cooler water in autumn and
+  winter.
+- **Ocean, space and tundra** look the same all year: underwater, in orbit and on the ice there is no season to show.
+
+| Spring | Summer | Autumn | Winter |
+| --- | --- | --- | --- |
+| ![Farm in spring](screenshots/farm-spring.png) | ![Farm in summer](screenshots/farm-summer.png) | ![Farm in autumn](screenshots/farm-autumn.png) | ![Farm in winter](screenshots/farm-winter.png) |
+
+## Weather
+
+Outdoor wallpapers (desert, jungle, farm, tundra and beach) can show rain with splashes, snow, fog or overcast skies. At
+night, rain and snow are tinted blue rather than white. The menu's weather setting:
+
+- **Off** (the default): each wallpaper's own weather, such as the tundra's snowfall and the seasonal showers above.
+- **Local**: the real weather where you are, from [Open-Meteo](https://open-meteo.com) (free, no API key), checked at
+  most every 30 minutes. It needs a place: `/wallpaper location Berlin` or `/wallpaper location 52.52,13.41`, or the
+  `WALLPAPER_LOCATION` variable. Nothing is fetched unless you pick Local, your location is never guessed, and if the
+  lookup fails the sky stays clear.
+- **Clear, Rain, Snow, Fog**: always that weather. `/wallpaper weather overcast` is also available.
+
+![Farm in the rain](screenshots/farm-rain.png)
+
 ## Terminals
 
 Any truecolor terminal works. Ghostty and kitty get octant characters (2x4 sub-pixels per cell); other terminals get
@@ -97,6 +129,7 @@ quadrant blocks (2x2). These environment variables tune rendering:
 | `WALLPAPER_PIXELS=1` | In Ghostty or kitty, draw the scene as a real image behind the text instead of characters |
 | `WALLPAPER_SUPERSAMPLE=2` | Smoother edges in character mode, at about 2.5x the CPU |
 | `WALLPAPER_OCTANTS=0` or `1` | Force quadrant or octant characters |
+| `WALLPAPER_LOCATION` | A place or `latitude,longitude` for local weather, if none is set with `/wallpaper location` |
 
 ## How it works
 
@@ -109,8 +142,9 @@ per character cell. Wallpapers update at 15 frames per second.
 
 1. Create `wallpapers/<id>.ts`. Extend `Canvas` from `src/canvas.ts`, implement `step(dt)` and `render()`, and export
    a `Wallpaper` with an id, name, description, scrim colors for each time of day, what each activity level shows, and
-   `create({ activity, time })`.
-   `wallpapers/ocean.ts` is the example.
+   `create({ activity, time, season, weather })`. Without a season, show the classic look.
+   `wallpapers/ocean.ts` is the example. Outdoor scenes get weather from a `WeatherLayer` (`src/weather.ts`):
+   `cover()` after painting the sky, `step()`, and `draw()` before `finish()`; `wallpapers/farm.ts` shows it.
 2. Add it to `wallpapers/index.ts`.
 3. Check it:
 
@@ -119,6 +153,7 @@ bun install
 bun run typecheck
 bun dev/check.ts <id>            # errors, frame cost, and flicker at every activity level and time of day
 bun dev/snap.ts <id> teeming night 30  # scene PNGs at an activity level, time of day, and times
+bun dev/snap.ts <id> winter snow 30    # ...also by season and weather; check.ts and preview.ts take them too
 bun dev/preview.ts <id> 20       # terminal-cell rendering behind text, as a PNG
 bun dev/pixel-check.ts <id>      # real-pixel mode against a mock kitty renderer
 ```

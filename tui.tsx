@@ -1,13 +1,14 @@
 import { Plugin } from "@opencode/plugin/tui"
 import { RGBA, TextAttributes } from "@opentui/core"
-import { For, createEffect, createSignal } from "solid-js"
-import { ACTIVITIES, TIMES, createEngine, type Activity, type Time } from "./src/engine"
+import { For, createEffect, createSignal, onCleanup } from "solid-js"
+import { ACTIVITIES, SEASONS, TIMES, WEATHERS, createEngine, type Activity, type Season, type Time, type Weather } from "./src/engine"
+import { REFRESH, coordinatesOf, forecast, type Forecast } from "./src/forecast"
 import { WALLPAPERS } from "./wallpapers"
 
 export default Plugin.define({
   id: "wallpapers",
   setup(context) {
-    const [stored, update] = context.storage.store<{ wallpaper: string; activity?: Activity; time?: Time | "auto" }>("wallpapers", {
+    const [stored, update] = context.storage.store<{ wallpaper: string; activity?: Activity; time?: Time | "auto"; season?: Season | "auto"; weather?: WeatherSetting; location?: string }>("wallpapers", {
       initial: { wallpaper: "", activity: "calm", time: "auto" },
     })
     const engine = createEngine(context, { dump: process.env.WALLPAPER_DUMP })
@@ -15,6 +16,8 @@ export default Plugin.define({
     const pinned = process.env.WALLPAPER
     const pinnedActivity = process.env.WALLPAPER_ACTIVITY
     const pinnedTime = process.env.WALLPAPER_TIME
+    const pinnedSeason = SEASONS.find((s) => s === process.env.WALLPAPER_SEASON)
+    const pinnedWeather = WEATHER_SETTINGS.find((w) => w === process.env.WALLPAPER_WEATHER)
     // Settings saved before these options existed have none.
     const activity = () => stored.activity ?? "calm"
     const timeSetting = () => stored.time ?? "auto"
@@ -24,6 +27,23 @@ export default Plugin.define({
     const time = () => {
       const setting = TIMES.find((t) => t === pinnedTime) ?? timeSetting()
       return setting === "auto" ? timeAt(now()) : setting
+    }
+    const seasonSetting = () => stored.season ?? "auto"
+    const weatherSetting = () => stored.weather ?? "off"
+    // A place for local weather: "/wallpaper location <place>", else WALLPAPER_LOCATION.
+    const location = () => stored.location || process.env.WALLPAPER_LOCATION || ""
+    const [local, setLocal] = createSignal<Forecast>()
+    // Seasons flip in the southern hemisphere, once the location's latitude is known.
+    const south = () => (coordinatesOf(location())?.latitude ?? local()?.latitude ?? 0) < 0
+    const season = () => {
+      const setting = pinnedSeason ?? seasonSetting()
+      return setting === "auto" ? seasonAt(now(), south()) : setting
+    }
+    const weather = (): Weather | undefined => {
+      const setting = pinnedWeather ?? weatherSetting()
+      if (setting === "off") return undefined
+      if (setting === "local") return local()?.weather ?? "clear"
+      return setting
     }
 
     const notify = (message: string, variant: "info" | "error" = "info") => context.ui.toast.show({ message, variant })
@@ -41,6 +61,28 @@ export default Plugin.define({
           draft.activity = level
         })
         return { message: `Wallpaper activity: ${level}` }
+      }
+      if (arg === "location" || arg.startsWith("location ")) {
+        const place = arg.slice("location".length).trim()
+        await update((draft) => {
+          draft.location = place
+        })
+        return { message: place ? `Wallpaper location: ${place}` : "Wallpaper location cleared" }
+      }
+      const s = SEASONS.find((value) => value === arg || `season ${value}` === arg)
+      if (s || arg === "season auto") {
+        await update((draft) => {
+          draft.season = s ?? "auto"
+        })
+        return { message: s ? `Wallpaper season: ${s}` : `Wallpaper season follows the calendar (${seasonAt(new Date(), south())} now)` }
+      }
+      const w = WEATHER_SETTINGS.find((value) => (value === arg && value !== "off") || `weather ${value}` === arg)
+      if (w) {
+        await update((draft) => {
+          draft.weather = w
+        })
+        if (w === "local" && !location()) return { message: "Local weather needs a place: /wallpaper location <city or lat,lon>. Showing clear until then", error: true }
+        return { message: w === "off" ? "Wallpaper weather: the wallpaper's own" : `Wallpaper weather: ${w}` }
       }
       const t = TIMES.find((value) => value === arg)
       if (t || arg === "auto") {
@@ -85,6 +127,28 @@ export default Plugin.define({
         value: timeSetting,
         label: (v) => (v === "auto" ? `Auto (${timeAt(now())})` : capitalize(v)),
         describe: (v) => (v === "auto" ? "Follows your clock: day from 7am, sunset from 6pm, night from 8pm" : `Always ${v}`),
+      },
+      {
+        title: "Season",
+        values: () => ["season auto", ...SEASONS.map((s) => `season ${s}`)],
+        value: () => `season ${seasonSetting()}`,
+        label: (v) => (v === "season auto" ? `Auto (${seasonAt(now(), south())})` : capitalize(v.slice(7))),
+        describe: (v) =>
+          v === "season auto"
+            ? `Follows the calendar in the ${south() ? "southern" : "northern"} hemisphere: spring from ${south() ? "September" : "March"}, summer from ${south() ? "December" : "June"}, autumn from ${south() ? "March" : "September"}, winter from ${south() ? "June" : "December"}`
+            : `Always ${v.slice(7)}. Farm, desert, jungle and beach change with the seasons`,
+      },
+      {
+        title: "Weather",
+        values: () => ["off", "local", "clear", "rain", "snow", "fog"].map((w) => `weather ${w}`),
+        value: () => `weather ${weatherSetting()}`,
+        label: (v) => (v === "weather local" ? `Local (${location() ? (local()?.weather ?? "checking") : "no location"})` : capitalize(v.slice(8))),
+        describe: (v) => {
+          if (v === "weather off") return "Each wallpaper's own: snow on the tundra, a winter flurry on the farm, showers in the jungle's rainy season"
+          if (v !== "weather local") return `Always ${v.slice(8)} on outdoor wallpapers`
+          if (!location()) return "Set a place first: /wallpaper location <city or lat,lon>, or WALLPAPER_LOCATION"
+          return `Real weather for ${location()} from Open-Meteo, checked every 30 minutes`
+        },
       },
     ]
     const Picker = () => {
@@ -182,8 +246,17 @@ export default Plugin.define({
         createEffect(() => {
           const wallpaper = WALLPAPERS.find((w) => w.id === (pinned ?? stored.wallpaper))
           const level = ACTIVITIES.find((a) => a === pinnedActivity) ?? activity()
-          if (wallpaper) engine.start(wallpaper, { activity: level, time: time() })
+          if (wallpaper) engine.start(wallpaper, { activity: level, time: time(), season: season(), weather: weather() })
           else engine.stop()
+        })
+        // Local weather is fetched only while it is the chosen setting.
+        createEffect(() => {
+          const place = location()
+          if ((pinnedWeather ?? weatherSetting()) !== "local" || !place) return
+          const refresh = () => void forecast(place).then(setLocal)
+          refresh()
+          const timer = setInterval(refresh, REFRESH)
+          onCleanup(() => clearInterval(timer))
         })
         context.keymap.layer(() => ({
           mode: "global",
@@ -191,7 +264,7 @@ export default Plugin.define({
             {
               id: "wallpapers.choose",
               title: "Choose wallpaper",
-              description: "Animated scene behind the UI. Args: wallpaper id, off, calm, lively, teeming, day, sunset, night, auto",
+              description: "Animated scene behind the UI. Args: wallpaper id, off, calm, lively, teeming, day, sunset, night, auto, a season, a weather, location <place>",
               group: "Wallpapers",
               palette: true,
               slash: { name: "wallpaper", arguments: true },
@@ -236,6 +309,14 @@ export default Plugin.define({
 
 function capitalize(text: string) {
   return text[0].toUpperCase() + text.slice(1)
+}
+
+const WEATHER_SETTINGS = ["off", "local", ...WEATHERS] as const
+type WeatherSetting = (typeof WEATHER_SETTINGS)[number]
+
+// Meteorological seasons: spring from March in the north, from September in the south.
+function seasonAt(date: Date, south: boolean): Season {
+  return SEASONS[(Math.floor(((date.getMonth() + 10) % 12) / 3) + (south ? 2 : 0)) % 4]
 }
 
 // Day from 7am, sunset around dawn and dusk, night from 8pm.
