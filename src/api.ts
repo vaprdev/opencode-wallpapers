@@ -1,5 +1,24 @@
 // The public API for wallpapers, imported as "opencode-wallpapers/api". Nothing here depends on OpenCode or OpenTUI.
 export { Canvas, cap, ell, type Lighting, type Part } from "./canvas"
+export { eggWait } from "./egg"
+export { bird, flyAway, startle, type Flier } from "./flock"
 export { TAU, clamp, fbm1, fbm2, hash, hash2, hashString, hsv, lerp, noise1, noise2, rand, smoothstep, type RGB } from "./math"
-export { STAR_TINTS, driftClouds, makeClouds, makeStars, paintClouds, paintSky, paintStars, type Cloud, type Orb, type Star } from "./sky"
-export { ACTIVITIES, TIMES, type Activity, type Scene, type Scrim, type Settings, type Time, type Wallpaper } from "./wallpaper"
+export { STAR_TINTS, driftClouds, makeClouds, makeStars, makeStorm, paintClouds, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "./sky"
+export {
+  ACTIVITIES,
+  AGENT_EVENTS,
+  SEASONS,
+  TIMES,
+  WEATHERS,
+  type Activity,
+  type AgentEvent,
+  type Brightness,
+  type Scene,
+  type Scrim,
+  type Season,
+  type Settings,
+  type Time,
+  type Wallpaper,
+  type Weather,
+} from "./wallpaper"
+export { WeatherLayer } from "./weather"
