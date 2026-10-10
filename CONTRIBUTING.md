@@ -176,6 +176,20 @@ each time of day at the top, middle and bottom of the screen. Darker, more satur
 at those depths read better than black: dark sky blue at the top and dark green over grass by day, deep navy at night.
 Check that text stays readable with `bun dev/preview.ts` at every time of day.
 
+## Composition
+
+OpenCode's text sits in the middle of the screen: the home screen has a centered logo and a 76-column prompt across
+the middle third of the height, and a session has a column of messages, a prompt at the bottom and, from 120 columns,
+a sidebar on the right. Put the things people should see (a barn, a volcano, a waterfall) toward the left and right
+edges, in the top band or along the bottom, measured in screen heights from the nearest edge (`A - 0.3`, not `0.8 * A`)
+so they stay clear on wide and narrow terminals alike. Keep the middle band to calm scenery such as sky, water or open
+field. `bun dev/preview.ts <id> home 100x30` shows a real layout at any size.
+
+The engine also tells scenes where text actually is, about once a second. `this.openSpot(x0, x1, y0, y1)` picks a
+random point in a box, the least covered of a few tries, for a creature's next stop or a visitor's spot, and
+`this.openRow(y0, y1)` picks a height for something crossing the whole screen. Both are plain random picks until the
+engine has sent its map, and in `dev/snap.ts`.
+
 ## Activity
 
 - **calm** is scenery with something rare now and then: water, wind, clouds, one creature passing every minute or so.
@@ -232,7 +246,7 @@ a lot with machine load, so compare against an existing wallpaper measured back 
 bun run typecheck
 bun dev/check.ts [id...] [season] [weather]       # every activity and time: errors, ms/frame, flicker
 bun dev/snap.ts <id> [activity] [time] [season] [weather] [seconds...] # scene PNGs in dev/out/, and ms per render
-bun dev/preview.ts <id> [activity] [time] [season] [weather] [seconds] # terminal cells behind text, as a PNG
+bun dev/preview.ts <id> [activity] [time] [season] [weather] [home|session] [WxH] [seconds] # terminal cells behind text, as a PNG
 bun dev/pixel-check.ts [id] [activity] [time]     # real-pixel mode against a mock kitty terminal
 bun dev/poke.ts <id> [activity] [time] <fx> <fy> [seconds...] # click at a point (fractions of the screen)
 bun dev/fade.ts <id>:day <id>:night 50            # a frame halfway through a crossfade, and its cost
@@ -247,7 +261,8 @@ bun dev/gif.ts all                                # re-renders the README's GIFs
   than `--max-ms`; CI runs `--quiet --max-ms=60`. Dev renders seed `Math.random`, so they are reproducible.
   Errors thrown in `step` or `render` show up here; inside OpenCode they are only logged to `WALLPAPER_DEBUG`.
 - `snap.ts` renders the scene directly, before terminal conversion, for judging the art.
-- `preview.ts` shows what the terminal will show, scrim included.
+- `preview.ts` shows what the terminal will show, scrim included. `home` and `session` lay the text out like OpenCode's
+  home screen or a busy session, and a size such as `240x60` or `100x30` replaces 160x45.
 - `dev/pty.ts [seconds] [keys...]` runs a real OpenCode in a pseudo-terminal and types each key argument, pausing
   1.5 s after each; `\r` is Enter and `\e` is Escape. `dev/pty-kitty.ts [id] [seconds]` does the same as a kitty
   terminal in pixel mode. Run them with a throwaway profile (fresh `XDG_DATA_HOME`, `XDG_CONFIG_HOME`,
