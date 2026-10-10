@@ -1,4 +1,5 @@
 import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
+import { limb } from "../src/creature"
 import { eggWait } from "../src/egg"
 import { TAU, clamp, fbm1, hash, lerp, rand, smoothstep, type RGB } from "../src/math"
 import type { Activity, Settings, Time, Wallpaper } from "../src/wallpaper"
@@ -140,6 +141,8 @@ class Jungle extends Canvas {
   private pollen = Array.from({ length: 40 }, () => ({ x: Math.random() * 4, y: 0.1 + Math.random() * 0.7, s: Math.random() }))
   // A click sets the monkey swinging harder: kick is how hard, fading away, and swing is the phase of that swing.
   private monkey = { kick: 0, swing: 0 }
+  // How far the jaguar has lifted its head to look about: it springs toward that now and then and sinks back.
+  private jaguarHead = { p: 0, v: 0 }
   // The vine in the left corner, in screen heights, which the sloth climbs down.
   private liana = { x: 0, length: 0, phase: 0 }
   // The easter egg: a sloth lowers itself down the vine, smiles at you, and climbs back up. t is creature time.
@@ -187,6 +190,9 @@ class Jungle extends Canvas {
     const m = this.monkey
     m.kick *= Math.exp(-cdt * 0.5)
     m.swing += cdt * 6
+    const j = this.jaguarHead
+    j.v += ((Math.max(0, Math.sin(this.creatureTime * 0.35)) ** 12 - j.p) * 25 - j.v * 3) * cdt
+    j.p += j.v * cdt
     const sl = this.sloth
     if (sl.t < 0) {
       sl.wait -= dt
@@ -480,29 +486,34 @@ class Jungle extends Canvas {
     )
   }
 
-  // A spider monkey hanging by its tail from the right-hand branch, swinging slowly; at night it barely stirs.
+  // A spider monkey hanging by its tail from the right-hand branch, swinging slowly, its long arms and legs trailing
+  // each swing; at night it barely stirs.
   private drawMonkey() {
     const H = this.H
     const [ax, ay] = this.rightBranch(0.71 * this.A)
     const m = this.monkey
-    const swing = (this.look.night ? 0.05 : 0.35) * Math.sin(this.creatureTime * 1.2) + (this.look.night ? 0.2 : 0.4) * m.kick * Math.sin(m.swing)
+    const night = this.look.night
+    const swingAt = (t: number) => (night ? 0.05 : 0.35) * Math.sin(t * 1.2) + (night ? 0.2 : 0.4) * m.kick * Math.sin(m.swing - (this.creatureTime - t) * 6)
+    const swing = swingAt(this.creatureTime)
+    // Limbs hang a beat behind the body, so they trail each swing and catch up at its end.
+    const trail = (swingAt(this.creatureTime - 0.3) - swing) * 1.4
     const cs = Math.cos(swing)
     const sn = Math.sin(swing)
     const P = (u: number, v: number): [number, number] => [ax + (u * cs - v * sn) * H, ay + (u * sn + v * cs) * H]
+    const hang = (u0: number, v0: number, u: number, v: number): [number, number] => [u0 + (u - u0) * Math.cos(trail) - (v - v0) * Math.sin(trail), v0 + (u - u0) * Math.sin(trail) + (v - v0) * Math.cos(trail)]
     const fur = this.paint([0.3, 0.2, 0.12])
     const parts: Part[] = [cap(ax - 0.008 * H, ay - 0.01 * H, ax + 0.008 * H, ay - 0.01 * H, 0.004 * H, 0.004 * H, fur)]
     for (let i = 0; i < 4; i++) parts.push(cap(...P(Math.sin(i * 0.8) * 0.006, (i / 4) * 0.07), ...P(Math.sin((i + 1) * 0.8) * 0.006, ((i + 1) / 4) * 0.07), 0.004 * H, 0.004 * H, fur))
     parts.push(
-      cap(...P(0, 0.07), ...P(0, 0.14), 0.018 * H, 0.016 * H, fur),
-      cap(...P(0, 0.075), ...P(-0.025, 0.045), 0.006 * H, 0.005 * H, fur),
-      cap(...P(0, 0.075), ...P(0.025, 0.05), 0.006 * H, 0.005 * H, fur),
-      cap(...P(-0.006, 0.135), ...P(-0.03, 0.2), 0.006 * H, 0.005 * H, fur),
-      cap(...P(0.006, 0.135), ...P(0.04, 0.19), 0.006 * H, 0.005 * H, fur),
-      ell(...P(0, 0.165), 0.02 * H, 0.019 * H, swing, fur),
-      ell(...P(0, 0.17), 0.012 * H, 0.011 * H, swing, this.paint([0.65, 0.5, 0.38])),
+      cap(...P(0, 0.07), ...P(0, 0.14), 0.018 * H, 0.02 * H, fur),
+      ...[-1, 1].flatMap((s) => limb(P, s * 0.006, 0.078, ...hang(s * 0.006, 0.078, s * 0.035, 0.05), 0.03, 0.03, s, 0.007 * H, 0.005 * H, 0.004 * H, fur)),
+      ...[-1, 1].flatMap((s) => limb(P, s * 0.008, 0.135, ...hang(s * 0.008, 0.135, s * 0.03, 0.225), 0.05, 0.05, -s, 0.006 * H, 0.005 * H, 0.004 * H, fur)),
+      ell(...P(0, 0.165), 0.019 * H, 0.019 * H, swing, fur),
+      ...[-1, 1].map((s) => ell(...P(s * 0.018, 0.16), 0.006 * H, 0.006 * H, 0, fur)),
+      ell(...P(0, 0.172), 0.012 * H, 0.011 * H, swing, this.paint([0.65, 0.5, 0.38])),
     )
     this.shape(parts, this.lighting, 0.7)
-    for (const s of [-1, 1]) this.add(...P(s * 0.005, 0.167), 0.01, 0.01, 0.01)
+    for (const s of [-1, 1]) this.add(...P(s * 0.005, 0.169), 0.01, 0.01, 0.01)
   }
 
   // A three-toed sloth hanging from the corner vine by its long arms, lowering itself hand over hand out of the
@@ -568,7 +579,8 @@ class Jungle extends Canvas {
     this.add(...P(0.07, -0.7 + bob), 0.01, 0.01, 0.01)
   }
 
-  // A jaguar draped along the left-hand branch, legs dangling, breathing slowly as its tail sways.
+  // A jaguar draped along the left-hand branch, chin on one paw and the other legs dangling, breathing slowly as its
+  // tail sways. Now and then it lifts its head to look about, and lets it sink back to rest.
   private drawJaguar() {
     const { A, H } = this
     const top = (x: number): [number, number] => {
@@ -577,27 +589,38 @@ class Jungle extends Canvas {
     }
     const breathe = 1 + 0.03 * Math.sin(this.creatureTime * 1.5)
     const coat = this.paint([0.85, 0.58, 0.22])
-    const [hx, hy] = top(0.445)
-    const [rx, ry] = top(0.29)
-    const [fx, fy] = top(0.415)
+    const pale = this.paint([0.92, 0.82, 0.62])
+    const lift = this.jaguarHead.p
+    const [rx, ry] = top(0.3)
+    const [fx, fy] = top(0.4)
+    const [hx, hy] = [top(0.445)[0] - lift * 0.004 * H, top(0.445)[1] - lift * 0.022 * H]
+    // Dangling legs swing gently, the paws a beat behind.
+    const dangle = (t: number) => Math.sin(this.creatureTime * 0.6 - t) * 0.006 * H
     const parts: Part[] = [
-      cap(...top(0.29), ...top(0.41), 0.03 * H * breathe, 0.028 * H * breathe, coat),
-      cap(fx, fy + 0.015 * H, fx + 0.004 * H, fy + 0.085 * H, 0.011 * H, 0.009 * H, coat),
-      cap(fx - 0.02 * H, fy + 0.015 * H, fx - 0.018 * H, fy + 0.07 * H, 0.01 * H, 0.008 * H, coat),
-      cap(rx + 0.01 * H, ry + 0.015 * H, rx + 0.012 * H, ry + 0.08 * H, 0.012 * H, 0.009 * H, coat),
-      ell(hx, hy - 0.005 * H, 0.026 * H, 0.023 * H, 0, coat),
-      ell(hx + 0.016 * H, hy + 0.004 * H, 0.012 * H, 0.009 * H, 0, this.paint([0.92, 0.82, 0.62])),
-      cap(hx - 0.014 * H, hy - 0.02 * H, hx - 0.016 * H, hy - 0.034 * H, 0.007 * H, 0.004 * H, coat),
-      cap(hx + 0.006 * H, hy - 0.024 * H, hx + 0.008 * H, hy - 0.038 * H, 0.007 * H, 0.004 * H, coat),
+      ell(rx, ry - 0.002 * H, 0.033 * H, 0.03 * H * breathe, -0.08, coat),
+      cap(...top(0.31), ...top(0.39), 0.025 * H * breathe, 0.027 * H * breathe, coat),
+      ell(fx, fy, 0.03 * H, 0.03 * H * breathe, 0, coat),
+      cap(fx + 0.012 * H, fy - 0.006 * H, hx - 0.012 * H, hy + 0.004 * H, 0.02 * H, 0.016 * H, coat),
+      cap(fx + 0.008 * H, fy + 0.012 * H, fx + 0.036 * H, fy + 0.03 * H, 0.011 * H, 0.009 * H, coat),
+      ell(fx + 0.042 * H, fy + 0.031 * H, 0.012 * H, 0.007 * H, 0, coat),
+      cap(fx - 0.012 * H, fy + 0.016 * H, fx - 0.008 * H + dangle(0), fy + 0.05 * H, 0.011 * H, 0.008 * H, coat),
+      cap(fx - 0.008 * H + dangle(0), fy + 0.05 * H, fx - 0.006 * H + dangle(0.6), fy + 0.08 * H, 0.008 * H, 0.007 * H, coat),
+      ell(fx - 0.004 * H + dangle(0.8), fy + 0.084 * H, 0.009 * H, 0.007 * H, 0, coat),
+      cap(rx + 0.006 * H, ry + 0.014 * H, rx + 0.016 * H + dangle(0.3), ry + 0.05 * H, 0.014 * H, 0.009 * H, coat),
+      cap(rx + 0.016 * H + dangle(0.3), ry + 0.05 * H, rx + 0.012 * H + dangle(0.9), ry + 0.08 * H, 0.008 * H, 0.007 * H, coat),
+      ell(rx + 0.015 * H + dangle(1.1), ry + 0.084 * H, 0.009 * H, 0.007 * H, 0, coat),
+      ell(hx, hy - 0.005 * H, 0.024 * H, 0.021 * H, 0, coat),
+      ell(hx + 0.017 * H, hy + 0.003 * H, 0.012 * H, 0.009 * H, 0.2, pale),
+      ...[-0.012, 0.004].map((dx) => ell(hx + dx * H - lift * 0.002 * H, hy - (0.024 + lift * 0.004) * H, 0.006 * H, 0.006 * H, 0, coat)),
     ]
     // The tail hangs from the hips and sways, more at the tip.
-    let [tx, ty] = [rx - 0.02 * H, ry]
+    let [tx, ty] = [rx - 0.026 * H, ry]
     let angle = Math.PI / 2 + 0.25 * Math.sin(this.creatureTime * 0.8)
     for (let i = 0; i < 6; i++) {
       const nx = tx + Math.cos(angle) * 0.022 * H
       const ny = ty + Math.sin(angle) * 0.022 * H
-      parts.push(cap(tx, ty, nx, ny, 0.007 * H, 0.006 * H, i === 5 ? this.paint(BLACK) : coat))
-      angle += 0.12 * Math.sin(this.creatureTime * 0.8 + i * 0.5)
+      parts.push(cap(tx, ty, nx, ny, lerp(0.009, 0.006, i / 6) * H, lerp(0.009, 0.006, (i + 1) / 6) * H, i === 5 ? this.paint(BLACK) : coat))
+      angle += 0.12 * Math.sin(this.creatureTime * 0.8 - i * 0.5)
       ;[tx, ty] = [nx, ny]
     }
     this.shape(parts, this.lighting, 0.7)
