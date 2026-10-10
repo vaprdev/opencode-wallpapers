@@ -511,8 +511,9 @@ class Farm extends Canvas {
       const [ex, ey] = at(0.55)
       if (corn.ear) parts.push(ell(ex + 0.008 * H, ey, this.thick(0.007, 1.6), this.thick(0.016, 3), 0.25 + sway, this.paint(corn.ear)))
       if (corn.tassel && !this.cells) parts.push(cap(...top, top[0] + 0.012 * H, top[1] - 0.012 * H, 0.002 * H, 0.001 * H, this.paint(corn.tassel)), cap(...top, top[0] - 0.01 * H, top[1] - 0.014 * H, 0.002 * H, 0.001 * H, this.paint(corn.tassel)))
-      // Rim light on every thin leaf would turn the field into a wireframe, so the corn only catches a little of it.
-      this.shape(parts, this.lighting, this.look.style === "rim" ? 0.2 : 0.6)
+      // Rim light on every thin leaf would turn the field into a wireframe, so the corn only catches a little of it, and
+      // on terminal cells less still.
+      this.shape(parts, this.lighting, this.look.style === "rim" ? (this.cells ? 0.08 : 0.2) : 0.6)
     }
   }
 

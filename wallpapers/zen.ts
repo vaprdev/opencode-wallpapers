@@ -612,7 +612,8 @@ class Zen extends Canvas {
           const across = (h - 0.5) * 2
           parts.push(ell((cx + across * w) * H, (cy + (hash(h * 13) - 0.5) * 0.022 + across * across * 0.012 - shade * 0.007) * H, (0.02 - shade * 0.003) * H, (0.011 - shade * 0.002) * H, (hash(h * 7) - 0.5) * 0.6, this.paint(reds[shade])))
         }
-        this.shape(parts, this.lighting, 0.7)
+        // Rim light on every small cluster would speckle the crown on terminal cells.
+        this.shape(parts, this.lighting, this.cells && this.look.style === "rim" ? 0.25 : 0.7)
       }
   }
 
