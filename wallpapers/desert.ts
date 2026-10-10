@@ -2,6 +2,7 @@ import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
 import { eggWait } from "../src/egg"
 import { bird, flyAway, startle, type Flier } from "../src/flock"
 import { TAU, clamp, fbm1, fbm2, hash, lerp, rand, smoothstep, type RGB } from "../src/math"
+import { groundShadow, sunShade, type Shade } from "../src/shadow"
 import { driftClouds, makeStorm, paintStorm } from "../src/sky"
 import type { Activity, Season, Settings, Time, Wallpaper } from "../src/wallpaper"
 import { WeatherLayer } from "../src/weather"
@@ -278,6 +279,7 @@ class Desert extends Canvas {
   private readonly flowerLight: RGB
   private readonly dusting: RGB
   private readonly weather: WeatherLayer
+  private readonly shade: Shade
 
   constructor(settings: Settings) {
     super()
@@ -287,6 +289,7 @@ class Desert extends Canvas {
     this.flowerLight = FLOWER_LIGHT[settings.time]
     this.dusting = DUSTING[settings.time]
     this.weather = new WeatherLayer(settings.weather ?? "clear", settings.time, HORIZON)
+    this.shade = sunShade(settings.time, this.look.orb, this.weather.covered)
     const look = this.look
     const top = look.milkyWay ? 0.5 : 0.3
     this.stars = Array.from({ length: look.stars }, () => ({ x: Math.random(), y: Math.random() * top, b: 0.4 + Math.random() * 0.6, phase: Math.random() * TAU, tint: STAR_TINTS[Math.floor(Math.random() * STAR_TINTS.length)] }))
@@ -398,18 +401,19 @@ class Desert extends Canvas {
     if (this.activity === "teeming") {
       for (const fx of [0.47, 0.92]) {
         const gy = backTop[Math.min(W - 1, Math.round(fx * W))] + 2
-        this.shadow(fx * A * H, gy, 0.05 * H)
+        const h = fx < 0.5 ? 0.14 : 0.11
+        this.shadow(fx * A * H, gy, 0.25 * h * H, h * H)
         this.drawSaguaro(fx * A * H, gy, (fx < 0.5 ? 0.14 : 0.11) * H, 0.5)
       }
     }
-    this.shadow(0.13 * A * H, this.ground(0.13), 0.12 * H)
+    this.shadow(0.13 * A * H, this.ground(0.13), 0.085 * H, 0.34 * H)
     this.drawSaguaro(0.13 * A * H, this.ground(0.13) + 3, 0.34 * H, 0)
-    this.shadow(0.8 * A * H, this.ground(0.8), 0.08 * H)
+    this.shadow(0.8 * A * H, this.ground(0.8), 0.07 * H, 0.1 * H, 2.5)
     this.drawSkull(0.8 * A * H, this.ground(0.8), 0.07 * H)
     if (this.activity === "teeming") {
-      this.shadow(0.33 * A * H, this.ground(0.33), 0.05 * H)
+      this.shadow(0.33 * A * H, this.ground(0.33), 0.09 * H, 0.16 * H, 1.1)
       this.drawPricklyPear(0.33 * A * H, this.ground(0.33) + 2, H)
-      this.shadow(0.62 * A * H, this.ground(0.62), 0.035 * H)
+      this.shadow(0.62 * A * H, this.ground(0.62), 0.06 * H, 0.07 * H, 0.8)
       this.drawBarrel(0.62 * A * H, this.ground(0.62) + 1, H)
     }
     // The coyote sits on the tallest near mesa.
@@ -543,23 +547,9 @@ class Desert extends Canvas {
     }
   }
 
-  // By day, a soft shadow on the ground falling to the lower left of something standing at (x, gy).
-  private shadow(x: number, gy: number, length: number) {
-    if (this.look.style !== "front") return
-    const { W, H, hdr } = this
-    const cx = x - length * 0.55
-    const rx = length * 0.7
-    const ry = Math.max(1.5, length * 0.12)
-    for (let y = Math.max(0, Math.floor(gy - ry)); y <= Math.min(H - 1, Math.ceil(gy + ry)); y++)
-      for (let px = Math.max(0, Math.floor(cx - rx)); px <= Math.min(W - 1, Math.ceil(cx + rx)); px++) {
-        const q = ((px + 0.5 - cx) / rx) ** 2 + ((y + 0.5 - gy) / ry) ** 2
-        if (q >= 1) continue
-        const k = 1 - 0.45 * (1 - q) ** 0.7
-        const o = (y * W + px) * 3
-        hdr[o] *= k
-        hdr[o + 1] *= k
-        hdr[o + 2] *= k
-      }
+  // The shadows of something w pixels wide and h tall standing at (x, gy).
+  private shadow(x: number, gy: number, w: number, h: number, tip?: number, lift?: number) {
+    groundShadow(this.hdr, this.W, this.H, this.shade, x, gy, w, h, tip, lift)
   }
 
   private stepTumbleweed(dt: number) {
@@ -920,6 +910,7 @@ class Desert extends Canvas {
     const x = r.x * H
     const gy = this.ground(r.x / this.A) + 1
     const S = 0.14 * H
+    this.shadow(x - 0.05 * S, gy, 0.5 * S, 0.6 * S, 0.6)
     const P = (u: number, v: number): [number, number] => [x + u * S, gy + v * S]
     const bob = running ? 0 : Math.max(0, Math.sin((r.t - r.halt) * 12)) * 0.05
     const tail = running ? -0.47 : -0.78
@@ -950,7 +941,7 @@ class Desert extends Canvas {
     const cx = t.x * H
     const hop = Math.abs(Math.sin(t.hop)) * 0.012 * H
     const gy = this.ground(t.x / this.A)
-    this.shadow(cx + R * 0.8, gy, R * (2 - hop / (0.012 * H)))
+    this.shadow(cx, gy, R * 2, R * 2, 1, hop)
     const cy = gy - R + 1 - hop
     const cs = Math.cos(t.spin)
     const sn = Math.sin(t.spin)

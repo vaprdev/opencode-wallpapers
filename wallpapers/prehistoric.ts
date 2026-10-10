@@ -2,6 +2,7 @@ import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
 import { eggWait } from "../src/egg"
 import { bird, flyAway, startle, type Flier } from "../src/flock"
 import { TAU, clamp, fbm1, hash, hash2, lerp, rand, smoothstep, type RGB } from "../src/math"
+import { groundShadow, sunShade, type Shade } from "../src/shadow"
 import { driftClouds, makeClouds, makeStars, makeStorm, paintClouds, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
 import type { Activity, Settings, Time, Wallpaper } from "../src/wallpaper"
 import { WeatherLayer } from "../src/weather"
@@ -167,6 +168,7 @@ class Prehistoric extends Canvas {
   private readonly activity: Activity
   private readonly look: Look
   private lighting: Lighting = { style: "front", dir: DAYLIGHT }
+  private readonly shade: Shade
   private background = new Float32Array(0)
   private allStars: Star[]
   private stars: Star[] = []
@@ -193,6 +195,7 @@ class Prehistoric extends Canvas {
     this.activity = settings.activity
     this.look = LOOKS[settings.time]
     this.weather = new WeatherLayer(settings.weather ?? "clear", settings.time, HORIZON)
+    this.shade = sunShade(settings.time, this.look.orb, this.weather.covered)
     this.allStars = makeStars(this.look.stars, 0.5)
     this.clouds = makeClouds(this.look.clouds.puffy ? 4 : 5, this.look.clouds.puffy, 0.06, 0.3)
     if (settings.activity !== "teeming") return
@@ -241,6 +244,7 @@ class Prehistoric extends Canvas {
     const [top, bottom] = this.weather.scud ?? [this.look.clouds.top, this.look.clouds.bottom]
     paintClouds(this.hdr, this.W, this.H, this.clouds, top, bottom, this.look.clouds.alpha, this.look.clouds.puffy)
     paintStorm(this.hdr, this.W, this.H, this.storm, this.look.clouds.top, this.look.clouds.bottom, this.gloom)
+    this.drawShadows()
     this.drawSmoke()
     if (this.activity !== "calm") {
       this.drawPterosaurs()
@@ -324,6 +328,10 @@ class Prehistoric extends Canvas {
     })
     if (this.activity === "teeming") this.paintLake()
     this.trees = [0.08 * A, Math.max(0.4 * A, 0.08 * A + 0.45)]
+    const ground = (x: number, y: number, w: number, h: number, tip?: number) => groundShadow(this.hdr, W, H, this.shade, x * H, y * H, w * H, h * H, tip)
+    for (const [x, base, top] of [[this.trees[0], 0.665, 0.29], [this.trees[1], 0.662, 0.31], [0.93 * A, 0.64, 0.45]]) ground(x, base, 0.08, base - top, 1.5)
+    for (const [x, y, s] of [[0.32, 0.78, 0.07], [0.88, 0.74, 0.08], [0.48, 0.9, 0.08]]) ground(x * A, y, s * 1.4, s * 0.8, 1.2)
+    for (const [x, y, s] of [[0.04, 0.86, 0.09], [0.47, 0.835, 0.07], [0.9, 0.84, 0.1]]) ground(x * A, y, s * 1.4, s * 1.1, 1.5)
     this.drawTree(this.trees[0], 0.665, 0.29)
     this.drawTree(this.trees[1], 0.662, 0.31)
     this.drawTree(0.93 * A, 0.64, 0.45)
@@ -337,6 +345,25 @@ class Prehistoric extends Canvas {
     this.drawCycad(0.47 * A, 0.835, 0.07)
     this.drawCycad(0.9 * A, 0.84, 0.1)
     this.background = this.hdr.slice()
+  }
+
+  // Shadows under everything that walks or drives, drawn before any of it so none falls across another animal.
+  private drawShadows() {
+    const H = this.H
+    const ground = (x: number, y: number, w: number, h: number, tip?: number) => groundShadow(this.hdr, this.W, H, this.shade, x * H, y * H, w * H, h * H, tip)
+    if (this.activity !== "calm") {
+      const s = this.sauropod
+      const [from, to] = this.sauropodSpots()
+      ground(lerp(from, to, s.p) - s.face * 0.06, 0.668, 0.28, 0.13, 0.8)
+    }
+    for (const w of this.herd) {
+      const S = 0.2 * (0.6 + (w.y - 0.7) * 2.5) * w.size
+      ground(w.x + w.face * 0.04 * S, w.y, 1.0 * S, 0.55 * S, 0.8)
+    }
+    const r = this.rex
+    if (r.x > -5) ground(r.x - r.dir * 0.03, 0.935, 0.24, 0.24, 0.8)
+    const d = this.delorean
+    if (d.t >= 0 && d.t <= DELOREAN) ground(d.x0 + 0.05 * Math.min(d.t, DELOREAN), 0.958, 0.18, 0.065, 0.9)
   }
 
   private paint(c: RGB): RGB {

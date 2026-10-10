@@ -1,6 +1,7 @@
 import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
 import { eggWait } from "../src/egg"
 import { TAU, clamp, fbm1, hash, lerp, rand, smoothstep, type RGB } from "../src/math"
+import { groundShadow, sunShade, type Shade } from "../src/shadow"
 import type { Activity, Settings, Time, Wallpaper } from "../src/wallpaper"
 import { WeatherLayer } from "../src/weather"
 
@@ -128,6 +129,7 @@ class Jungle extends Canvas {
   private readonly weather: WeatherLayer
   private readonly rainy: boolean
   private lighting: Lighting = { style: "front", dir: DAYLIGHT }
+  private readonly shade: Shade
   private background = new Float32Array(0)
   private leaves: Leaf[] = []
   private groundPx = new Float32Array(0)
@@ -151,6 +153,8 @@ class Jungle extends Canvas {
     const rainy = settings.season === "summer" || settings.season === "autumn"
     this.rainy = rainy
     const look = LOOKS[settings.time]
+    // Under the canopy the light is diffuse, so things on the floor get contact shadows but cast none.
+    this.shade = sunShade(settings.time, { x: 0.85, y: -0.15 }, true)
     const wet = RAINY_MIST[settings.time]
     this.look = rainy ? { ...look, mist: [mixRGB(look.mist[0], wet, 0.55), mixRGB(look.mist[1], wet, 0.4), look.mist[2]], far: mixRGB(look.far, wet, 0.4), shafts: look.shafts * 0.25 } : look
     // Without a weather setting, the rainy season brings a light shower.
@@ -296,8 +300,10 @@ class Jungle extends Canvas {
         const c = this.paint(FLOOR)
         this.blend((y * W + x) * 3, c[0] * k, c[1] * k, c[2] * k, clamp(y + 1 - this.groundPx[x], 0, 1))
       }
+    for (const [x, r] of [[0.2 * A, 0.045], [0.86 * A, 0.038]]) groundShadow(this.hdr, W, H, this.shade, x * H, this.groundPx[clamp(Math.round(x * H), 0, W - 1)] + 0.03 * H, r * 6 * H, H)
     for (let i = 0; i < Math.round(A * 6); i++) {
       const x = (hash(i * 3.9) * A) * H
+      groundShadow(this.hdr, W, H, this.shade, x, this.groundPx[clamp(Math.round(x), 0, W - 1)] + 2, (0.1 + hash(i * 1.1) * 0.07) * H, 0.1 * H)
       this.drawFern(x, this.groundPx[clamp(Math.round(x), 0, W - 1)] + 2, (0.08 + hash(i * 1.1) * 0.06) * H, hash(i * 5.5) > 0.5 ? 1 : -1)
     }
     // Big leaves framing the corners, drawn each frame so they can sway.

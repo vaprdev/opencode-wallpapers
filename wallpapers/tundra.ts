@@ -1,6 +1,7 @@
 import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
 import { eggWait } from "../src/egg"
 import { TAU, clamp, fbm1, hash, lerp, rand, smoothstep, type RGB } from "../src/math"
+import { groundShadow, sunShade, type Shade } from "../src/shadow"
 import { driftClouds, makeClouds, makeStars, makeStorm, paintClouds, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
 import type { Activity, Settings, Time, Wallpaper } from "../src/wallpaper"
 import { WeatherLayer } from "../src/weather"
@@ -133,6 +134,7 @@ class Tundra extends Canvas {
   private readonly activity: Activity
   private readonly look: Look
   private lighting: Lighting = { style: "front", dir: DAYLIGHT }
+  private readonly shade: Shade
   private background = new Float32Array(0)
   private stars: Star[]
   private clouds: Cloud[]
@@ -156,6 +158,7 @@ class Tundra extends Canvas {
     this.clouds = makeClouds(this.look.clouds.puffy ? 3 : 4, this.look.clouds.puffy, 0.06, 0.28)
     // Its own gentle snowfall under a clear sky, unless weather is chosen.
     this.weather = new WeatherLayer(settings.weather ?? "clear", settings.time, HORIZON)
+    this.shade = sunShade(settings.time, this.look.orb, this.weather.covered)
     this.flakes = Array.from({ length: settings.weather ? 0 : { calm: 70, lively: 100, teeming: 130 }[settings.activity] }, () => ({ x: Math.random() * 4, y: Math.random(), z: Math.random(), s: Math.random() }))
     const walker = (x: number, y: number): Walker => ({ x, y, wx: x, wy: y, wanderT: 0, face: 1, phase: Math.random() * TAU, rest: 0, moving: false, hop: Infinity })
     if (settings.activity !== "calm") {
@@ -226,6 +229,7 @@ class Tundra extends Canvas {
     const [top, bottom] = this.weather.scud ?? [this.look.clouds.top, this.look.clouds.bottom]
     paintClouds(this.hdr, this.W, this.H, this.clouds, top, bottom, this.look.clouds.alpha, this.look.clouds.puffy)
     paintStorm(this.hdr, this.W, this.H, this.storm, this.look.clouds.top, this.look.clouds.bottom, this.gloom)
+    this.drawShadows()
     if (this.owl.x > -5) this.drawOwl()
     if (this.yeti.t >= 0) this.drawYeti()
     if (this.bear) this.drawBear(this.bear)
@@ -261,6 +265,12 @@ class Tundra extends Canvas {
         this.blend((y * W + x) * 3, c[0] + look.light[0] * edge, c[1] + look.light[1] * edge, c[2] + look.light[2] * edge, clamp(y + 1 - drift[x], 0, 1))
       }
     this.drawLake(0.5 * A, 0.72, 0.3, 0.045)
+    const ground = (x: number, y: number, w: number, h: number, tip?: number) => groundShadow(this.hdr, W, H, this.shade, x * H, y * H, w * H, h * H, tip)
+    for (const [fx, h] of [[0.3, 0.1], [0.36, 0.08], [0.7, 0.09], [0.76, 0.11]] as const) ground(fx * A, 0.625, h * 0.45, h, 0.5)
+    ground(0.86 * A, 0.7, 0.11, 0.047, 0.8)
+    ground(0.2 * A, 0.75, 0.15, 0.064, 0.8)
+    if (this.activity === "teeming") ground(0.3 * A, 0.85, 0.068, 0.15, 0.6)
+    ground(0.62 * A, 0.87, 0.09, 0.195, 0.6)
     for (const [fx, h] of [[0.3, 0.1], [0.36, 0.08], [0.7, 0.09], [0.76, 0.11]] as const) this.drawPine(fx * A, 0.625, h, 0.5)
     this.drawIgloo(0.86 * A, 0.7, 0.055)
     this.drawIgloo(0.2 * A, 0.75, 0.075)
@@ -268,6 +278,27 @@ class Tundra extends Canvas {
     this.drawSnowman(0.62 * A, 0.87, 1, [0.8, 0.12, 0.1], true)
     for (const [fx, h] of [[0.04, 0.46], [0.11, 0.34], [0.955, 0.42], [0.995, 0.3]] as const) this.drawPine(fx * A, 1.02, h, 0)
     this.background = this.hdr.slice()
+  }
+
+  // Shadows under everything on the snow, drawn before any of it so none falls across another animal. The yeti has
+  // none: it is never quite there.
+  private drawShadows() {
+    const H = this.H
+    const ground = (x: number, y: number, w: number, h: number, tip?: number, lift?: number) => groundShadow(this.hdr, this.W, H, this.shade, x * H, y * H, w * H, h * H, tip, lift)
+    if (this.bear) {
+      const S = 0.13 * this.depthScale(this.bear.y)
+      ground(this.bear.x + this.bear.face * 0.05 * S, this.bear.y, 1.0 * S, 0.6 * S, 0.8)
+    }
+    if (this.activity === "teeming") ground(0.68 * this.A + 0.05, 0.718, 0.04, 0.11, 0.6)
+    for (const p of this.penguins) {
+      const S = 0.07 * this.depthScale(p.y)
+      const hop = p.hop >= 0 && p.hop < HOP ? Math.abs(Math.sin((p.hop / HOP) * TAU)) * 0.025 * this.depthScale(p.y) : 0
+      ground(p.x, p.y, 0.45 * S, S, 0.6, hop * H)
+    }
+    if (this.fox) {
+      const S = 0.08 * this.depthScale(this.fox.y)
+      ground(this.fox.x - this.fox.face * 0.05 * S, this.fox.y, 1.1 * S, 0.7 * S, 0.7)
+    }
   }
 
   private paint(c: RGB): RGB {

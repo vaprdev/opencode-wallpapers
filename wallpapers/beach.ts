@@ -2,6 +2,7 @@ import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
 import { eggWait } from "../src/egg"
 import { bird, flyAway, startle, type Flier } from "../src/flock"
 import { TAU, clamp, fbm1, hash, hash2, lerp, rand, smoothstep, type RGB } from "../src/math"
+import { groundShadow, sunShade, type Shade } from "../src/shadow"
 import { driftClouds, makeClouds, makeStars, makeStorm, paintClouds, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
 import type { Activity, Season, Settings, Time, Wallpaper } from "../src/wallpaper"
 import { WeatherLayer } from "../src/weather"
@@ -163,6 +164,7 @@ class Beach extends Canvas {
   private readonly activity: Activity
   private readonly look: Look
   private lighting: Lighting = { style: "front", dir: DAYLIGHT }
+  private readonly shade: Shade
   private background = new Float32Array(0)
   private stars: Star[]
   private clouds: Cloud[]
@@ -190,6 +192,7 @@ class Beach extends Canvas {
     const look = offSeason && settings.time === "day" ? { ...LOOKS.day, ...OFF_SEASON } : LOOKS[settings.time]
     // With the sun or moon behind cloud, only a trace of the glitter path is left.
     this.look = this.weather.covered ? { ...look, glitter: look.glitter * 0.15 } : look
+    this.shade = sunShade(settings.time, look.orb, this.weather.covered)
     if (this.season === "summer" && !this.look.night) this.swimmers = Array.from({ length: { calm: 1, lively: 3, teeming: 5 }[settings.activity] }, (_, i) => ({ x: 0.25 + i * 0.13 + hash(i) * 0.05, y: 0.69 + hash(i * 3.3) * 0.03, phase: i * 1.9 }))
     this.stars = makeStars(this.look.stars, 0.45)
     this.clouds = makeClouds(this.look.clouds.puffy ? 4 : 5, this.look.clouds.puffy, 0.08, 0.3)
@@ -310,6 +313,11 @@ class Beach extends Canvas {
       { base: [0.94 * A, 1.0], crown: [0.85 * A, 0.44], lean: -1 },
     ]
     this.background = this.hdr.slice()
+  }
+
+  private ground(x: number, y: number, w: number, h: number, tip?: number, lift?: number) {
+    const H = this.H
+    groundShadow(this.hdr, this.W, H, this.shade, x * H, y * H, w * H, h * H, tip, lift)
   }
 
   private paint(c: RGB): RGB {
@@ -453,6 +461,8 @@ class Beach extends Canvas {
       this.shape([cap(...P(-0.035, 0.06), ...P(0.045, 0.056), 0.009 * s * H, 0.006 * s * H, c), ell(...P(-0.048, 0.059), 0.01 * s * H, 0.009 * s * H, 0, c)], this.lighting, 0.6)
       this.shape([cap(...P(-0.012, 0.06), ...P(0.012, 0.059), 0.0095 * s * H, 0.0095 * s * H, this.paint(stripe))], this.lighting, 0.4)
     }
+    // The canopy shades whoever lies under it.
+    this.ground(ux, uy + 0.05 * s, 0.18 * s, 0.17 * s, 1.2)
     this.shape([cap(...P(0, 0.05), ...P(0, -0.12), 0.003 * s * H, 0.003 * s * H, this.paint([0.85, 0.85, 0.82]))], this.lighting, 0.4)
     for (let k = 0; k < 6; k++) {
       const a0 = Math.PI + (k / 6) * Math.PI
@@ -466,6 +476,7 @@ class Beach extends Canvas {
   private drawDriftwood(x: number, y: number) {
     const H = this.H
     const wood = this.paint([0.62, 0.55, 0.45])
+    this.ground(x, y + 0.006, 0.13, 0.02, 1)
     this.shape([cap((x - 0.07) * H, y * H, (x + 0.06) * H, (y - 0.008) * H, 0.009 * H, 0.006 * H, wood, 2), cap((x + 0.02) * H, (y - 0.005) * H, (x + 0.05) * H, (y - 0.03) * H, 0.004 * H, 0.002 * H, wood)], this.lighting, 0.7)
   }
 
@@ -485,6 +496,8 @@ class Beach extends Canvas {
     if (this.season !== "summer") this.drawUmbrella(0.64 * A, 0.86, [0.85, 0.15, 0.12])
     const [sx, sy] = [0.42 * A, 0.92]
     const sand = this.paint([0.78, 0.66, 0.42])
+    this.ground(sx, sy, 0.1, 0.09, 0.5)
+    this.ground(0.53 * A, 0.95, 0.028, 0.032)
     const box = (x0: number, y0: number, x1: number, y1: number) => [[x0 * H, y0 * H], [x1 * H, y0 * H], [x1 * H, y1 * H], [x0 * H, y1 * H]] as const
     this.polygon(box(sx - 0.05, sy - 0.03, sx + 0.05, sy), sand)
     for (const [dx, h] of [[-0.04, 0.06], [0, 0.08], [0.04, 0.06]] as const) {
@@ -626,6 +639,7 @@ class Beach extends Canvas {
     const y = lerp(lerp(0.62, beached, come), 0.66, smoothstep(52, 62, t)) + Math.sin(this.time * 1.4) * 0.004 * clamp(afloat, 0, 1)
     const tilt = 0.35 + Math.sin(this.time * 1.1) * 0.25 * clamp(afloat, 0, 1)
     const S = 0.09 * H
+    if (afloat < 1) this.ground(x, y + 0.012, 0.07, 0.025, 1, clamp(afloat, 0, 1) * 0.03 * H)
     const ca = Math.cos(tilt)
     const sa = Math.sin(tilt)
     const P = (u: number, v: number): [number, number] => [x * H + (u * ca - v * sa) * S, y * H + (u * sa + v * ca) * S]
@@ -651,6 +665,7 @@ class Beach extends Canvas {
     const y = 0.97 * H
     const red = this.paint([0.85, 0.25, 0.12])
     const step = c.rest > 0 ? 0 : Math.sin(c.phase) * 0.06
+    this.ground(c.x, 0.97, 0.055, 0.035)
     const parts: Part[] = [ell(x, y - 0.25 * S, 0.4 * S, 0.22 * S, 0, red)]
     for (const side of [-1, 1])
       for (let k = 0; k < 3; k++) {
