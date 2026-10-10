@@ -342,13 +342,6 @@ class Zen extends Canvas {
     const rx = Math.min(0.25 * A, 0.56)
     this.pond = { x: Math.max(0.64 * A, 0.36 * A + rx + 0.06), y: 0.8, rx, ry: 0.14 }
     this.cherry = { x: A - 0.2, y: 0.27 }
-    paintSky(this.hdr, W, H, look.sky, look.orb, this.px)
-    this.weather.cover(this.hdr, W, H)
-    this.drawHills()
-    const sky = this.hdr.slice()
-    this.drawGround()
-    this.drawBackGarden()
-    const bank = this.hdr.slice()
     // Lily pads, placed in pond coordinates (-1..1 across and down).
     const p = this.pond
     this.pads = [
@@ -360,20 +353,14 @@ class Zen extends Canvas {
       [0.35, 0.02, 0.03],
       [-0.3, 0.2, 0.028],
     ].map(([u, v, r]) => ({ x: p.x + u * p.rx, y: p.y + v * p.ry, r }))
-    // The garden in front of the water painted on black and on white gives its color and coverage there. The
-    // supersampled pass hands these layers, box-filtered, to the real-size pass, which builds the water from them.
-    const layers = this.layers ?? [sky, bank, this.frontGardenOn(0), this.frontGardenOn(1)]
-    // Every primitive mixes linearly over what's under it, so the garden painted over the bank is the black layer plus
-    // the white one's coverage of the bank. The real-size pass after a supersampled one paints nothing that is kept.
-    if (!this.layers) {
-      const [black, white, hdr] = [layers[2], layers[3], this.hdr]
-      for (let i = 0; i < hdr.length; i++) hdr[i] = black[i] + (white[i] - black[i]) * hdr[i]
-    }
+    // The supersampled pass paints the garden and hands its layers, box-filtered, to the real-size pass, which only
+    // builds the water from them.
+    const layers = this.layers ?? this.paintGarden()
+    this.layers = undefined
     if (this.px > 1) {
       this.layers = layers.map((layer) => this.shrink(layer))
       return
     }
-    this.layers = undefined
     const [skyLayer, bankLayer, onBlack, onWhite] = layers
     // Find the water, note what lies under its edges, and work out its still color with the sky mirrored in it.
     const pool: number[] = []
@@ -420,6 +407,26 @@ class Zen extends Canvas {
       this.front.set([onBlack[i], onBlack[i + 1], onBlack[i + 2]], k * 3)
       this.keep[k] = onWhite[i] - onBlack[i]
     }
+  }
+
+  // Paints everything but the water, and returns the sky with the hills, the bank, and the garden in front of the
+  // water painted on black and on white, which give its color and coverage there.
+  private paintGarden() {
+    const { W, H, look } = this
+    paintSky(this.hdr, W, H, look.sky, look.orb, this.px)
+    this.weather.cover(this.hdr, W, H)
+    this.drawHills()
+    const sky = this.hdr.slice()
+    this.drawGround()
+    this.drawBackGarden()
+    const bank = this.hdr.slice()
+    const black = this.frontGardenOn(0)
+    const white = this.frontGardenOn(1)
+    // Every primitive mixes linearly over what's under it, so the garden painted over the bank is the black layer plus
+    // the white one's coverage of the bank.
+    const hdr = this.hdr
+    for (let i = 0; i < hdr.length; i++) hdr[i] = black[i] + (white[i] - black[i]) * hdr[i]
+    return [sky, bank, black, white]
   }
 
   // The garden in front of the water, painted alone over a plain `fill`.
