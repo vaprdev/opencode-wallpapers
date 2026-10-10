@@ -144,7 +144,7 @@ class Ocean extends Canvas {
     this.timeOfDay = settings.time
     if (activity === "teeming") this.fish.push(this.makeFish("ambient:shark", "shark", [0.3, 1, 0.17, 0.33], { len: 0.64, z: 0.55 }))
     if (activity !== "calm") {
-      this.fish.push(this.makeFish("ambient:fish", "fish", [0, 0.44, 0.48, 0.72], { len: 0.26, z: 0.35, hue: 0.07, sat: 0.85 }))
+      this.fish.push(this.makeFish("ambient:fish", "fish", [0, 0.44, 0.48, 0.72], { len: 0.19, z: 0.35, hue: 0.07, sat: 0.85 }))
       const zone: Zone = [0.58, 1, 0.46, 0.7]
       const ox = ((zone[0] + zone[1]) / 2) * this.A
       this.octopus = { x: ox, y: 0.58, z: 0.4, vx: 0, vy: 0, size: 0.1, hue: 0.02, phase: 0, pulse: 0, next: 2, dir: -Math.PI / 2, wx: ox, wy: 0.58, zone }
@@ -1162,7 +1162,9 @@ class Ocean extends Canvas {
     const skinFar: RGB = [0.26, 0.3, 0.2]
     const stroke = Math.sin(tu.phase)
 
-    // A flipper: a curved paddle from its root, swept back and rotated by the stroke.
+    // A flipper: a curved paddle from its root, swept back and rotated by the stroke. Its tip trails the stroke,
+    // curling one way on the downstroke and the other on the way back up.
+    const whip = Math.cos(tu.phase) * 0.05
     const flipper = (u0: number, v0: number, length: number, angle: number, width: number, color: RGB) => {
       const [r, g, b] = tint(color)
       let u = u0
@@ -1176,7 +1178,7 @@ class Ocean extends Canvas {
         blob(x, y, Math.max(0.6, w * L), r, g, b)
         u += Math.cos(a) * (length / n)
         v += Math.sin(a) * (length / n)
-        a += 0.04
+        a += 0.04 + whip * q
       }
     }
     const front = Math.PI - 0.55 - stroke * 0.6
