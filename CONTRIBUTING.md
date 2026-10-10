@@ -87,7 +87,10 @@ render() {
 }
 ```
 
-This is the biggest single saving: a full-screen gradient with noise costs more than every creature together.
+This is the biggest single saving: a full-screen gradient with noise costs more than every creature together. It
+also makes `finish()` cheaper: it blooms and tone-maps whatever `layout()` leaves in `hdr` once, then each frame only
+redoes the 4x4 blocks that differ from it and the bloom they change. So leave `hdr` holding the background at the end
+of `layout()`, and avoid full-screen per-frame passes where a static one will do.
 
 ### Drawing
 
