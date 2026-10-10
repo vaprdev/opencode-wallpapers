@@ -738,7 +738,7 @@ class Ocean extends Canvas {
       const x = s.x * H
       const y = clamp(Math.floor(s.y * H), 0, H - 1)
       const ray = RAYS_A[((x + y * 0.42 + t * 7) | 0) & 1023] * (0.45 + 0.55 * RAYS_B[((x * 0.7 + y * 0.6 - t * 4.3) | 0) & 1023]) * rayFade[y]
-      const k = (back ? 0.08 + (1 - s.z) * 0.1 : 0.25) * tw + ray * 0.9
+      const k = (back ? 0.08 + (1 - s.z) * 0.1 : 0.25) * tw + ray * 1.5
       if (!back && s.s > 0.7) this.disc(s.x * H, s.y * H, 1.1, 0.6 + k, 0.75 + k, 0.8 + k, 0.35)
       else this.add(s.x * H, s.y * H, k * 0.8, k, k)
     }

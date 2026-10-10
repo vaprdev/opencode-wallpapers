@@ -30,7 +30,7 @@ export function gust(x: number, t: number) {
 // (positive x) with livelier rocking as a gust passes. phase keeps neighbors out of step and rate is how fast it rocks.
 export function sway(x: number, t: number, phase = 0, rate = 0.7) {
   const g = gust(x, t)
-  return Math.sin(t * rate + phase) * (1 + 0.6 * g) + g * (2.2 + 0.5 * Math.sin(t * rate * 2.7 + phase * 1.7))
+  return Math.sin(t * rate + phase) * (1 + 0.4 * g) + g * (2.2 + 0.3 * Math.sin(t * rate * 2.7 + phase * 1.7))
 }
 
 // Plants painted once into a static background that still bend in the gusts: the pixels they cover shift downwind
