@@ -242,7 +242,7 @@ class Tundra extends Canvas {
     if (this.fox) this.drawFox(this.fox)
     // At night the igloo doors' warm light falls across the snow and anything passing them.
     if (this.look.glow === 1)
-      for (const [fx, base, R] of IGLOOS) lightPool(this.hdr, this.W, this.H, (fx * this.A - R * 0.35) * this.H, (base + 0.01) * this.H, R * 3.2 * this.H, R * 1.1 * this.H, [1, 0.42, 0.08], 0.6, 0.03)
+      for (const [fx, base, R] of IGLOOS) lightPool(this.hdr, this.W, this.H, (fx * this.A - R * 0.35) * this.H, (base + 0.01) * this.H, R * 3.2 * this.H, R * 1.1 * this.H, [1, 0.42, 0.08], 1, 0.03)
     this.drawFlakes()
     this.weather.draw(this.hdr, this.W, this.H)
     this.finish()

@@ -2,7 +2,7 @@ import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
 import { eggWait } from "../src/egg"
 import { bird, flyAway, startle, type Flier } from "../src/flock"
 import { TAU, clamp, fbm1, fbm2, hash, lerp, rand, smoothstep, type RGB } from "../src/math"
-import { lightPool } from "../src/light"
+import { campfire, lightPool } from "../src/light"
 import { driftClouds, makeStorm, paintStorm } from "../src/sky"
 import type { Activity, Season, Settings, Time, Wallpaper } from "../src/wallpaper"
 import { WeatherLayer } from "../src/weather"
@@ -659,27 +659,15 @@ class Desert extends Canvas {
     this.shape(parts, lighting, light)
   }
 
-  // A small campfire on the dunes at night, flickering, its warm light falling on the sand and the saguaro beside it.
+  // A small campfire on the dunes at night, its warm light falling on the sand and the saguaro beside it.
   private drawCampfire() {
     const H = this.H
     const x = 0.21 * this.A * H
     const gy = this.ground(0.21) + 0.01 * H
-    const t = this.time
-    const flicker = 0.85 + 0.1 * Math.sin(t * 7.1) + 0.05 * Math.sin(t * 13.3 + 1)
-    lightPool(this.hdr, this.W, H, x, gy - 0.03 * H, 0.32 * H, 0.14 * H, [1, 0.4, 0.07], 2.6 * flicker, 0.04 * flicker)
-    const log: RGB = [0.05, 0.025, 0.02]
-    this.shape([cap(x - 0.03 * H, gy, x + 0.025 * H, gy - 0.008 * H, 0.006 * H, 0.005 * H, log), cap(x + 0.03 * H, gy, x - 0.02 * H, gy - 0.01 * H, 0.006 * H, 0.005 * H, log)], { style: "rim", color: [1.4, 0.5, 0.1], x, y: gy - 0.03 * H })
-    for (const [dx, h, r, core] of [
-      [-0.008, 0.036, 0.009, false],
-      [0.008, 0.03, 0.008, false],
-      [0, 0.046, 0.011, false],
-      [0, 0.026, 0.006, true],
-    ] as const) {
-      const sway = Math.sin(t * 3 + dx * 400) * 0.003 * H
-      const height = h * H * (0.8 + 0.2 * Math.sin(t * 5.3 + dx * 900 + h * 100)) * flicker
-      const color: RGB = core ? [2.6, 1.5, 0.3] : [2, 0.6, 0.08]
-      this.shape([cap(x + dx * H, gy - 0.004 * H, x + dx * H + sway, gy - height, r * H, 0.0015 * H, color)], { style: "rim", color, x, y: gy }, 0)
-    }
+    const fire = campfire(x, gy, H, this.time)
+    lightPool(this.hdr, this.W, H, x, gy - 0.03 * H, 0.32 * H, 0.14 * H, [1, 0.4, 0.07], 2.6 * fire.flicker, 0.04 * fire.flicker)
+    this.shape(fire.logs, { style: "rim", color: [1.4, 0.5, 0.1], x, y: gy - 0.03 * H })
+    for (const flame of fire.flames) this.shape(flame, { style: "front", dir: [0, 0, 1] }, 0)
   }
 
   // A saguaro: a ribbed trunk with two upturned arms. haze fades distant ones toward the dunes behind them.

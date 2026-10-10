@@ -1,6 +1,7 @@
 import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
 import { eggWait } from "../src/egg"
 import { bird, flyAway, startle, type Flier } from "../src/flock"
+import { campfire, lightPool } from "../src/light"
 import { TAU, clamp, fbm1, hash, hash2, lerp, rand, smoothstep, type RGB } from "../src/math"
 import { driftClouds, makeClouds, makeStars, makeStorm, paintClouds, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
 import type { Activity, Season, Settings, Time, Wallpaper } from "../src/wallpaper"
@@ -83,17 +84,18 @@ const LOOKS: Record<Time, Look> = {
   },
   night: {
     style: "rim",
-    light: [0.2, 0.45, 1],
+    light: [0.3, 0.62, 1.5],
     sky: [
       [0, [0.004, 0.008, 0.03]],
-      [0.3, [0.012, 0.02, 0.06]],
-      [HORIZON, [0.04, 0.06, 0.15]],
+      [0.25, [0.014, 0.024, 0.07]],
+      [0.4, [0.035, 0.055, 0.14]],
+      [HORIZON, [0.07, 0.1, 0.24]],
     ],
     orb: { x: 0.7, y: 0.16, r: 0.03, core: [1, 0.72, 0.3], glow: [0.45, 0.3, 0.12], near: 0.2, wide: 0.08, moon: true },
     stars: 140,
     clouds: { puffy: false, top: [0.015, 0.02, 0.05], bottom: [0.06, 0.1, 0.3], alpha: 0.4 },
     sea: [
-      [0.03, 0.06, 0.15],
+      [0.045, 0.085, 0.2],
       [0.01, 0.03, 0.07],
     ],
     sand: [
@@ -102,7 +104,7 @@ const LOOKS: Record<Time, Look> = {
     ],
     foam: [0.1, 0.85, 1.1],
     glitter: 0.7,
-    tint: [0.025, 0.04, 0.09],
+    tint: [0.02, 0.032, 0.075],
     night: true,
   },
 }
@@ -262,6 +264,7 @@ class Beach extends Canvas {
     if (this.activity !== "calm" && !this.look.night) this.drawGulls()
     if (this.activity === "teeming") this.drawCrab()
     for (const b of this.startled) this.shape(bird(b, this.H, 0.03 * this.H, this.paint([0.75, 0.78, 0.82])), this.lighting, 0.5)
+    if (this.look.night) this.drawBonfire()
     // Trunks are drawn each frame, over the sea, since they cross the water.
     for (const p of this.palms) {
       this.drawTrunk(p)
@@ -378,14 +381,25 @@ class Beach extends Canvas {
       }
       // At night the glowing foam lights the wet sand just beyond it.
       if (look.night)
-        for (let y = Math.floor(edge); y < Math.min(H, edge + 0.02 * H); y++) {
-          const k = Math.exp(-(y - edge) / 2.5) * 0.15
+        for (let y = Math.floor(edge); y < Math.min(H, edge + 0.05 * H); y++) {
+          const k = Math.exp(-(y - edge) / (0.012 * H)) * 0.2
           const o = (y * W + x) * 3
           hdr[o] += look.foam[0] * k
           hdr[o + 1] += look.foam[1] * k
           hdr[o + 2] += look.foam[2] * k
         }
     }
+  }
+
+  // A bonfire on the sand at night, lighting the beach, the crab and the palm beside it.
+  private drawBonfire() {
+    const H = this.H
+    const x = 0.17 * this.A * H
+    const gy = 0.92 * H
+    const fire = campfire(x, gy, H * 1.2, this.time)
+    lightPool(this.hdr, this.W, H, x, gy - 0.03 * H, 0.36 * H, 0.13 * H, [1, 0.4, 0.07], 2.6 * fire.flicker, 0.04 * fire.flicker)
+    this.shape(fire.logs, { style: "rim", color: [1.4, 0.5, 0.1], x, y: gy - 0.03 * H })
+    for (const flame of fire.flames) this.shape(flame, { style: "front", dir: [0, 0, 1] }, 0)
   }
 
   // A palm trunk curving from its base to the crown, ringed with old leaf scars, with coconuts at the top.
@@ -525,6 +539,11 @@ class Beach extends Canvas {
     this.polygon([[x - s * 0.6, y - s * 0.12], [x + s * 0.6, y - s * 0.12], [x + s * 0.42, y + s * 0.05], [x - s * 0.42, y + s * 0.05]], this.paint([0.3, 0.2, 0.15]))
     this.polygon([[x - s * 0.05, y - s * 0.15], [x - s * 0.05, y - s * 1.1], [x + s * 0.55 * b.dir, y - s * 0.15]], this.paint([0.92, 0.9, 0.84]))
     this.polygon([[x - s * 0.12, y - s * 0.15], [x - s * 0.12, y - s * 0.85], [x - s * 0.5 * b.dir, y - s * 0.15]], this.paint([0.85, 0.82, 0.76]))
+    // At night a lantern hangs at the stern, lighting the sails and the water around the boat.
+    if (!this.look.night) return
+    const lx = x - s * 0.45 * b.dir
+    lightPool(this.hdr, this.W, H, lx, y, s * 1.4, s * 0.9, [1, 0.55, 0.15], 2.5, 0.03)
+    this.disc(lx, y - s * 0.25, Math.max(1, s * 0.07), 1.6, 0.85, 0.2, 1)
   }
 
   // Each dolphin waits underwater, then arcs out of the sea and splashes back in.
