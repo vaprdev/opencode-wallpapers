@@ -32,6 +32,11 @@ export function lightPool(hdr: Float32Array, W: number, H: number, cx: number, c
   }
 }
 
+// The little pool of yellow-green light a firefly at (x, y) throws on the leaves and grass around it, k its blink.
+export function fireflyLight(hdr: Float32Array, W: number, H: number, x: number, y: number, k: number) {
+  lightPool(hdr, W, H, x, y, 0.045 * H, 0.045 * H, [0.75, 1, 0.25], 4 * k, 0.012 * k)
+}
+
 // A small campfire standing at (x, gy) in pixels, H pixels to a screen height: crossed logs and tongues of flame, each
 // tongue its own part list so the hot core draws over the outer flames (flat, with shape light 0). flicker, about 0.8
 // to 1, scales the light the fire throws.

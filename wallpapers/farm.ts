@@ -1,6 +1,6 @@
 import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
 import { eggWait } from "../src/egg"
-import { lightPool } from "../src/light"
+import { fireflyLight, lightPool } from "../src/light"
 import { TAU, clamp, fbm1, hash, hash2, lerp, rand, smoothstep, type RGB } from "../src/math"
 import { driftClouds, makeClouds, makeStars, makeStorm, paintClouds, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
 import type { Activity, Season, Settings, Time, Wallpaper } from "../src/wallpaper"
@@ -875,7 +875,7 @@ class Farm extends Canvas {
     for (const f of this.fireflies) {
       const k = Math.pow(Math.max(0, Math.sin(this.time * 1.3 + f.phase * 7)), 6)
       if (k < 0.02) continue
-      lightPool(this.hdr, this.W, H, f.x * H, f.y * H, 0.055 * H, 0.055 * H, [0.75, 1, 0.25], 4 * k, 0.016 * k)
+      fireflyLight(this.hdr, this.W, H, f.x * H, f.y * H, k)
       this.disc(f.x * H, f.y * H, 1.3, 1.8 * k, 2.4 * k, 0.6 * k, 0.6)
       this.add(f.x * H, f.y * H, 0.9 * k, 1.2 * k, 0.3 * k)
     }

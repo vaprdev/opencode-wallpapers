@@ -1,6 +1,6 @@
 import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
 import { eggWait } from "../src/egg"
-import { lightPool } from "../src/light"
+import { fireflyLight } from "../src/light"
 import { TAU, clamp, fbm1, hash, lerp, rand, smoothstep, type RGB } from "../src/math"
 import type { Activity, Settings, Time, Wallpaper } from "../src/wallpaper"
 import { WeatherLayer } from "../src/weather"
@@ -673,7 +673,7 @@ class Jungle extends Canvas {
       for (const f of this.glowers) {
         const k = Math.max(together, Math.pow(Math.max(0, Math.sin(this.time * 1.3 + f.phase * 7)), 6))
         if (k < 0.02) continue
-        lightPool(this.hdr, this.W, H, f.x * H, f.y * H, 0.055 * H, 0.055 * H, [0.75, 1, 0.25], 4 * k, 0.016 * k)
+        fireflyLight(this.hdr, this.W, H, f.x * H, f.y * H, k)
         this.disc(f.x * H, f.y * H, 1.3, 0.9 * k * 2, 1.2 * k * 2, 0.3 * k * 2, 0.6)
         this.add(f.x * H, f.y * H, 0.9 * k, 1.2 * k, 0.3 * k)
       }
