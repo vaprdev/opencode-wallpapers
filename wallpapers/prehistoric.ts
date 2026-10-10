@@ -1,4 +1,5 @@
 import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
+import { bob, body, chain, gait, limb, quadruped, stepGait, stride, type Gait } from "../src/creature"
 import { eggWait } from "../src/egg"
 import { bird, flyAway, startle, type Flier } from "../src/flock"
 import { TAU, clamp, fbm1, hash, hash2, lerp, rand, smoothstep, type RGB } from "../src/math"
@@ -159,6 +160,7 @@ interface Walker {
   rest: number
   moving: boolean
   size: number
+  g: Gait
 }
 
 class Prehistoric extends Canvas {
@@ -178,7 +180,7 @@ class Prehistoric extends Canvas {
   private rex = { x: -9, dir: 1, next: 2, phase: 0 }
   private dust: { x: number; y: number; vx: number; age: number }[] = []
   // p runs from browsing the left tree (0) to browsing the right one (1).
-  private sauropod = { p: 0, face: -1, target: -1, mode: "browse" as "browse" | "turn" | "walk", timer: rand(4.5, 6), phase: 0, pose: 1 }
+  private sauropod = { p: 0, face: -1, target: -1, mode: "browse" as "browse" | "turn" | "walk", timer: rand(4.5, 6), g: gait(-1), pose: 1 }
   private herd: Walker[] = []
   private dragonflies: { x: number; y: number; tx: number; ty: number; rest: number; face: number; phase: number }[] = []
   private nessie = { t: -1, x: 0, y: 0, dir: 1, wait: 1 }
@@ -196,7 +198,7 @@ class Prehistoric extends Canvas {
     this.allStars = makeStars(this.look.stars, 0.5)
     this.clouds = makeClouds(this.look.clouds.puffy ? 4 : 5, this.look.clouds.puffy, 0.06, 0.3)
     if (settings.activity !== "teeming") return
-    const walker = (x: number, y: number, size: number): Walker => ({ x, y, wx: x, wy: y, wanderT: 0, face: 1, phase: Math.random() * TAU, graze: 0, rest: 0, moving: false, size })
+    const walker = (x: number, y: number, size: number): Walker => ({ x, y, wx: x, wy: y, wanderT: 0, face: 1, phase: Math.random() * TAU, graze: 0, rest: 0, moving: false, size, g: gait(1, hash(x * 7 + y)) })
     this.herd = [walker(0.3, 0.8, 1), walker(0.55, 0.84, 1.1), walker(0.42, 0.82, 0.65)]
     this.dragonflies = Array.from({ length: 4 }, () => ({ x: Math.random() * 1.5, y: rand(0.75, 0.95), tx: 0, ty: 0, rest: rand(0, 3), face: 1, phase: Math.random() * TAU }))
   }
@@ -228,7 +230,11 @@ class Prehistoric extends Canvas {
     if (this.activity !== "calm") this.stepSauropod(cdt)
     if (this.activity !== "teeming") return
     const A = this.A
-    for (const w of this.herd) this.wander(w, cdt, [0.08 * A, 0.45 * A, 0.78, 0.87], 0.03, [6, 14])
+    for (const w of this.herd) {
+      const [x0, y0] = [w.x, w.y]
+      this.wander(w, cdt, [0.08 * A, 0.45 * A, 0.78, 0.87], 0.03, [6, 14])
+      stepGait(w.g, Math.hypot(w.x - x0, w.y - y0) / (0.13 * (0.6 + (w.y - 0.7) * 2.5) * w.size), cdt, w.face)
+    }
     for (const d of this.dragonflies) this.stepDragonfly(d, cdt)
     this.stepNessie(cdt)
   }
@@ -577,6 +583,7 @@ class Prehistoric extends Canvas {
   // The sauropod browses one tree's crown, turns, plods over to the other tree and browses there.
   private stepSauropod(dt: number) {
     const s = this.sauropod
+    stepGait(s.g, s.mode === "walk" ? (0.05 * dt) / 0.06 : 0, dt, s.face)
     s.pose = clamp(s.pose + (s.mode === "browse" ? 0.5 : -0.5) * dt, 0, 1)
     if (s.mode === "browse") {
       s.timer -= dt
@@ -595,7 +602,6 @@ class Prehistoric extends Canvas {
     const [from, to] = this.sauropodSpots()
     const speed = 0.05 / Math.max(0.05, Math.abs(to - from))
     s.p = clamp(s.p + s.face * speed * dt, 0, 1)
-    s.phase += dt * 0.05 / 0.06
     if ((s.face > 0 && s.p < 1) || (s.face < 0 && s.p > 0)) return
     s.mode = "browse"
     s.timer = rand(3, 6)
@@ -609,40 +615,35 @@ class Prehistoric extends Canvas {
   private drawSauropod() {
     const H = this.H
     const s = this.sauropod
+    const g = s.g
     const [from, to] = this.sauropodSpots()
-    const bx = lerp(from, to, s.p)
-    const F = 0.668
-    const f = s.face
-    const side = f < 0 ? -1 : 1
+    const side = s.face < 0 ? -1 : 1
+    const rise = bob(g.phase) * g.go * 0.004
+    const P = body(lerp(from, to, s.p) * H, 0.668 * H, H, s.face)
     const skin = this.paint(SAUROPOD)
-    const dark = this.paint([SAUROPOD[0] * 0.75, SAUROPOD[1] * 0.75, SAUROPOD[2] * 0.75])
-    const walking = s.mode === "walk" ? 1 : 0
-    const P = (u: number, v: number): [number, number] => [(bx + u * f) * H, (F + v) * H]
-    const leg = (u: number, offset: number, color: RGB) => {
-      const p = (s.phase + offset) % 1
-      const q = p < 0.5 ? p / 0.5 : (p - 0.5) / 0.5
-      const du = walking * (p < 0.5 ? lerp(0.025, -0.025, q) : lerp(-0.025, 0.025, smoothstep(0, 1, q)))
-      const lift = walking * (p < 0.5 ? 0 : Math.sin(Math.PI * q) * 0.01)
-      return cap(...P(u, -0.075), ...P(u + du, -lift), 0.014 * H, 0.012 * H, color)
-    }
-    this.shape([leg(0.055, 0.5, dark), leg(-0.075, 0, dark)], this.lighting, 0.5)
+    const legs = { fore: 0.07, hind: 0.06, top: 0.085 - rise, w: 0.022, a: 0.038, b: 0.037, reach: 0.018, lift: 0.012, r: [0.02, 0.016, 0.015] as [number, number, number] }
+    this.shape(quadruped(P, g, true, { ...legs, color: this.paint([SAUROPOD[0] * 0.75, SAUROPOD[1] * 0.75, SAUROPOD[2] * 0.75]) }), this.lighting, 0.5)
     const browsing: [number, number] = [this.trees[side > 0 ? 1 : 0] - side * 0.035 + Math.sin(this.time * 0.4) * 0.006, (side > 0 ? 0.35 : 0.33) + Math.sin(this.time * 0.9) * 0.004]
-    const shoulder = P(0.07, -0.108)
-    const walkHead: [number, number] = [shoulder[0] / H + f * 0.11, shoulder[1] / H - 0.14]
+    const shoulder = P(0.07, -0.11 - rise)
+    // Walking, the head rides ahead of the shoulders, nodding a beat behind each step.
+    const walkHead = P(0.18, -0.25 - rise + Math.cos(TAU * 2 * g.phase - 1.5) * 0.004 * g.go)
     const pose = smoothstep(0, 1, s.pose)
-    const head: [number, number] = [lerp(walkHead[0], browsing[0], pose) * H, lerp(walkHead[1], browsing[1], pose) * H]
+    const head: [number, number] = [lerp(walkHead[0], browsing[0] * H, pose), lerp(walkHead[1], browsing[1] * H, pose)]
     const ctrl: [number, number] = [shoulder[0] + (head[0] - shoulder[0]) * 0.1, head[1] + (shoulder[1] - head[1]) * 0.6]
-    const parts: Part[] = [leg(0.075, 0, skin), leg(-0.055, 0.5, skin)]
-    parts.push(ell(...P(0, -0.09), Math.max(0.035, 0.115 * Math.abs(f)) * H, 0.05 * H, -0.12 * side * Math.abs(f), skin))
-    const tail = (t: number): [number, number] => {
-      const sway = Math.sin(this.time * 0.5 + t * 2) * 0.01 * t
-      return P(lerp(-0.08, -0.29, t), lerp(-0.095, -0.03 + sway, t) + 0.03 * Math.sin(Math.PI * t))
-    }
-    for (let i = 0; i < 6; i++) parts.push(cap(...tail(i / 6), ...tail((i + 1) / 6), lerp(0.03, 0.003, i / 6) * H, lerp(0.03, 0.003, (i + 1) / 6) * H, skin))
     const neck = (t: number): [number, number] => [(1 - t) ** 2 * shoulder[0] + 2 * (1 - t) * t * ctrl[0] + t * t * head[0], (1 - t) ** 2 * shoulder[1] + 2 * (1 - t) * t * ctrl[1] + t * t * head[1]]
-    for (let i = 0; i < 8; i++) parts.push(cap(...neck(i / 8), ...neck((i + 1) / 8), lerp(0.028, 0.009, i / 8) * H, lerp(0.028, 0.009, (i + 1) / 8) * H, skin))
-    parts.push(ell(head[0] + side * 0.008 * H, head[1], 0.017 * H, 0.0105 * H, side * 0.2, skin))
-    this.shape(parts, this.lighting, 0.6)
+    // The tail trails a turn and sways a beat behind the steps.
+    const tail = (t: number) => P(lerp(-0.08, -0.29, t), lerp(-0.097 - rise, -0.03, t) + 0.03 * Math.sin(Math.PI * t) + (Math.sin(this.time * 0.5 + t * 2) * 0.01 + Math.sin(TAU * 2 * g.phase - t * 2) * 0.006 * g.go) * t, -g.lag * 0.06 * t * t)
+    this.shape(
+      [
+        ...quadruped(P, g, false, { ...legs, color: skin }),
+        ell(...P(0, -0.092 - rise), P.len(0.115, 0.04), 0.05 * H, -0.12 * P.along, skin),
+        ...chain(tail, 6, 0.03 * H, 0.003 * H, skin),
+        ...chain(neck, 8, 0.028 * H, 0.009 * H, skin),
+        ell(head[0] + side * 0.008 * H, head[1], 0.017 * H, 0.0105 * H, side * 0.2, skin),
+      ],
+      this.lighting,
+      0.6,
+    )
   }
 
   // Now and then a T. rex stomps across the foreground, tail swaying, kicking up dust at each footfall.
@@ -679,49 +680,51 @@ class Prehistoric extends Canvas {
     const r = this.rex
     if (r.x < -5) return
     const H = this.H
-    const S = 0.3 * H
-    const x = r.x * H
-    const y = 0.935 * H
-    const bob = Math.abs(Math.cos(r.phase * TAU)) * 0.015
-    const P = (u: number, v: number): [number, number] => [x + u * r.dir * S, y + v * S]
+    const P = body(r.x * H, 0.935 * H, 0.3 * H, r.dir)
+    const S = P.S
+    const rise = bob(r.phase, 0.55) * 0.02
     const skin = this.paint(REX)
     const dark = this.paint([REX[0] * 0.7, REX[1] * 0.7, REX[2] * 0.7])
+    // A bird-like leg: a heavy thigh, the knee forward, a long shin back to the ankle, then the foot to splayed toes.
     const leg = (offset: number, color: RGB): Part[] => {
-      const p = (r.phase + offset) % 1
-      const q = p < 0.5 ? p / 0.5 : (p - 0.5) / 0.5
-      const fu = p < 0.5 ? lerp(0.17, -0.17, q) : lerp(-0.17, 0.17, smoothstep(0, 1, q))
-      const lift = p < 0.5 ? 0 : Math.sin(Math.PI * q) * 0.07
-      const hip: [number, number] = [0, -0.56 + bob]
-      const ankle: [number, number] = [fu - 0.06, -0.13 - lift]
-      const knee: [number, number] = [(hip[0] + ankle[0]) / 2 + 0.1, (hip[1] + ankle[1]) / 2]
+      const [reach, lift] = stride(r.phase, offset, 0.55)
+      const fu = reach * 0.19
+      const fv = -lift * 0.08
+      const ankle: [number, number] = [fu - 0.08, fv - 0.13]
       return [
-        cap(...P(...hip), ...P(...knee), 0.11 * S, 0.06 * S, color),
-        cap(...P(...knee), ...P(...ankle), 0.055 * S, 0.035 * S, color),
-        cap(...P(...ankle), ...P(fu, -lift), 0.035 * S, 0.03 * S, color),
-        cap(...P(fu, -lift), ...P(fu + 0.1, -lift), 0.03 * S, 0.015 * S, color),
+        ...limb(P, 0, -0.57 - rise, ...ankle, 0.25, 0.27, -1, 0.14 * S, 0.065 * S, 0.04 * S, color),
+        cap(...P(...ankle), ...P(fu + 0.01, fv - 0.025), 0.04 * S, 0.03 * S, color),
+        cap(...P(fu - 0.01, fv - 0.022), ...P(fu + 0.12, fv - 0.012 - lift * 0.03), 0.032 * S, 0.012 * S, color),
       ]
     }
     this.shape(leg(0.5, dark), this.lighting, 0.5)
-    const parts = leg(0, skin)
-    const tail = (t: number): [number, number] => P(lerp(-0.18, -0.9, t), lerp(-0.62 + bob, -0.5, t) + Math.sin(r.phase * TAU + t * 2) * 0.03 * t)
-    for (let i = 0; i < 6; i++) parts.push(cap(...tail(i / 6), ...tail((i + 1) / 6), lerp(0.13, 0.012, i / 6) * S, lerp(0.13, 0.012, (i + 1) / 6) * S, skin))
-    const nod = Math.sin(r.phase * TAU * 2) * 0.012
-    parts.push(
-      ell(...P(0.04, -0.62 + bob), 0.3 * S, 0.15 * S, -0.12 * r.dir, skin),
-      cap(...P(0.24, -0.68 + bob), ...P(0.38, -0.78 + bob + nod), 0.1 * S, 0.075 * S, skin),
-      ell(...P(0.5, -0.8 + bob + nod), 0.15 * S, 0.075 * S, 0.06 * r.dir, skin),
-      cap(...P(0.42, -0.74 + bob + nod), ...P(0.62, -0.75 + bob + nod), 0.045 * S, 0.03 * S, skin),
-      cap(...P(0.27, -0.58 + bob), ...P(0.33, -0.5 + bob), 0.026 * S, 0.02 * S, skin),
-      cap(...P(0.33, -0.5 + bob), ...P(0.37, -0.53 + bob), 0.018 * S, 0.008 * S, skin),
-    )
-    this.shape(parts, this.lighting, 0.7)
+    const nod = Math.cos(TAU * 2 * r.phase - 1.2) * 0.015
+    const jaw = Math.max(0, Math.sin(this.creatureTime * 0.9 + 1)) ** 8 * 0.05
+    // The tail counterbalances the head and swings a beat behind each step.
+    const tail = (t: number) => P(lerp(-0.16, -0.95, t), lerp(-0.66 - rise, -0.57, t) - 0.04 * Math.sin(Math.PI * t) + Math.sin(TAU * 2 * r.phase - 1 - t * 2.5) * 0.03 * t)
+    const [hu, hv] = [0.47, -0.84 - rise + nod]
     this.shape(
-      [0, 1, 2, 3].map((k) => cap(...P(-0.16 + k * 0.1, -0.76 + bob), ...P(-0.13 + k * 0.1, -0.63 + bob), 0.02 * S, 0.01 * S, dark)),
+      [
+        ...leg(0, skin),
+        ...chain(tail, 7, 0.14 * S, 0.012 * S, skin),
+        ell(...P(0.04, -0.64 - rise), 0.29 * S, 0.15 * S, 0.12 * r.dir, skin),
+        ell(...P(0.2, -0.62 - rise), 0.13 * S, 0.14 * S, 0, skin),
+        cap(...P(0.24, -0.7 - rise), ...P(hu - 0.07, hv + 0.02), 0.11 * S, 0.075 * S, skin),
+        ell(...P(hu, hv), 0.12 * S, 0.075 * S, 0.1 * r.dir, skin),
+        cap(...P(hu + 0.04, hv - 0.01), ...P(hu + 0.19, hv + 0.025), 0.065 * S, 0.042 * S, skin),
+        cap(...P(hu - 0.02, hv + 0.05), ...P(hu + 0.16, hv + 0.06 + jaw), 0.05 * S, 0.026 * S, skin),
+        ...limb(P, 0.27, -0.6 - rise, 0.35, -0.53 - rise + nod * 0.5, 0.07, 0.07, 1, 0.026 * S, 0.02 * S, 0.014 * S, skin),
+      ],
+      this.lighting,
+      0.7,
+    )
+    this.shape(
+      [0, 1, 2, 3].map((k) => cap(...P(-0.16 + k * 0.1, -0.77 - rise), ...P(-0.13 + k * 0.1, -0.64 - rise), 0.02 * S, 0.01 * S, dark)),
       this.lighting,
       0.2,
     )
     const eye = this.paint([0.95, 0.7, 0.1])
-    this.disc(...P(0.52, -0.84 + bob + nod), 0.016 * S, eye[0], eye[1], eye[2], 1)
+    this.disc(...P(hu + 0.05, hv - 0.035), 0.016 * S, eye[0], eye[1], eye[2], 1)
   }
 
   private stepDelorean(dt: number) {
@@ -814,33 +817,38 @@ class Prehistoric extends Canvas {
     w.y += (dy / d) * speed * dt
   }
 
-  // A triceratops with its bony frill and three horns, lowering its head to crop the ferns.
+  // A triceratops with its bony frill and three horns, plodding on stout legs and lowering its head to crop the ferns.
   private drawTriceratops(w: Walker) {
     const H = this.H
-    const S = 0.2 * H * (0.6 + (w.y - 0.7) * 2.5) * w.size
-    const x = w.x * H
-    const y = w.y * H
-    const P = (u: number, v: number): [number, number] => [x + u * w.face * S, y + v * S]
-    const swing = w.moving ? Math.sin(w.phase) * 0.06 : 0
+    const g = w.g
+    const P = body(w.x * H, w.y * H, 0.27 * H * (0.6 + (w.y - 0.7) * 2.5) * w.size, g.turn)
+    const S = P.S
     const skin = this.paint(TRIKE)
-    const g = w.graze
-    const [hu, hv] = [lerp(0.5, 0.58, g), lerp(-0.5, -0.24, g)]
-    const parts: Part[] = []
-    for (const [u, s] of [[0.24, 1], [0.3, -1], [-0.22, -1], [-0.28, 1]] as const) parts.push(cap(...P(u, -0.3), ...P(u + swing * s, 0), 0.07 * S, 0.06 * S, skin))
-    parts.push(
-      cap(...P(-0.36, -0.44), ...P(-0.68, -0.3), 0.09 * S, 0.015 * S, skin),
-      ell(...P(0, -0.44), 0.42 * S, 0.24 * S, 0, skin),
-      ell(...P(hu - 0.08, hv - 0.1), 0.12 * S, 0.19 * S, lerp(-0.45, -0.1, g) * w.face, this.paint([0.62, 0.34, 0.18])),
-      ell(...P(hu + 0.06, hv + 0.02), 0.14 * S, 0.085 * S, lerp(0.25, 0.8, g) * w.face, skin),
-      cap(...P(hu + 0.17, hv + 0.06), ...P(hu + 0.23, hv + 0.11), 0.04 * S, 0.012 * S, skin),
+    const rise = bob(g.phase) * g.go * 0.012
+    const legs = { fore: 0.24, hind: 0.24, top: 0.32 - rise, w: 0.11, a: 0.17, b: 0.16, reach: 0.15, lift: 0.07, r: [0.1, 0.065, 0.055] as [number, number, number], paw: [0.03, this.paint([0.4, 0.33, 0.21])] as [number, RGB] }
+    this.shape(quadruped(P, g, true, { ...legs, color: this.paint([TRIKE[0] * 0.75, TRIKE[1] * 0.75, TRIKE[2] * 0.75]) }), this.lighting, 0.7)
+    const gz = smoothstep(0, 1, w.graze)
+    const nod = Math.cos(TAU * 2 * g.phase - 1) * 0.02 * g.go
+    const [hu, hv] = [lerp(0.48, 0.56, gz), lerp(-0.44, -0.22, gz) + nod - rise]
+    const tail = (t: number) => P(lerp(-0.26, -0.74, t), lerp(-0.48 - rise, -0.3, t) + Math.sin(TAU * 2 * g.phase - t * 2) * 0.025 * t * g.go, -g.lag * 0.08 * t * t)
+    this.shape(
+      [
+        ...quadruped(P, g, false, { ...legs, color: skin }),
+        ...chain(tail, 5, 0.15 * S, 0.015 * S, skin),
+        ell(...P(-0.02, -0.46 - rise), P.len(0.4, 0.2), 0.23 * S, 0.08 * P.along, skin),
+        ell(...P(hu - 0.08, hv - 0.1), P.len(0.11, 0.18), 0.19 * S, lerp(-0.45, -0.1, gz) * P.along, this.paint([0.62, 0.34, 0.18])),
+        cap(...P(hu - 0.02, hv - 0.02), ...P(hu + 0.19, hv + 0.07), 0.1 * S, 0.045 * S, skin),
+        cap(...P(hu + 0.17, hv + 0.06), ...P(hu + 0.23, hv + 0.12), 0.04 * S, 0.012 * S, this.paint([0.3, 0.25, 0.17])),
+      ],
+      this.lighting,
+      0.7,
     )
-    this.shape(parts, this.lighting, 0.7)
     const bone = this.paint(BONE)
     this.shape(
       [
-        cap(...P(hu + 0.02, hv - 0.04), ...P(hu + 0.28, hv - 0.2 + g * 0.14), 0.025 * S, 0.004 * S, bone),
-        cap(...P(hu + 0.06, hv - 0.03), ...P(hu + 0.31, hv - 0.15 + g * 0.14), 0.022 * S, 0.004 * S, bone),
-        cap(...P(hu + 0.16, hv + 0.01), ...P(hu + 0.2, hv - 0.06), 0.02 * S, 0.004 * S, bone),
+        cap(...P(hu + 0.02, hv - 0.06), ...P(hu + 0.28, hv - 0.22 + gz * 0.14), 0.026 * S, 0.004 * S, bone),
+        cap(...P(hu + 0.05, hv - 0.05, 0.05), ...P(hu + 0.31, hv - 0.17 + gz * 0.14, 0.08), 0.022 * S, 0.004 * S, bone),
+        cap(...P(hu + 0.15, hv + 0.01), ...P(hu + 0.19, hv - 0.07), 0.022 * S, 0.004 * S, bone),
       ],
       this.lighting,
       0.5,

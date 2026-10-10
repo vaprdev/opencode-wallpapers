@@ -88,12 +88,14 @@ export function body(x: number, y: number, S: number, turn: number): Body {
 }
 
 // A quadruped's legs on its far or near side, walking in diagonal pairs. Hips sit `fore` ahead of and `hind` behind
-// the middle, `top` above the ground and `w` either side; a and b are the upper and lower leg lengths in body units,
+// the middle, `top` above the ground and `w` either side; a and b are the proportions of the upper and lower leg,
 // reach and lift how far a foot travels (see stride), and r the leg's radii at the hip, joint and foot. Front knees
 // bend forward and hocks back. paw adds a hoof or paw that long, in its own color.
 export function quadruped(P: Body, g: Gait, far: boolean, o: { fore: number; hind: number; top: number; w: number; a: number; b: number; reach: number; lift: number; r: [number, number, number]; color: RGB; paw?: [number, RGB] }): Part[] {
   const S = P.S
   const [r0, r1, r2] = o.r
+  // Standing, legs are a little bent; a and b only set the proportions.
+  const k = ((o.top - r2) * 1.06) / (o.a + o.b)
   const along = view(g.turn)[0]
   const legs: [number, number, number][] = [
     [o.fore, o.w, 0],
@@ -108,7 +110,7 @@ export function quadruped(P: Body, g: Gait, far: boolean, o: { fore: number; hin
       const fu = u + reach * o.reach * g.go
       const fv = -lift * o.lift * g.go - r2
       const Q = (a: number, b: number) => P(a, b, w)
-      const parts = limb(Q, u, -o.top, fu, fv, o.a, o.b, u > 0 ? -1 : 1, r0 * S, r1 * S, r2 * S, o.color)
+      const parts = limb(Q, u, -o.top, fu, fv, o.a * k, o.b * k, u > 0 ? -1 : 1, r0 * S, r1 * S, r2 * S, o.color)
       return o.paw ? [...parts, cap(...Q(fu, fv), ...Q(fu + o.paw[0], fv + r2 * 0.1), r2 * 1.15 * S, r2 * S, o.paw[1])] : parts
     })
 }
