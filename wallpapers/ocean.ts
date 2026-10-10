@@ -349,7 +349,7 @@ class Ocean extends Canvas {
       const cx = (u + Math.sin(this.time * 0.05 + i * 2) * 0.02) * this.A * H
       const cy = (v + Math.sin(this.time * 0.07 + i) * 0.015) * H
       const breathe = 0.85 + 0.15 * Math.sin(this.time * 0.4 + i * 3)
-      lightPool(hdr, W, H, cx, cy, 0.26 * H, 0.12 * H, [0.12, 1, 0.75], 3 * breathe, 0.11 * breathe)
+      lightPool(hdr, W, H, cx, cy, 0.26 * H, 0.12 * H, [0.12, 1, 0.75], 1.4 * breathe, 0.11 * breathe)
       for (let j = 0; j < 16; j++) {
         const a = hash2(i, j) * TAU
         const r = Math.sqrt(hash2(j, i + 7))
