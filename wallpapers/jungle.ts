@@ -128,7 +128,6 @@ class Jungle extends Canvas {
   private readonly weather: WeatherLayer
   private readonly rainy: boolean
   private lighting: Lighting = { style: "front", dir: DAYLIGHT }
-  private background = new Float32Array(0)
   private leaves: Leaf[] = []
   private groundPx = new Float32Array(0)
   private falls = { x: 0, top: 0, bottom: 0, half: 0 }
@@ -289,16 +288,17 @@ class Jungle extends Canvas {
     this.shape([cap(...this.rightBranch(0.86 * A - 0.03), ...this.rightBranch(0.66 * A), 0.018 * H, 0.01 * H, this.paint(TRUNK))], this.lighting)
     // The forest floor and its ferns.
     this.groundPx = new Float32Array(W)
-    for (let x = 0; x < W; x++) this.groundPx[x] = (0.86 + 0.02 * Math.sin((x / H) * 3.3) + (fbm1(x * 0.02, 4) - 0.5) * 0.03) * H
+    const px = this.px
+    for (let x = 0; x < W; x++) this.groundPx[x] = (0.86 + 0.02 * Math.sin((x / H) * 3.3) + (fbm1((x / px) * 0.02, 4) - 0.5) * 0.03) * H
     for (let x = 0; x < W; x++)
       for (let y = Math.floor(this.groundPx[x]); y < H; y++) {
-        const k = 0.8 + 0.25 * fbm1(x * 0.3 + y * 0.7, 6)
+        const k = 0.8 + 0.25 * fbm1((x / px) * 0.3 + (y / px) * 0.7, 6)
         const c = this.paint(FLOOR)
         this.blend((y * W + x) * 3, c[0] * k, c[1] * k, c[2] * k, clamp(y + 1 - this.groundPx[x], 0, 1))
       }
     for (let i = 0; i < Math.round(A * 6); i++) {
       const x = (hash(i * 3.9) * A) * H
-      this.drawFern(x, this.groundPx[clamp(Math.round(x), 0, W - 1)] + 2, (0.08 + hash(i * 1.1) * 0.06) * H, hash(i * 5.5) > 0.5 ? 1 : -1)
+      this.drawFern(x, this.groundPx[clamp(Math.round(x), 0, W - 1)] + 2 * px, (0.08 + hash(i * 1.1) * 0.06) * H, hash(i * 5.5) > 0.5 ? 1 : -1)
     }
     // Big leaves framing the corners, drawn each frame so they can sway.
     this.leaves = [
@@ -307,7 +307,6 @@ class Jungle extends Canvas {
       ...[0.6, 0.95].map((angle, i) => ({ x: -0.02, y: -0.04, angle, length: [0.3, 0.26][i], phase: i * 1.3 + 2 })),
       ...[2.5, 2.2].map((angle, i) => ({ x: A + 0.02, y: -0.04, angle, length: [0.3, 0.25][i], phase: i * 1.7 + 3 })),
     ]
-    this.background = this.hdr.slice()
   }
 
   private paint(c: RGB): RGB {

@@ -71,13 +71,12 @@ exposure, 1.25 by default.
 ### layout() for static backgrounds
 
 `layout()` runs after every resize, once the buffers match the new size. Paint whatever never moves there (sky,
-mountains, buildings, a tree), copy `hdr` into a field, and start each frame from that copy:
+mountains, buildings, a tree); `Canvas` keeps the result in `this.background`, and each frame starts from it:
 
 ```ts
 protected override layout() {
-  paintSky(this.hdr, this.W, this.H, this.look.sky, this.look.orb)
+  paintSky(this.hdr, this.W, this.H, this.look.sky, this.look.orb, this.px)
   // …hills, a tree…
-  this.background = this.hdr.slice()
 }
 
 render() {
@@ -88,6 +87,18 @@ render() {
 ```
 
 This is the biggest single saving: a full-screen gradient with noise costs more than every creature together.
+
+The background is supersampled, so every static edge is anti-aliased: `layout()` first runs with `W`, `H` and `hdr`
+twice the size, and that painting is box-filtered down into `background`; then it runs again at the real size, for
+whatever `render()` reads (positions, ground heights, masks), and that pass's painting is dropped. (Big canvases, such
+as snaps, skip the first pass.) Each run must start from scratch, as it already must for resizes. Everything in screen
+heights just works. Anything in pixels takes `this.px`, the size of a real pixel in the current pass's pixels: rim
+widths (`Math.exp(-depth / (1.5 * this.px))`), offsets (`+ 2 * this.px`), and per-pixel textures, which should stay
+on real pixels (`hash2(Math.floor(x / px), Math.floor(y / px))`, `fbm1((x / px) * 0.3)`). `thick()` minimums are
+already in real pixels. A per-pixel layer that `render()` draws over the scene (zen's front garden, space's near rings,
+city's river) can be made in the first pass, box-filtered with `this.shrink(buffer, channels)`, and kept in a field for
+the second pass to use. Scenes whose `layout()` paints nothing set `supersample = 1`. Smooth fills that cost a lot per
+pixel (space's nebula) can be worked out once per real pixel.
 
 ### Drawing
 

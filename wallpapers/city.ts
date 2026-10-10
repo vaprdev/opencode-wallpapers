@@ -215,9 +215,10 @@ class City extends Canvas {
   private readonly activity: Activity
   private readonly look: Look
   private lighting: Lighting = { style: "front", dir: DAYLIGHT }
-  private background = new Float32Array(0)
   // The river with the skyline reflected in it, which each frame ripples sideways where `water` is set.
   private river = new Float32Array(0)
+  // The supersampled layout pass's river, box-filtered, for the real-size pass.
+  private fineRiver: Float32Array<ArrayBuffer> | undefined
   private water = new Uint8Array(0)
   private stars: Star[]
   private visibleStars: Star[] = []
@@ -329,7 +330,7 @@ class City extends Canvas {
   protected override layout() {
     const { W, H, A, look } = this
     this.lighting = look.style === "front" ? { style: "front", dir: DAYLIGHT } : { style: "rim", color: look.light, x: look.orb.x * W, y: look.orb.y * H }
-    paintSky(this.hdr, W, H, look.sky, look.orb)
+    paintSky(this.hdr, W, H, look.sky, look.orb, this.px)
     this.weather.cover(this.hdr, W, H)
     const sky = this.hdr.slice()
     this.beacons = []
@@ -371,8 +372,12 @@ class City extends Canvas {
     this.water = new Uint8Array(W * H)
     for (let i = Math.floor(BANK * H) * W; i < Math.min(H, Math.ceil(QUAY * H)) * W; i++) this.water[i] = this.hdr[i * 3] === this.river[i * 3] && this.hdr[i * 3 + 2] === this.river[i * 3 + 2] ? 1 : 0
     this.paintLamps()
+    if (this.px > 1) this.fineRiver = this.shrink(this.river)
+    else if (this.fineRiver) {
+      this.river = this.fineRiver
+      this.fineRiver = undefined
+    }
     if (this.wet) this.paintWetStreet()
-    this.background = this.hdr.slice()
     if (this.warm) return
     this.warm = true
     for (let i = 0; i < 400; i++) this.stepTraffic(0.25)
@@ -417,7 +422,7 @@ class City extends Canvas {
   // A tower drawn pixel by pixel: a facade with a shaded side by day, rim-lit edges at sunset and night, and a grid,
   // bands or strips of windows, some of them lit.
   private paintTower(t: Tower) {
-    const { W, H, A, look } = this
+    const { W, H, A, look, px } = this
     const day = look.style === "front"
     const top = t.tiers[t.tiers.length - 1]
     const cx = (t.tiers[0].x0 + t.tiers[0].x1) / 2
@@ -447,11 +452,12 @@ class City extends Canvas {
           let r = body[0] * shade
           let g = body[1] * shade
           let b = body[2] * shade
-          const wu = u - 0.004
-          const wv = v - 0.006
+          // Windows are finer than the supersampled layout's pixels can show, so they keep to real pixels.
+          const wu = ((Math.floor(x / px) + 0.5) * px) / H - tier.x0 - 0.004
+          const wv = ((Math.floor(y / px) + 0.5) * px) / H - tier.top - 0.006
           const fu = wu / cw - Math.floor(wu / cw)
           const fv = wv / ch - Math.floor(wv / ch)
-          const inside = wu > 0 && wv > 0 && u < width - 0.003 && (t.windows === 0 ? fu < 0.55 && fv < 0.6 : t.windows === 1 ? fv < 0.5 : fu < 0.45)
+          const inside = wu > 0 && wv > 0 && wu + 0.004 < width - 0.003 && (t.windows === 0 ? fu < 0.55 && fv < 0.6 : t.windows === 1 ? fv < 0.5 : fu < 0.45)
           if (inside && (!t.far || !day)) {
             const col = Math.floor(wu / (t.windows === 1 ? cw * 2.5 : cw))
             const row = Math.floor(wv / (t.windows === 2 ? ch * 1.5 : ch))
@@ -476,7 +482,7 @@ class City extends Canvas {
           }
           if (rimGlow > 0) {
             const edge = (sunLeft ? u : width - u) * H
-            const rim = (Math.exp(-edge / 1.5) + 0.6 * Math.exp(-v * H)) * rimGlow
+            const rim = (Math.exp(-edge / (1.5 * px)) + 0.6 * Math.exp((-v * H) / px)) * rimGlow
             r += look.light[0] * rim
             g += look.light[1] * rim
             b += look.light[2] * rim
@@ -497,7 +503,7 @@ class City extends Canvas {
       this.beacons.push([mid / H, top.top - 0.07])
     }
     if (t.crown === 3) {
-      this.polygon([[mid - w / 2, roof + 1], [mid, roof - 0.06 * H], [mid + w / 2, roof + 1]], dark)
+      this.polygon([[mid - w / 2, roof + this.px], [mid, roof - 0.06 * H], [mid + w / 2, roof + this.px]], dark)
       this.shape([cap(mid, roof - 0.05 * H, mid, roof - 0.1 * H, 0.002 * H, 0.001 * H, dark)], this.lighting, 0.5)
       this.beacons.push([mid / H, top.top - 0.1])
     }
@@ -540,7 +546,7 @@ class City extends Canvas {
     const on = lit && this.look.glow > 0
     const k = on ? this.look.glow : 0.3
     const tube: RGB = [s.color[0] * k, s.color[1] * k, s.color[2] * k]
-    const r = Math.max(0.55, 0.0013 * H)
+    const r = Math.max(0.55 * this.px, 0.0013 * H)
     const inset = 0.0025
     const [x0, y0, x1, y1] = [(s.x0 + inset) * H, (s.y0 + inset) * H, (s.x1 - inset) * H, (s.y1 - inset) * H]
     const parts: Part[] = [cap(x0, y0, x1, y0, r, r, tube), cap(x1, y0, x1, y1, r, r, tube), cap(x1, y1, x0, y1, r, r, tube), cap(x0, y1, x0, y0, r, r, tube)]
@@ -559,23 +565,23 @@ class City extends Canvas {
     }
     this.shape(parts, this.lighting, 0)
     if (!on) return
-    this.glow(this.hdr, ((s.x0 + s.x1) / 2) * H, ((s.y0 + s.y1) / 2) * H, (s.x1 - s.x0) * H * 1.2 + 4, (s.y1 - s.y0) * H * 0.9 + 4, s.color, 0.12 * k)
+    this.glow(this.hdr, ((s.x0 + s.x1) / 2) * H, ((s.y0 + s.y1) / 2) * H, (s.x1 - s.x0) * H * 1.2 + 4 * this.px, (s.y1 - s.y0) * H * 0.9 + 4 * this.px, s.color, 0.12 * k)
   }
 
   // The river darkens toward the near quay and mirrors the skyline, the reflection stretched downward into streaks and
   // broken by ripples.
   private paintRiver() {
-    const { W, H, hdr, look } = this
+    const { W, H, hdr, look, px } = this
     const r0 = Math.floor(BANK * H)
     const r1 = Math.min(H, Math.ceil(QUAY * H))
     const [far, near] = look.river
-    const smear = Math.max(2, Math.round(0.006 * H))
+    const smear = Math.max(2 * px, Math.round(0.006 * H))
     for (let y = r0; y < r1; y++) {
       const depth = (y - r0) / (r1 - r0)
-      const sy = r0 - 1 - Math.floor((y - r0) * 0.7)
+      const sy = r0 - px - Math.floor((y - r0) * 0.7)
       const k = lerp(1, 0.6, depth) * look.reflect
       for (let x = 0; x < W; x++) {
-        const ripple = 0.88 + 0.12 * Math.sin(x * 0.12 + y * 0.9 + fbm1(x * 0.04 + y * 0.17, 3) * 5)
+        const ripple = 0.88 + 0.12 * Math.sin((x / px) * 0.12 + (y / px) * 0.9 + fbm1((x / px) * 0.04 + (y / px) * 0.17, 3) * 5)
         let r = 0
         let g = 0
         let b = 0
@@ -683,18 +689,18 @@ class City extends Canvas {
 
   // After rain the street mirrors the underside of the highway, its pillars, lamps and the sign hung on one.
   private paintWetStreet() {
-    const { W, H, hdr } = this
+    const { W, H, hdr, px } = this
     const s0 = Math.floor(STREET * H)
     for (let y = s0; y < H; y++) {
-      const sy = s0 - 1 - Math.floor((y - s0) * 0.8)
+      const sy = s0 - px - Math.floor((y - s0) * 0.8)
       for (let x = 0; x < W; x++) {
-        const puddle = 0.35 + 0.65 * smoothstep(0.4, 0.62, fbm1(x * 0.03 + Math.floor(y * 0.4) * 5.3, 2))
-        const streak = 0.7 + 0.3 * Math.sin(x * 1.3 + y * 0.2)
+        const puddle = 0.35 + 0.65 * smoothstep(0.4, 0.62, fbm1((x / px) * 0.03 + Math.floor((y / px) * 0.4) * 5.3, 2))
+        const streak = 0.7 + 0.3 * Math.sin((x / px) * 1.3 + (y / px) * 0.2)
         let r = 0
         let g = 0
         let b = 0
         for (let j = 0; j < 3; j++) {
-          const o = (clamp(sy - j * 2, 0, H - 1) * W + x) * 3
+          const o = (clamp(sy - j * 2 * px, 0, H - 1) * W + x) * 3
           r += hdr[o]
           g += hdr[o + 1]
           b += hdr[o + 2]

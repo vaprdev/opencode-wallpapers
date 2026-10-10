@@ -90,7 +90,6 @@ class Template extends Canvas {
   private readonly activity: Activity
   private readonly look: Look
   private lighting: Lighting = { style: "front", dir: DAYLIGHT }
-  private background = new Float32Array(0)
   private stars: Star[]
   private clouds: Cloud[]
   private balloon = { x: 0.3, phase: 0 }
@@ -124,12 +123,13 @@ class Template extends Canvas {
     this.finish()
   }
 
-  // Runs after every resize. Whatever never moves is painted here once and copied in at the start of each frame.
+  // Runs after every resize. Whatever never moves is painted here once, kept as `background` and copied in at the start
+  // of each frame.
   protected override layout() {
     const { W, H, A, look, hdr } = this
     // Rim light comes from the sun or moon's position in pixels; front light from a direction.
     this.lighting = look.style === "front" ? { style: "front", dir: DAYLIGHT } : { style: "rim", color: look.light, x: look.orb.x * W, y: look.orb.y * H }
-    paintSky(hdr, W, H, look.sky, look.orb)
+    paintSky(hdr, W, H, look.sky, look.orb, this.px)
     // Two ridges of hills, the near one darker and lower. Scene units are fractions of the height: x runs 0..A.
     for (const [layer, color] of look.hills.entries())
       for (let x = 0; x < W; x++) {
@@ -148,7 +148,6 @@ class Template extends Canvas {
     this.shape([cap(tx, ty, tx, ty - 0.12 * H, 0.012 * H, 0.008 * H, this.paint([0.4, 0.28, 0.18]))], this.lighting)
     const leaves = this.paint([0.2, 0.42, 0.14])
     this.shape([ell(tx, ty - 0.18 * H, 0.07 * H, 0.06 * H, 0, leaves), ell(tx - 0.05 * H, ty - 0.14 * H, 0.045 * H, 0.04 * H, 0, leaves), ell(tx + 0.05 * H, ty - 0.14 * H, 0.045 * H, 0.04 * H, 0, leaves)], this.lighting)
-    this.background = hdr.slice()
   }
 
   // A daytime color as it looks at this time of day.

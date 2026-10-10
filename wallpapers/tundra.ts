@@ -133,7 +133,6 @@ class Tundra extends Canvas {
   private readonly activity: Activity
   private readonly look: Look
   private lighting: Lighting = { style: "front", dir: DAYLIGHT }
-  private background = new Float32Array(0)
   private stars: Star[]
   private clouds: Cloud[]
   private storm = makeStorm()
@@ -243,9 +242,9 @@ class Tundra extends Canvas {
 
   // Everything that never moves is painted once per size into `background`, then copied in each frame.
   protected override layout() {
-    const { W, H, A, look } = this
+    const { W, H, A, look, px } = this
     this.lighting = look.style === "front" ? { style: "front", dir: DAYLIGHT } : { style: "rim", color: look.light, x: look.orb.x * W, y: look.orb.y * H }
-    paintSky(this.hdr, W, H, look.sky, look.orb)
+    paintSky(this.hdr, W, H, look.sky, look.orb, px)
     this.weather.cover(this.hdr, W, H)
     this.drawMountains()
     // Gentle drifts near the horizon, then the snowfield sweeping to the bottom of the screen.
@@ -254,10 +253,10 @@ class Tundra extends Canvas {
     for (let x = 0; x < W; x++)
       for (let y = Math.max(0, Math.floor(drift[x])); y < H; y++) {
         const v = y / H
-        const waves = 0.5 + 0.5 * Math.sin((x / H) * 6 + v * 40 + fbm1(x * 0.02, 3) * 4)
+        const waves = 0.5 + 0.5 * Math.sin((x / H) * 6 + v * 40 + fbm1((x / px) * 0.02, 3) * 4)
         const k = smoothstep(0.3, 1, waves) * 0.35 * (1 - (v - 0.6) * 0.8)
         const c = lerpRGB(look.snow, look.shade, k)
-        const edge = look.style === "rim" ? Math.exp(-(y + 0.5 - drift[x]) / 2) * 0.3 : 0
+        const edge = look.style === "rim" ? Math.exp(-(y + 0.5 - drift[x]) / (2 * px)) * 0.3 : 0
         this.blend((y * W + x) * 3, c[0] + look.light[0] * edge, c[1] + look.light[1] * edge, c[2] + look.light[2] * edge, clamp(y + 1 - drift[x], 0, 1))
       }
     this.drawLake(0.5 * A, 0.72, 0.3, 0.045)
@@ -267,7 +266,6 @@ class Tundra extends Canvas {
     if (this.activity === "teeming") this.drawSnowman(0.3 * A, 0.85, 0.75, [0.2, 0.35, 0.8], false)
     this.drawSnowman(0.62 * A, 0.87, 1, [0.8, 0.12, 0.1], true)
     for (const [fx, h] of [[0.04, 0.46], [0.11, 0.34], [0.955, 0.42], [0.995, 0.3]] as const) this.drawPine(fx * A, 1.02, h, 0)
-    this.background = this.hdr.slice()
   }
 
   private paint(c: RGB): RGB {
@@ -293,7 +291,7 @@ class Tundra extends Canvas {
         const haze = clamp((y / H - 0.35) * 1.2, 0, 0.4)
         let c = y < snowLine ? look.peaks : look.rock
         if (look.style === "front") c = scaleRGB(c, slope > 0.3 ? 1.05 : slope < -0.3 ? 0.72 : 0.9)
-        const edge = look.style === "rim" ? Math.exp(-(y + 0.5 - top[x]) / 1.8) * 0.5 : 0
+        const edge = look.style === "rim" ? Math.exp(-(y + 0.5 - top[x]) / (1.8 * this.px)) * 0.5 : 0
         c = lerpRGB(c, look.sky[look.sky.length - 1][1], haze * 0.5)
         this.blend((y * W + x) * 3, c[0] + look.light[0] * edge, c[1] + look.light[1] * edge, c[2] + look.light[2] * edge, clamp(y + 1 - top[x], 0, 1))
       }

@@ -167,7 +167,6 @@ class Prehistoric extends Canvas {
   private readonly activity: Activity
   private readonly look: Look
   private lighting: Lighting = { style: "front", dir: DAYLIGHT }
-  private background = new Float32Array(0)
   private allStars: Star[]
   private stars: Star[] = []
   private clouds: Cloud[]
@@ -273,9 +272,9 @@ class Prehistoric extends Canvas {
   // The sky, ridge, volcano, forest, ground, lake, trees, cycads and far ferns never move, so they are painted once
   // per size into `background`.
   protected override layout() {
-    const { W, H, A, look } = this
+    const { W, H, A, look, px } = this
     this.lighting = look.style === "front" ? { style: "front", dir: DAYLIGHT } : { style: "rim", color: look.light, x: look.orb.x * W, y: look.orb.y * H }
-    paintSky(this.hdr, W, H, look.sky, look.orb)
+    paintSky(this.hdr, W, H, look.sky, look.orb, px)
     this.weather.cover(this.hdr, W, H)
     const vx = VENT_X * A
     const ridgeTop = new Float32Array(W)
@@ -292,16 +291,17 @@ class Prehistoric extends Canvas {
       groundTop[x] = (0.618 + 0.005 * Math.sin(u * 2.4)) * H
     }
     this.stars = this.allStars.filter((s) => s.y * H < Math.min(volcanoTop[clamp(Math.floor(s.x * W), 0, W - 1)], ridgeTop[clamp(Math.floor(s.x * W), 0, W - 1)]) - 2)
-    this.fillBelow(ridgeTop, (x, y, d) => {
+    // Each layer stops where the next one down covers it.
+    this.fillBelow(ridgeTop, forestTop, (x, y, d) => {
       const haze = clamp((y / H - 0.47) * 4, 0, 0.4)
       return this.rim([lerp(look.ridge[0], look.sky[look.sky.length - 1][1][0], haze), lerp(look.ridge[1], look.sky[look.sky.length - 1][1][1], haze), lerp(look.ridge[2], look.sky[look.sky.length - 1][1][2], haze)], x, d, 1.5)
     })
     // The volcano: dark rock scored by gullies running down from the crater, greening toward its foot.
-    this.fillBelow(volcanoTop, (x, y, d) => {
+    this.fillBelow(volcanoTop, forestTop, (x, y, d) => {
       const u = x / H
       const v = y / H
       const g = (u - vx) / Math.max(0.02, v - CRATER + 0.02)
-      const gully = 0.82 + 0.18 * Math.sin(g * 22 + fbm1(g * 5, 3) * 5) + (hash2(x, y) - 0.5) * 0.06
+      const gully = 0.82 + 0.18 * Math.sin(g * 22 + fbm1(g * 5, 3) * 5) + (hash2(Math.floor(x / px), Math.floor(y / px)) - 0.5) * 0.06
       const side = look.style === "front" ? 1 + 0.2 * clamp(-g, -1, 1) : 1
       const ash = smoothstep(0.32, 0.22, v) * 0.25
       const green = smoothstep(0.5, 0.6, v) * (0.5 + 0.5 * fbm1(u * 12, 5))
@@ -312,15 +312,15 @@ class Prehistoric extends Canvas {
       return this.rim([r, gg, b], x, d, 2)
     })
     this.paintLava(vx)
-    this.fillBelow(forestTop, (x, y, d) => {
-      const k = 0.8 + 0.2 * fbm1(x * 0.3, 41) + (hash2(x, y) - 0.5) * 0.1
+    this.fillBelow(forestTop, groundTop, (x, y, d) => {
+      const k = 0.8 + 0.2 * fbm1((x / px) * 0.3, 41) + (hash2(Math.floor(x / px), Math.floor(y / px)) - 0.5) * 0.1
       return this.rim([look.forest[0] * k, look.forest[1] * k, look.forest[2] * k], x, d, 1.5)
     })
     const [far, near] = look.ground
-    this.fillBelow(groundTop, (x, y, d) => {
+    this.fillBelow(groundTop, undefined, (x, y, d) => {
       const depth = clamp((y / H - 0.62) / 0.38, 0, 1)
       // Blades are a pixel-fine texture, which terminal cells would turn into diagonal hatching.
-      const blades = this.cells ? 0.95 : 0.9 + 0.1 * Math.sin(x * 1.7 + y * 0.6 + fbm1(x * 0.1, 2) * 6) + (hash2(x, y) - 0.5) * 0.05
+      const blades = this.cells ? 0.95 : 0.9 + 0.1 * Math.sin((x / px) * 1.7 + (y / px) * 0.6 + fbm1((x / px) * 0.1, 2) * 6) + (hash2(Math.floor(x / px), Math.floor(y / px)) - 0.5) * 0.05
       return this.rim([lerp(far[0], near[0], depth) * blades, lerp(far[1], near[1], depth) * blades, lerp(far[2], near[2], depth) * blades], x, d, 2)
     })
     if (this.activity === "teeming") this.paintLake()
@@ -337,7 +337,6 @@ class Prehistoric extends Canvas {
     this.drawCycad(0.04 * A, 0.86, 0.09)
     this.drawCycad(0.47 * A, 0.835, 0.07)
     this.drawCycad(0.9 * A, 0.84, 0.1)
-    this.background = this.hdr.slice()
   }
 
   private paint(c: RGB): RGB {
@@ -345,18 +344,19 @@ class Prehistoric extends Canvas {
     return [c[0] * t[0], c[1] * t[1], c[2] * t[2]]
   }
 
-  // At sunset and night, the top edge of a slope catches the light.
+  // At sunset and night, the top edge of a slope catches the light, over about width real pixels.
   private rim(base: RGB, x: number, depth: number, width: number): RGB {
     if (this.look.style === "front") return base
     const glow = 0.35 + 0.65 * Math.exp(-Math.abs(x - this.look.orb.x * this.W) / (0.45 * this.H))
-    const k = Math.exp(-depth / width) * glow * 0.35
+    const k = Math.exp(-depth / (width * this.px)) * glow * 0.35
     return [base[0] + this.look.light[0] * k, base[1] + this.look.light[1] * k, base[2] + this.look.light[2] * k]
   }
 
-  private fillBelow(top: Float32Array, color: (x: number, y: number, depth: number) => RGB) {
+  // Fills each column from its top edge down to the bottom, or to where `until` starts.
+  private fillBelow(top: Float32Array, until: Float32Array | undefined, color: (x: number, y: number, depth: number) => RGB) {
     const { W, H } = this
     for (let x = 0; x < W; x++)
-      for (let y = Math.max(0, Math.floor(top[x])); y < H; y++) {
+      for (let y = Math.max(0, Math.floor(top[x])); y < (until ? Math.min(H, Math.ceil(until[x])) : H); y++) {
         const c = color(x, y, y + 0.5 - top[x])
         this.blend((y * W + x) * 3, c[0], c[1], c[2], clamp(y + 1 - top[x], 0, 1))
       }
@@ -376,11 +376,11 @@ class Prehistoric extends Canvas {
       [0.02, 0.2, 0.43, 3],
       [0.038, 0.42, 0.54, 4],
     ]) {
-      for (let py = (CRATER + 0.004) * H; py < end * H; py += 0.5) {
+      for (let py = (CRATER + 0.004) * H; py < end * H; py += 0.5 * this.px) {
         const v = py / H
         const t = (v - CRATER) / (end - CRATER)
         const px = (vx + off + spread * (v - CRATER) + 0.03 * (fbm1(v * 10 + seed * 7, 3) - 0.5) * t) * H
-        const w = Math.max(0.7, lerp(0.006, 0.0028, t) * H)
+        const w = Math.max(0.7 * this.px, lerp(0.006, 0.0028, t) * H)
         const R = w * 4
         for (let y = Math.max(0, Math.floor(py - R)); y <= Math.min(H - 1, Math.ceil(py + R)); y++)
           for (let x = Math.max(0, Math.floor(px - R)); x <= Math.min(W - 1, Math.ceil(px + R)); x++) {
@@ -429,8 +429,9 @@ class Prehistoric extends Canvas {
     const mirror = HORIZON * H
     const red = look.lava[0]
     const mud = this.paint([0.3, 0.24, 0.15])
-    for (let y = Math.max(0, Math.floor(cy - ry - 2)); y < Math.min(H, cy + ry + 3); y++)
-      for (let x = Math.max(0, Math.floor(cx - rx - 3)); x < Math.min(W, cx + rx + 3); x++) {
+    const px = this.px
+    for (let y = Math.max(0, Math.floor(cy - ry - 2 * px)); y < Math.min(H, cy + ry + 3 * px); y++)
+      for (let x = Math.max(0, Math.floor(cx - rx - 3 * px)); x < Math.min(W, cx + rx + 3 * px); x++) {
         const q = Math.hypot((x + 0.5 - cx) / rx, (y + 0.5 - cy) / ry)
         const shore = clamp((1.12 - q) * 6, 0, 1)
         if (shore <= 0) continue
@@ -439,12 +440,12 @@ class Prehistoric extends Canvas {
         const wet = clamp((1 - q) * Math.min(rx, ry) * 0.5 + 0.5, 0, 1)
         if (wet <= 0) continue
         const my = clamp(Math.round(2 * mirror - y), 0, H - 1)
-        const mx = clamp(Math.round(x + Math.sin(y * 1.3) * 0.8), 0, W - 1)
+        const mx = clamp(Math.round(x + Math.sin((y / px) * 1.3) * 0.8 * px), 0, W - 1)
         const m = (my * W + mx) * 3
-        const k = 0.55 + 0.1 * Math.sin(y * 2.1 + x * 0.05)
+        const k = 0.55 + 0.1 * Math.sin((y / px) * 2.1 + (x / px) * 0.05)
         this.blend(o, lerp(look.water[0], this.hdr[m], k), lerp(look.water[1], this.hdr[m + 1], k), lerp(look.water[2], this.hdr[m + 2], k), wet)
         // The volcano's glow shimmers on the water below it.
-        const sheen = look.glow * 0.25 * Math.exp(-Math.abs(x / H - VENT_X * A) / 0.1) * wet * (0.7 + 0.3 * Math.sin(y * 2.7))
+        const sheen = look.glow * 0.25 * Math.exp(-Math.abs(x / H - VENT_X * A) / 0.1) * wet * (0.7 + 0.3 * Math.sin((y / px) * 2.7))
         this.hdr[o] += red[0] * sheen
         this.hdr[o + 1] += red[1] * sheen
         this.hdr[o + 2] += red[2] * sheen
