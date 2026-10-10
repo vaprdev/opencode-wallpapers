@@ -3,7 +3,7 @@ import { eggWait } from "../src/egg"
 import { haze, mottle } from "../src/grade"
 import { fireflyLight, lightPool } from "../src/light"
 import { TAU, clamp, fbm1, hash, hash2, lerp, rand, smoothstep, type RGB } from "../src/math"
-import { driftClouds, makeClouds, makeStars, makeStorm, paintClouds, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
+import { driftClouds, makeClouds, makeShadows, makeStars, makeStorm, paintClouds, paintShadows, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
 import type { Activity, Season, Settings, Time, Wallpaper } from "../src/wallpaper"
 import { WeatherLayer } from "../src/weather"
 
@@ -22,7 +22,7 @@ interface Look {
   sky: [number, RGB][]
   orb: Orb
   stars: number
-  clouds: { puffy: boolean; top: RGB; bottom: RGB; alpha: number }
+  clouds: { top: RGB; bottom: RGB; alpha: number }
   hills: [far: RGB, near: RGB]
   tint: RGB
   windows: number
@@ -40,7 +40,7 @@ const LOOKS: Record<Time, Look> = {
     ],
     orb: { x: 0.82, y: 0.13, r: 0.035, core: [5, 4.6, 3.8], glow: [1, 0.95, 0.8], near: 0.45, wide: 0.12 },
     stars: 0,
-    clouds: { puffy: true, top: [1.1, 1.1, 1.1], bottom: [0.6, 0.66, 0.78], alpha: 0.9 },
+    clouds: { top: [1.1, 1.1, 1.1], bottom: [0.6, 0.66, 0.78], alpha: 0.9 },
     hills: [
       [0.42, 0.6, 0.38],
       [0.25, 0.5, 0.12],
@@ -61,7 +61,7 @@ const LOOKS: Record<Time, Look> = {
     ],
     orb: { x: 0.2, y: 0.37, r: 0.042, core: [3.2, 2, 0.7], glow: [1, 0.6, 0.2], near: 0.55, wide: 0.35 },
     stars: 0,
-    clouds: { puffy: true, top: [1.3, 0.8, 0.35], bottom: [0.6, 0.3, 0.22], alpha: 0.8 },
+    clouds: { top: [1.3, 0.8, 0.35], bottom: [0.6, 0.3, 0.22], alpha: 0.8 },
     hills: [
       [0.68, 0.42, 0.1],
       [0.34, 0.24, 0.04],
@@ -81,7 +81,7 @@ const LOOKS: Record<Time, Look> = {
     ],
     orb: { x: 0.74, y: 0.15, r: 0.032, core: [1, 0.72, 0.3], glow: [0.45, 0.3, 0.12], near: 0.2, wide: 0.08, moon: true },
     stars: 140,
-    clouds: { puffy: false, top: [0.015, 0.02, 0.05], bottom: [0.06, 0.1, 0.3], alpha: 0.45 },
+    clouds: { top: [0.015, 0.02, 0.05], bottom: [0.06, 0.1, 0.3], alpha: 0.7 },
     hills: [
       [0.035, 0.06, 0.13],
       [0.016, 0.03, 0.065],
@@ -185,6 +185,7 @@ class Farm extends Canvas {
   private background = new Float32Array(0)
   private stars: Star[]
   private clouds: Cloud[]
+  private shadows = makeShadows(3, HORIZON + 0.08, 0.95)
   private storm = makeStorm()
   private nearTop = new Float32Array(0)
   private cows: Walker[] = []
@@ -217,7 +218,7 @@ class Farm extends Canvas {
     const colors: RGB[] = this.season === "spring" ? [[1, 0.78, 0.86], [0.95, 0.6, 0.72]] : [[0.9, 0.45, 0.1], [0.75, 0.2, 0.07], [0.95, 0.7, 0.18]]
     this.leaves = Array.from({ length: Math.round(drifting) }, (_, i) => ({ x: Math.random() * 2, y: 0.4 + Math.random() * 0.55, phase: Math.random() * TAU, color: colors[i % colors.length] }))
     this.stars = makeStars(this.look.stars, 0.45)
-    this.clouds = makeClouds(this.look.clouds.puffy ? 4 : 5, this.look.clouds.puffy, 0.08, 0.3)
+    this.clouds = makeClouds(5, "cumulus", 0.08, 0.3)
     const walker = (x: number, y: number): Walker => ({ x, y, wx: x, wy: y, wanderT: 0, face: 1, phase: Math.random() * TAU, graze: 0, rest: 0, look: 0, moving: false })
     if (settings.activity !== "calm") {
       this.cows = [walker(0.9, 0.8), walker(1.3, 0.84), ...(settings.activity === "teeming" ? [walker(1.1, 0.78)] : [])]
@@ -234,6 +235,7 @@ class Farm extends Canvas {
     const cdt = dt * CREATURE_SPEED
     this.creatureTime += cdt
     driftClouds(this.clouds, this.A, dt)
+    driftClouds(this.shadows, this.A, dt)
     driftClouds(this.storm, this.A, dt)
     this.stepGloom(dt)
     this.weather.step(dt)
@@ -277,7 +279,9 @@ class Farm extends Canvas {
     this.hdr.set(this.background)
     if (!this.weather.covered) paintStars(this.hdr, this.W, this.H, this.stars, this.time, 0.5, this.look.stars > 50 ? 0.5 : 0.3)
     const [top, bottom] = this.weather.scud ?? [this.look.clouds.top, this.look.clouds.bottom]
-    paintClouds(this.hdr, this.W, this.H, this.clouds, top, bottom, this.look.clouds.alpha, this.look.clouds.puffy)
+    const orb = this.weather.covered ? undefined : this.look.orb
+    paintClouds(this.hdr, this.W, this.H, this.clouds, top, bottom, this.look.clouds.alpha, orb)
+    paintShadows(this.hdr, this.W, this.H, this.shadows, HORIZON + 0.01, orb)
     paintStorm(this.hdr, this.W, this.H, this.storm, this.look.clouds.top, this.look.clouds.bottom, this.gloom)
     this.drawFan()
     this.drawTractor()

@@ -4,7 +4,7 @@ import { haze, mottle } from "../src/grade"
 import { bird, flyAway, startle, type Flier } from "../src/flock"
 import { lightPool } from "../src/light"
 import { TAU, clamp, fbm1, hash, hash2, lerp, rand, smoothstep, type RGB } from "../src/math"
-import { driftClouds, makeClouds, makeStars, makeStorm, paintClouds, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
+import { driftClouds, makeClouds, makeShadows, makeStars, makeStorm, paintClouds, paintShadows, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
 import type { Activity, Settings, Time, Wallpaper } from "../src/wallpaper"
 import { WeatherLayer } from "../src/weather"
 
@@ -31,7 +31,7 @@ interface Look {
   sky: [number, RGB][]
   orb: Orb
   stars: number
-  clouds: { puffy: boolean; top: RGB; bottom: RGB; alpha: number }
+  clouds: { top: RGB; bottom: RGB; alpha: number }
   ridge: RGB
   forest: RGB
   ground: [far: RGB, near: RGB]
@@ -55,7 +55,7 @@ const LOOKS: Record<Time, Look> = {
     ],
     orb: { x: 0.16, y: 0.13, r: 0.035, core: [5, 4.6, 3.8], glow: [1, 0.95, 0.8], near: 0.45, wide: 0.12 },
     stars: 0,
-    clouds: { puffy: true, top: [1.1, 1.1, 1.05], bottom: [0.62, 0.66, 0.74], alpha: 0.85 },
+    clouds: { top: [1.1, 1.1, 1.05], bottom: [0.62, 0.66, 0.74], alpha: 0.85 },
     ridge: [0.42, 0.52, 0.6],
     forest: [0.14, 0.3, 0.13],
     ground: [
@@ -85,7 +85,7 @@ const LOOKS: Record<Time, Look> = {
     ],
     orb: { x: 0.2, y: 0.36, r: 0.07, core: [1.25, 0.32, 0.12], glow: [0.9, 0.22, 0.08], near: 0.3, wide: 0.3 },
     stars: 0,
-    clouds: { puffy: false, top: [0.08, 0.06, 0.06], bottom: [0.36, 0.13, 0.08], alpha: 0.7 },
+    clouds: { top: [0.08, 0.06, 0.06], bottom: [0.36, 0.13, 0.08], alpha: 0.7 },
     ridge: [0.2, 0.07, 0.05],
     forest: [0.05, 0.025, 0.02],
     ground: [
@@ -114,7 +114,7 @@ const LOOKS: Record<Time, Look> = {
     ],
     orb: { x: 0.18, y: 0.15, r: 0.03, core: [1, 0.72, 0.3], glow: [0.45, 0.3, 0.12], near: 0.2, wide: 0.08, moon: true },
     stars: 140,
-    clouds: { puffy: false, top: [0.015, 0.02, 0.05], bottom: [0.06, 0.1, 0.3], alpha: 0.4 },
+    clouds: { top: [0.015, 0.02, 0.05], bottom: [0.06, 0.1, 0.3], alpha: 0.7 },
     ridge: [0.02, 0.03, 0.08],
     forest: [0.006, 0.012, 0.028],
     ground: [
@@ -176,6 +176,9 @@ class Prehistoric extends Canvas {
   private allStars: Star[]
   private stars: Star[] = []
   private clouds: Cloud[]
+  // Ash clouds drift off downwind from the top of the plume.
+  private ash = makeClouds(3, "ash", 0.04, 0.11)
+  private shadows = makeShadows(3, HORIZON + 0.06, 0.95)
   private smoke = Array.from({ length: SMOKE_PUFFS }, (_, i) => ({ age: (i / SMOKE_PUFFS) * SMOKE_LIFE, seed: Math.random() * 100 }))
   // Lava pixels (hdr index, strength, height down the flow) that pulse each frame.
   private lava = { index: new Int32Array(0), k: new Float32Array(0), along: new Float32Array(0) }
@@ -201,7 +204,7 @@ class Prehistoric extends Canvas {
     this.night = settings.time === "night"
     this.weather = new WeatherLayer(settings.weather ?? "clear", settings.time, HORIZON)
     this.allStars = makeStars(this.look.stars, 0.5)
-    this.clouds = makeClouds(this.look.clouds.puffy ? 4 : 5, this.look.clouds.puffy, 0.06, 0.3)
+    this.clouds = makeClouds(3, "cumulus", 0.06, 0.28)
     if (settings.activity !== "teeming") return
     const walker = (x: number, y: number, size: number): Walker => ({ x, y, wx: x, wy: y, wanderT: 0, face: 1, phase: Math.random() * TAU, graze: 0, rest: 0, moving: false, size })
     this.herd = [walker(0.3, 0.8, 1), walker(0.55, 0.84, 1.1), walker(0.42, 0.82, 0.65)]
@@ -214,7 +217,12 @@ class Prehistoric extends Canvas {
     const cdt = dt * CREATURE_SPEED
     this.creatureTime += cdt
     driftClouds(this.clouds, this.A, dt)
+    driftClouds(this.shadows, this.A, dt)
     driftClouds(this.storm, this.A, dt)
+    for (const c of this.ash) {
+      c.x += c.speed * dt
+      if (c.x > this.A + c.w) c.x = this.plumeTop()
+    }
     this.stepGloom(dt)
     this.weather.step(dt)
     this.birds = flyAway(this.birds, dt, this.A)
@@ -246,8 +254,14 @@ class Prehistoric extends Canvas {
     const orange = this.look.lava[1]
     flowLava(this.hdr, this.lava.index, this.lava.k, this.lava.along, this.time, orange[0], orange[1], orange[2])
     const [top, bottom] = this.weather.scud ?? [this.look.clouds.top, this.look.clouds.bottom]
-    paintClouds(this.hdr, this.W, this.H, this.clouds, top, bottom, this.look.clouds.alpha, this.look.clouds.puffy)
+    const orb = this.weather.covered ? undefined : this.look.orb
+    paintClouds(this.hdr, this.W, this.H, this.clouds, top, bottom, this.look.clouds.alpha, orb)
+    paintShadows(this.hdr, this.W, this.H, this.shadows, HORIZON + 0.02, orb)
     paintStorm(this.hdr, this.W, this.H, this.storm, this.look.clouds.top, this.look.clouds.bottom, this.gloom)
+    // Ash takes the plume's cooled color, warmed underneath by the lava, and fades in as it leaves the plume.
+    const [hot, cool, alpha] = this.look.smoke
+    const start = this.plumeTop()
+    for (const c of this.ash) paintClouds(this.hdr, this.W, this.H, [c], [cool[0] * 1.15, cool[1] * 1.15, cool[2] * 1.15], [lerp(cool[0], hot[0], 0.3) * 0.7, lerp(cool[1], hot[1], 0.3) * 0.7, lerp(cool[2], hot[2], 0.3) * 0.7], alpha * 1.3 * smoothstep(start, start + 0.25, c.x), orb)
     this.drawSmoke()
     if (this.activity !== "calm") {
       this.drawPterosaurs()
@@ -288,6 +302,7 @@ class Prehistoric extends Canvas {
     this.weather.cover(this.hdr, W, H)
     const sky = this.hdr.slice()
     const day = look === LOOKS.day
+    for (const [i, c] of this.ash.entries()) c.x = lerp(this.plumeTop(), A + c.w, (i + 0.3) / this.ash.length)
     const vx = VENT_X * A
     const ridgeTop = new Float32Array(W)
     const volcanoTop = new Float32Array(W)
@@ -539,6 +554,11 @@ class Prehistoric extends Canvas {
       }
       this.shape(parts, this.lighting, this.look.style === "rim" ? 0.3 : 0.6)
     }
+  }
+
+  // Where the plume levels off and its smoke starts to drift away as ash, in screen heights.
+  private plumeTop() {
+    return VENT_X * this.A + 0.08
   }
 
   // Smoke billows up from the crater and leans downwind, lit from below by the lava when it is fresh.

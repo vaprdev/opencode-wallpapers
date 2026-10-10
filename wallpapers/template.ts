@@ -50,7 +50,7 @@ const LOOKS: Record<Time, Look> = {
     ],
     orb: { x: 0.6, y: 0.58, r: 0.055, core: [3.2, 1.7, 0.6], glow: [1, 0.42, 0.14], near: 0.5, wide: 0.25 },
     stars: 25,
-    clouds: { top: [0.1, 0.035, 0.09], bottom: [0.8, 0.3, 0.2], alpha: 0.6 },
+    clouds: { top: [0.1, 0.035, 0.09], bottom: [0.8, 0.3, 0.2], alpha: 0.8 },
     hills: [
       [0.2, 0.08, 0.1],
       [0.07, 0.04, 0.05],
@@ -68,7 +68,7 @@ const LOOKS: Record<Time, Look> = {
     // A gold moon rather than a white one.
     orb: { x: 0.75, y: 0.16, r: 0.03, core: [1, 0.72, 0.3], glow: [0.45, 0.3, 0.12], near: 0.2, wide: 0.08, moon: true },
     stars: 140,
-    clouds: { top: [0.015, 0.02, 0.05], bottom: [0.06, 0.1, 0.3], alpha: 0.4 },
+    clouds: { top: [0.015, 0.02, 0.05], bottom: [0.06, 0.1, 0.3], alpha: 0.7 },
     hills: [
       [0.03, 0.05, 0.13],
       [0.015, 0.03, 0.08],
@@ -100,7 +100,7 @@ class Template extends Canvas {
     this.activity = settings.activity
     this.look = LOOKS[settings.time]
     this.stars = makeStars(this.look.stars, 0.55)
-    this.clouds = makeClouds(4, true, 0.08, 0.3)
+    this.clouds = makeClouds(4, "cumulus", 0.08, 0.3)
   }
 
   // Advances the scene by dt seconds. Clamp dt so a stalled frame doesn't make things jump.
@@ -117,7 +117,7 @@ class Template extends Canvas {
   render() {
     this.hdr.set(this.background)
     paintStars(this.hdr, this.W, this.H, this.stars, this.time, 0.55, 0.5)
-    paintClouds(this.hdr, this.W, this.H, this.clouds, this.look.clouds.top, this.look.clouds.bottom, this.look.clouds.alpha, true)
+    paintClouds(this.hdr, this.W, this.H, this.clouds, this.look.clouds.top, this.look.clouds.bottom, this.look.clouds.alpha, this.look.orb)
     if (this.activity !== "calm") this.drawBalloon()
     if (this.activity === "teeming" && this.look.night) this.drawFireflies()
     if (this.activity === "teeming" && !this.look.night) this.drawBirds()
