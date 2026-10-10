@@ -1,18 +1,24 @@
-import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
+import { Canvas, blade, cap, ell, type Lighting, type Part } from "../src/canvas"
+import { bob, body, chain, gait, limb, quadruped, stepGait, stride, type Gait } from "../src/creature"
 import { eggWait } from "../src/egg"
+import { haze, mottle } from "../src/grade"
 import { bird, flyAway, startle, type Flier } from "../src/flock"
+import { lightPool } from "../src/light"
 import { TAU, clamp, fbm1, hash, hash2, lerp, rand, smoothstep, type RGB } from "../src/math"
-import { driftClouds, makeClouds, makeStars, makeStorm, paintClouds, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
+import { groundShadow, sunShade, type Shade } from "../src/shadow"
+import { driftClouds, makeClouds, makeShadows, makeStars, makeStorm, paintClouds, paintShadows, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
 import type { Activity, Settings, Time, Wallpaper } from "../src/wallpaper"
+import { reflect } from "../src/water"
 import { WeatherLayer } from "../src/weather"
+import { SwayLayer, gust, sway } from "../src/wind"
 
 // The scene runs slower than real time, which keeps it calm behind text.
 const TIME_SCALE = 0.35
 // Animals move at a quarter of scene speed, so even the T. rex plods.
 const CREATURE_SPEED = 0.25
 const HORIZON = 0.6
-// The volcano's crater, in screen heights; its x is a fraction of the width.
-const VENT_X = 0.7
+// The volcano's crater, in screen heights: its x from the right edge, so it stays clear of the text in the middle.
+const VENT_X = 0.4
 const CRATER = 0.205
 // Smoke puffs leave the crater on a loop: each one is the same plume at a different age.
 const SMOKE_LIFE = 14
@@ -29,7 +35,7 @@ interface Look {
   sky: [number, RGB][]
   orb: Orb
   stars: number
-  clouds: { puffy: boolean; top: RGB; bottom: RGB; alpha: number }
+  clouds: { top: RGB; bottom: RGB; alpha: number }
   ridge: RGB
   forest: RGB
   ground: [far: RGB, near: RGB]
@@ -38,6 +44,8 @@ interface Look {
   glow: number
   smoke: [hot: RGB, cool: RGB, alpha: number]
   water: RGB
+  // The tint of what the lake mirrors.
+  mirror: RGB
   ripple: RGB
   tint: RGB
 }
@@ -53,12 +61,12 @@ const LOOKS: Record<Time, Look> = {
     ],
     orb: { x: 0.16, y: 0.13, r: 0.035, core: [5, 4.6, 3.8], glow: [1, 0.95, 0.8], near: 0.45, wide: 0.12 },
     stars: 0,
-    clouds: { puffy: true, top: [1.1, 1.1, 1.05], bottom: [0.62, 0.66, 0.74], alpha: 0.85 },
+    clouds: { top: [1.1, 1.1, 1.05], bottom: [0.62, 0.66, 0.74], alpha: 0.85 },
     ridge: [0.42, 0.52, 0.6],
     forest: [0.14, 0.3, 0.13],
     ground: [
       [0.36, 0.5, 0.2],
-      [0.24, 0.42, 0.12],
+      [0.2, 0.38, 0.1],
     ],
     rock: [0.32, 0.25, 0.22],
     lava: [
@@ -68,54 +76,58 @@ const LOOKS: Record<Time, Look> = {
     glow: 0.05,
     smoke: [[0.3, 0.25, 0.22], [0.66, 0.64, 0.64], 0.5],
     water: [0.22, 0.44, 0.52],
+    mirror: [0.78, 0.88, 0.92],
     ripple: [0.55, 0.7, 0.75],
     tint: [1, 1, 1],
   },
   sunset: {
     style: "rim",
-    light: [1, 0.5, 0.2],
+    // Ash: a smoky gray-brown sky over a deep red haze, and a sun dimmed to a dull red disc.
+    light: [1, 0.3, 0.12],
     sky: [
-      [0, [0.03, 0.02, 0.08]],
-      [0.25, [0.12, 0.04, 0.12]],
-      [0.45, [0.45, 0.14, 0.14]],
-      [HORIZON, [1, 0.5, 0.18]],
+      [0, [0.045, 0.04, 0.04]],
+      [0.25, [0.11, 0.075, 0.065]],
+      [0.45, [0.26, 0.06, 0.045]],
+      [HORIZON, [0.58, 0.1, 0.05]],
     ],
-    orb: { x: 0.2, y: 0.48, r: 0.06, core: [3.2, 1.7, 0.6], glow: [1, 0.42, 0.14], near: 0.5, wide: 0.25 },
-    stars: 25,
-    clouds: { puffy: false, top: [0.1, 0.035, 0.09], bottom: [0.8, 0.3, 0.2], alpha: 0.55 },
-    ridge: [0.32, 0.12, 0.14],
-    forest: [0.07, 0.03, 0.04],
+    orb: { x: 0.2, y: 0.36, r: 0.07, core: [1.25, 0.32, 0.12], glow: [0.9, 0.22, 0.08], near: 0.3, wide: 0.3 },
+    stars: 0,
+    clouds: { top: [0.08, 0.06, 0.06], bottom: [0.36, 0.13, 0.08], alpha: 0.7 },
+    ridge: [0.2, 0.07, 0.05],
+    forest: [0.05, 0.025, 0.02],
     ground: [
-      [0.24, 0.1, 0.08],
-      [0.08, 0.04, 0.03],
+      [0.22, 0.07, 0.04],
+      [0.07, 0.03, 0.02],
     ],
-    rock: [0.12, 0.05, 0.07],
+    rock: [0.1, 0.05, 0.045],
     lava: [
       [1.1, 0.12, 0.02],
       [2, 0.55, 0.04],
     ],
-    glow: 0.25,
-    smoke: [[0.9, 0.28, 0.07], [0.16, 0.07, 0.1], 0.55],
-    water: [0.5, 0.2, 0.12],
-    ripple: [1, 0.45, 0.15],
-    tint: [0.22, 0.13, 0.1],
+    glow: 0.35,
+    smoke: [[0.8, 0.2, 0.06], [0.1, 0.07, 0.07], 0.65],
+    water: [0.42, 0.12, 0.06],
+    mirror: [0.9, 0.78, 0.72],
+    ripple: [1, 0.3, 0.1],
+    tint: [0.2, 0.1, 0.08],
   },
   night: {
     style: "rim",
-    light: [0.2, 0.45, 1],
+    light: [0.3, 0.62, 1.5],
     sky: [
       [0, [0.004, 0.008, 0.03]],
-      [0.3, [0.012, 0.02, 0.06]],
-      [HORIZON, [0.04, 0.06, 0.15]],
+      [0.3, [0.014, 0.024, 0.07]],
+      [0.5, [0.035, 0.055, 0.14]],
+      [HORIZON, [0.07, 0.1, 0.24]],
     ],
     orb: { x: 0.18, y: 0.15, r: 0.03, core: [1, 0.72, 0.3], glow: [0.45, 0.3, 0.12], near: 0.2, wide: 0.08, moon: true },
     stars: 140,
-    clouds: { puffy: false, top: [0.015, 0.02, 0.05], bottom: [0.06, 0.1, 0.3], alpha: 0.4 },
+    clouds: { top: [0.015, 0.02, 0.05], bottom: [0.06, 0.1, 0.3], alpha: 0.7 },
     ridge: [0.02, 0.03, 0.08],
     forest: [0.006, 0.012, 0.028],
     ground: [
-      [0.02, 0.035, 0.07],
-      [0.008, 0.016, 0.03],
+      [0.035, 0.06, 0.13],
+      [0.012, 0.022, 0.05],
     ],
     rock: [0.02, 0.018, 0.045],
     lava: [
@@ -125,8 +137,9 @@ const LOOKS: Record<Time, Look> = {
     glow: 0.5,
     smoke: [[0.8, 0.12, 0.03], [0.1, 0.025, 0.07], 0.6],
     water: [0.02, 0.04, 0.1],
+    mirror: [0.8, 0.88, 1],
     ripple: [0.1, 0.35, 0.9],
-    tint: [0.025, 0.04, 0.09],
+    tint: [0.02, 0.032, 0.075],
   },
 }
 
@@ -159,6 +172,7 @@ interface Walker {
   rest: number
   moving: boolean
   size: number
+  g: Gait
 }
 
 class Prehistoric extends Canvas {
@@ -166,22 +180,32 @@ class Prehistoric extends Canvas {
   private creatureTime = 0
   private readonly activity: Activity
   private readonly look: Look
+  private readonly night: boolean
   private lighting: Lighting = { style: "front", dir: DAYLIGHT }
+  private readonly shade: Shade
   private background = new Float32Array(0)
   private allStars: Star[]
   private stars: Star[] = []
   private clouds: Cloud[]
+  // Ash clouds drift off downwind from the top of the plume.
+  private ash = makeClouds(3, "ash", 0.04, 0.11)
+  private shadows = makeShadows(3, HORIZON + 0.06, 0.95)
   private smoke = Array.from({ length: SMOKE_PUFFS }, (_, i) => ({ age: (i / SMOKE_PUFFS) * SMOKE_LIFE, seed: Math.random() * 100 }))
   // Lava pixels (hdr index, strength, height down the flow) that pulse each frame.
   private lava = { index: new Int32Array(0), k: new Float32Array(0), along: new Float32Array(0) }
   private trees: [number, number] = [0, 0]
+  // The far ferns and cycads, painted once, bend as the gusts pass.
+  private plants = new SwayLayer()
   private rex = { x: -9, dir: 1, next: 2, phase: 0 }
   private dust: { x: number; y: number; vx: number; age: number }[] = []
   // p runs from browsing the left tree (0) to browsing the right one (1).
-  private sauropod = { p: 0, face: -1, target: -1, mode: "browse" as "browse" | "turn" | "walk", timer: rand(4.5, 6), phase: 0, pose: 1 }
+  private sauropod = { p: 0, face: -1, target: -1, mode: "browse" as "browse" | "turn" | "walk", timer: rand(4.5, 6), g: gait(-1), pose: 1 }
   private herd: Walker[] = []
   private dragonflies: { x: number; y: number; tx: number; ty: number; rest: number; face: number; phase: number }[] = []
   private nessie = { t: -1, x: 0, y: 0, dir: 1, wait: 1 }
+  // The lake's rows: which row each mirrors, how far its ripples wobble the reflection, and how much of it each pixel
+  // shows (none outside the water or under the plants in front of it).
+  private pool = { y0: 0, y1: 0, rows: new Float32Array(0), amp: new Float32Array(0), gloss: new Float32Array(0) }
   private readonly weather: WeatherLayer
   private storm = makeStorm()
   private birds: Flier[] = []
@@ -192,11 +216,15 @@ class Prehistoric extends Canvas {
     super()
     this.activity = settings.activity
     this.look = LOOKS[settings.time]
+    if (settings.time === "day") this.frame = 0.4
+    this.night = settings.time === "night"
     this.weather = new WeatherLayer(settings.weather ?? "clear", settings.time, HORIZON)
+    this.shade = sunShade(settings.time, this.look.orb, this.weather.covered)
     this.allStars = makeStars(this.look.stars, 0.5)
-    this.clouds = makeClouds(this.look.clouds.puffy ? 4 : 5, this.look.clouds.puffy, 0.06, 0.3)
+    // Long thin streaks catch the low sun better than heaps of cumulus.
+    this.clouds = settings.time === "sunset" ? makeClouds(4, "stratus", 0.08, 0.3) : makeClouds(3, "cumulus", 0.06, 0.28)
     if (settings.activity !== "teeming") return
-    const walker = (x: number, y: number, size: number): Walker => ({ x, y, wx: x, wy: y, wanderT: 0, face: 1, phase: Math.random() * TAU, graze: 0, rest: 0, moving: false, size })
+    const walker = (x: number, y: number, size: number): Walker => ({ x, y, wx: x, wy: y, wanderT: 0, face: 1, phase: Math.random() * TAU, graze: 0, rest: 0, moving: false, size, g: gait(1, hash(x * 7 + y)) })
     this.herd = [walker(0.3, 0.8, 1), walker(0.55, 0.84, 1.1), walker(0.42, 0.82, 0.65)]
     this.dragonflies = Array.from({ length: 4 }, () => ({ x: Math.random() * 1.5, y: rand(0.75, 0.95), tx: 0, ty: 0, rest: rand(0, 3), face: 1, phase: Math.random() * TAU }))
   }
@@ -207,7 +235,12 @@ class Prehistoric extends Canvas {
     const cdt = dt * CREATURE_SPEED
     this.creatureTime += cdt
     driftClouds(this.clouds, this.A, dt)
+    driftClouds(this.shadows, this.A, dt)
     driftClouds(this.storm, this.A, dt)
+    for (const c of this.ash) {
+      c.x += c.speed * dt
+      if (c.x > this.A + c.w) c.x = this.plumeTop()
+    }
     this.stepGloom(dt)
     this.weather.step(dt)
     this.birds = flyAway(this.birds, dt, this.A)
@@ -228,20 +261,34 @@ class Prehistoric extends Canvas {
     if (this.activity !== "calm") this.stepSauropod(cdt)
     if (this.activity !== "teeming") return
     const A = this.A
-    for (const w of this.herd) this.wander(w, cdt, [0.08 * A, 0.45 * A, 0.78, 0.87], 0.03, [6, 14])
+    for (const w of this.herd) {
+      const [x0, y0] = [w.x, w.y]
+      this.wander(w, cdt, [0.08 * A, 0.45 * A, 0.78, 0.87], 0.03, [6, 14])
+      stepGait(w.g, Math.hypot(w.x - x0, w.y - y0) / (0.13 * (0.6 + (w.y - 0.7) * 2.5) * w.size), cdt, w.face)
+    }
     for (const d of this.dragonflies) this.stepDragonfly(d, cdt)
     this.stepNessie(cdt)
   }
 
   render() {
     this.hdr.set(this.background)
+    this.plants.draw(this.hdr, this.W, this.H, this.time)
     if (!this.weather.covered) paintStars(this.hdr, this.W, this.H, this.stars, this.time, 0.5, this.look.stars > 50 ? 0.5 : 0.3)
     const orange = this.look.lava[1]
     flowLava(this.hdr, this.lava.index, this.lava.k, this.lava.along, this.time, orange[0], orange[1], orange[2])
     const [top, bottom] = this.weather.scud ?? [this.look.clouds.top, this.look.clouds.bottom]
-    paintClouds(this.hdr, this.W, this.H, this.clouds, top, bottom, this.look.clouds.alpha, this.look.clouds.puffy)
+    const orb = this.weather.covered ? undefined : this.look.orb
+    paintClouds(this.hdr, this.W, this.H, this.clouds, top, bottom, this.look.clouds.alpha, orb)
+    paintShadows(this.hdr, this.W, this.H, this.shadows, HORIZON + 0.02, orb)
     paintStorm(this.hdr, this.W, this.H, this.storm, this.look.clouds.top, this.look.clouds.bottom, this.gloom)
+    // Ash takes the plume's cooled color, warmed underneath by the lava, and fades in as it leaves the plume.
+    const [hot, cool, alpha] = this.look.smoke
+    const start = this.plumeTop()
+    for (const c of this.ash) paintClouds(this.hdr, this.W, this.H, [c], [cool[0] * 1.15, cool[1] * 1.15, cool[2] * 1.15], [lerp(cool[0], hot[0], 0.3) * 0.7, lerp(cool[1], hot[1], 0.3) * 0.7, lerp(cool[2], hot[2], 0.3) * 0.7], alpha * 1.3 * smoothstep(start, start + 0.25, c.x), orb)
+    this.drawShadows()
     this.drawSmoke()
+    const p = this.pool
+    if (p.y1 > p.y0) reflect(this.hdr, this.W, this.H, p.y0, p.y1, p.rows, p.amp, p.gloss, this.look.mirror, this.time)
     if (this.activity !== "calm") {
       this.drawPterosaurs()
       this.drawSauropod()
@@ -253,6 +300,8 @@ class Prehistoric extends Canvas {
     this.drawDust()
     this.drawRex()
     const A = this.A
+    // At night the lava lights the ground, the lake and anything walking near the volcano's foot.
+    if (this.night) lightPool(this.hdr, this.W, this.H, (A - VENT_X + 0.08) * this.H, 0.63 * this.H, 0.45 * this.H, 0.13 * this.H, [1, 0.36, 0.06], 2.4 + 0.4 * Math.sin(this.time * 0.6), 0.03)
     for (const [i, x] of [0.01, 0.2, 0.76, 0.99].entries()) this.drawFern(x * A, 1.03, 0.17 + hash(i) * 0.04, i, true)
     if (this.activity === "teeming") for (const d of this.dragonflies) this.drawDragonfly(d)
     if (this.delorean.t >= 0) this.drawDelorean()
@@ -277,7 +326,10 @@ class Prehistoric extends Canvas {
     this.lighting = look.style === "front" ? { style: "front", dir: DAYLIGHT } : { style: "rim", color: look.light, x: look.orb.x * W, y: look.orb.y * H }
     paintSky(this.hdr, W, H, look.sky, look.orb)
     this.weather.cover(this.hdr, W, H)
-    const vx = VENT_X * A
+    const sky = this.hdr.slice()
+    const day = look === LOOKS.day
+    for (const [i, c] of this.ash.entries()) c.x = lerp(this.plumeTop(), A + c.w, (i + 0.3) / this.ash.length)
+    const vx = A - VENT_X
     const ridgeTop = new Float32Array(W)
     const volcanoTop = new Float32Array(W)
     const forestTop = new Float32Array(W)
@@ -311,6 +363,8 @@ class Prehistoric extends Canvas {
       const b = lerp(look.rock[2] * (1 + ash), look.forest[2], green) * k
       return this.rim([r, gg, b], x, d, 2)
     })
+    // By day the ridge and volcano fade into the sky, then the forest and far plain, while the foreground stays crisp.
+    if (day) haze(this.hdr, sky, W, H, 0.62, 0.63, 0.1)
     this.paintLava(vx)
     this.fillBelow(forestTop, (x, y, d) => {
       const k = 0.8 + 0.2 * fbm1(x * 0.3, 41) + (hash2(x, y) - 0.5) * 0.1
@@ -319,24 +373,66 @@ class Prehistoric extends Canvas {
     const [far, near] = look.ground
     this.fillBelow(groundTop, (x, y, d) => {
       const depth = clamp((y / H - 0.62) / 0.38, 0, 1)
-      const blades = 0.9 + 0.1 * Math.sin(x * 1.7 + y * 0.6 + fbm1(x * 0.1, 2) * 6) + (hash2(x, y) - 0.5) * 0.05
+      // Blades are a pixel-fine texture, which terminal cells would turn into diagonal hatching.
+      const blades = this.cells ? 0.95 : 0.9 + 0.1 * Math.sin(x * 1.7 + y * 0.6 + fbm1(x * 0.1, 2) * 6) + (hash2(x, y) - 0.5) * 0.05
       return this.rim([lerp(far[0], near[0], depth) * blades, lerp(far[1], near[1], depth) * blades, lerp(far[2], near[2], depth) * blades], x, d, 2)
     })
+    if (day) {
+      mottle(this.hdr, W, H, 0.62, 1, 0.55, [1.16, 1.04, 0.66], [0.68, 0.84, 0.72])
+      haze(this.hdr, sky, W, H, 0.62, 0.8, 0.14, 0, 0.56)
+    }
+    this.pool = { y0: 0, y1: 0, rows: new Float32Array(0), amp: new Float32Array(0), gloss: new Float32Array(0) }
     if (this.activity === "teeming") this.paintLake()
-    this.trees = [0.08 * A, Math.max(0.4 * A, 0.08 * A + 0.45)]
+    const water = this.hdr.slice(this.pool.y0 * W * 3, this.pool.y1 * W * 3)
+    // The sauropod's two trees keep to the left, the volcano to the right.
+    this.trees = [0.06, 0.48]
+    const ground = (x: number, y: number, w: number, h: number, tip?: number) => groundShadow(this.hdr, W, H, this.shade, x * H, y * H, w * H, h * H, tip)
+    for (const [x, base, top] of [[this.trees[0], 0.665, 0.29], [this.trees[1], 0.662, 0.31], [A - 0.1, 0.64, 0.45]]) ground(x, base, 0.08, base - top, 1.5)
+    for (const [x, y, s] of [[0.32, 0.78, 0.07], [0.88, 0.74, 0.08], [0.48, 0.9, 0.08]]) ground(x * A, y, s * 1.4, s * 0.8, 1.2)
+    for (const [x, y, s] of [[0.04, 0.86, 0.09], [0.47, 0.835, 0.07], [0.9, 0.84, 0.1]]) ground(x * A, y, s * 1.4, s * 1.1, 1.5)
     this.drawTree(this.trees[0], 0.665, 0.29)
     this.drawTree(this.trees[1], 0.662, 0.31)
-    this.drawTree(0.93 * A, 0.64, 0.45)
-    for (const [i, [x, y, s]] of [
+    this.drawTree(A - 0.1, 0.64, 0.45)
+    this.plants.begin(this.hdr)
+    const ferns = [
       [0.32, 0.78, 0.07],
       [0.88, 0.74, 0.08],
       [0.48, 0.9, 0.08],
-    ].entries())
-      this.drawFern(x * A, y, s, i + 7, false)
-    this.drawCycad(0.04 * A, 0.86, 0.09)
-    this.drawCycad(0.47 * A, 0.835, 0.07)
-    this.drawCycad(0.9 * A, 0.84, 0.1)
+    ]
+    for (const [i, [x, y, s]] of ferns.entries()) this.drawFern(x * A, y, s, i + 7, false)
+    const cycads = [
+      [0.04, 0.86, 0.09],
+      [0.47, 0.835, 0.07],
+      [0.9, 0.84, 0.1],
+    ]
+    for (const [x, base, size] of cycads) this.drawCycad(x * A, base, size)
+    // Each plant bends from its base, the cycads' wide crowns over a wider reach.
+    const reach = [...ferns.map(([x, y, s]) => [x * A, y, s, s * 1.2]), ...cycads.map(([x, y, s]) => [x * A, y, s, s * 2.2])]
+    this.plants.end(this.hdr, W, H, 0.01 * H, (px, py) => reach.reduce((w, [x, y, s, r]) => (Math.abs(px / H - x) < r ? Math.max(w, clamp((y - py / H) / (s * 1.2), 0, 1)) : w), 0))
+    // Plants painted over the water stay in front of its reflection.
+    const p = this.pool
+    const o = p.y0 * W * 3
+    for (let i = 0; i < p.gloss.length; i++) if (this.hdr[o + i * 3] !== water[i * 3] || this.hdr[o + i * 3 + 1] !== water[i * 3 + 1] || this.hdr[o + i * 3 + 2] !== water[i * 3 + 2]) p.gloss[i] = 0
     this.background = this.hdr.slice()
+  }
+
+  // Shadows under everything that walks or drives, drawn before any of it so none falls across another animal.
+  private drawShadows() {
+    const H = this.H
+    const ground = (x: number, y: number, w: number, h: number, tip?: number) => groundShadow(this.hdr, this.W, H, this.shade, x * H, y * H, w * H, h * H, tip)
+    if (this.activity !== "calm") {
+      const s = this.sauropod
+      const [from, to] = this.sauropodSpots()
+      ground(lerp(from, to, s.p) - s.face * 0.06, 0.668, 0.28, 0.13, 0.8)
+    }
+    for (const w of this.herd) {
+      const S = 0.2 * (0.6 + (w.y - 0.7) * 2.5) * w.size
+      ground(w.x + w.face * 0.04 * S, w.y, 1.0 * S, 0.55 * S, 0.8)
+    }
+    const r = this.rex
+    if (r.x > -5) ground(r.x - r.dir * 0.03, 0.935, 0.24, 0.24, 0.8)
+    const d = this.delorean
+    if (d.t >= 0 && d.t <= DELOREAN) ground(d.x0 + 0.05 * Math.min(d.t, DELOREAN), 0.958, 0.18, 0.065, 0.9)
   }
 
   private paint(c: RGB): RGB {
@@ -420,15 +516,18 @@ class Prehistoric extends Canvas {
     this.lava = { index: Int32Array.from(index), k: Float32Array.from(index, (i) => core[i] * (0.4 + heat[i])), along: Float32Array.from(index, (i) => along[i]) }
   }
 
-  // A still lake in front of the volcano, mirroring it and the sky, with a muddy shore.
+  // A lake in front of the volcano with a muddy shore. Its water mirrors the forest, the volcano and the sky above it,
+  // squeezed into the lake's depth, and render() puts the reflection in each frame so the lava and smoke move in it.
   private paintLake() {
     const { W, H, A, look } = this
     const [lx, ly, lrx, lry] = this.lake()
     const [cx, cy, rx, ry] = [lx * H, ly * H, lrx * H, lry * H]
-    const mirror = HORIZON * H
     const red = look.lava[0]
     const mud = this.paint([0.3, 0.24, 0.15])
-    for (let y = Math.max(0, Math.floor(cy - ry - 2)); y < Math.min(H, cy + ry + 3); y++)
+    const y0 = Math.max(0, Math.floor(cy - ry - 2))
+    const y1 = Math.min(H, Math.ceil(cy + ry + 3))
+    const gloss = new Float32Array((y1 - y0) * W)
+    for (let y = y0; y < y1; y++)
       for (let x = Math.max(0, Math.floor(cx - rx - 3)); x < Math.min(W, cx + rx + 3); x++) {
         const q = Math.hypot((x + 0.5 - cx) / rx, (y + 0.5 - cy) / ry)
         const shore = clamp((1.12 - q) * 6, 0, 1)
@@ -437,22 +536,30 @@ class Prehistoric extends Canvas {
         this.blend(o, mud[0], mud[1], mud[2], shore * 0.8)
         const wet = clamp((1 - q) * Math.min(rx, ry) * 0.5 + 0.5, 0, 1)
         if (wet <= 0) continue
-        const my = clamp(Math.round(2 * mirror - y), 0, H - 1)
-        const mx = clamp(Math.round(x + Math.sin(y * 1.3) * 0.8), 0, W - 1)
-        const m = (my * W + mx) * 3
-        const k = 0.55 + 0.1 * Math.sin(y * 2.1 + x * 0.05)
-        this.blend(o, lerp(look.water[0], this.hdr[m], k), lerp(look.water[1], this.hdr[m + 1], k), lerp(look.water[2], this.hdr[m + 2], k), wet)
+        this.blend(o, look.water[0], look.water[1], look.water[2], wet)
+        gloss[(y - y0) * W + x] = wet * (0.72 + 0.06 * Math.sin(y * 2.1 + x * 0.05))
         // The volcano's glow shimmers on the water below it.
-        const sheen = look.glow * 0.25 * Math.exp(-Math.abs(x / H - VENT_X * A) / 0.1) * wet * (0.7 + 0.3 * Math.sin(y * 2.7))
+        const sheen = look.glow * 0.25 * Math.exp(-Math.abs(x / H - (A - VENT_X)) / 0.1) * wet * (0.7 + 0.3 * Math.sin(y * 2.7))
         this.hdr[o] += red[0] * sheen
         this.hdr[o + 1] += red[1] * sheen
         this.hdr[o + 2] += red[2] * sheen
       }
+    // The far shore mirrors the forest's edge, and the near one the volcano's crater, squeezed more toward it.
+    const far = cy - ry
+    const n = y1 - y0
+    const below = (r: number) => Math.max(0, y0 + r - far)
+    this.pool = {
+      y0,
+      y1,
+      rows: Float32Array.from({ length: n }, (_, r) => (HORIZON - 0.004) * H - below(r) * (1.5 + (3.2 * below(r)) / (2 * ry))),
+      amp: new Float32Array(n).fill(0.8 * (H / 180)),
+      gloss,
+    }
   }
 
   // The lake's center and radii, in screen heights.
   private lake() {
-    return [0.66 * this.A, 0.735, Math.min(0.3, 0.22 * this.A), 0.042] as const
+    return [this.A - VENT_X - 0.1, 0.735, Math.min(0.3, 0.22 * this.A), 0.042] as const
   }
 
   // A monkey-puzzle conifer: a bare trunk with tiers of drooping branches toward its rounded top.
@@ -484,53 +591,73 @@ class Prehistoric extends Canvas {
       const len = size * (1.4 + hash(i * 3 + x) * 0.5) * H
       const parts: Part[] = []
       let [px, py] = [x * H, top * H]
+      const spine: [number, number][] = [[px, py]]
+      const widths = [1]
       let angle = a
       for (let s = 0; s < 6; s++) {
         angle += Math.cos(a) > 0 ? 0.05 : -0.05
         const nx = px + Math.cos(angle) * (len / 6)
         const ny = py + Math.sin(angle) * (len / 6) + s * 0.0015 * H
-        parts.push(cap(px, py, nx, ny, 0.004 * H, 0.003 * H, frond))
+        parts.push(cap(px, py, nx, ny, this.thick(0.004), this.thick(0.003), frond))
         const leaf = (1 - s / 8) * size * 0.4 * H
-        for (const side of [-1, 1]) parts.push(cap(nx, ny, nx + Math.cos(angle + side * 0.8) * leaf, ny + Math.sin(angle + side * 0.8) * leaf, 0.004 * H, 0.0012 * H, frond))
+        spine.push([nx, ny])
+        widths.push(leaf * 0.45)
+        if (!this.cells) for (const side of [-1, 1]) parts.push(cap(nx, ny, nx + Math.cos(angle + side * 0.8) * leaf, ny + Math.sin(angle + side * 0.8) * leaf, 0.004 * H, 0.0012 * H, frond))
         ;[px, py] = [nx, ny]
       }
-      this.shape(parts, this.lighting, this.look.style === "rim" ? 0.3 : 0.6)
+      if (this.cells) parts.push(...blade(spine, widths, frond))
+      // On terminal cells rim light would outline every frond in scribbles; they stay near-silhouettes there.
+      this.shape(parts, this.lighting, this.look.style === "rim" ? (this.cells ? 0.18 : 0.3) : 0.6)
     }
     this.shape([ell(x * H, (top - 0.008) * H, size * 0.12 * H, size * 0.16 * H, 0, this.paint([0.7, 0.5, 0.2]), 3)], this.lighting, 0.6)
   }
 
   // A clump of fern fronds arching out and drooping at the tips; the front clumps sway in the breeze.
-  private drawFern(x: number, y: number, size: number, seed: number, sway: boolean) {
+  private drawFern(x: number, y: number, size: number, seed: number, swaying: boolean) {
     const H = this.H
     const fern = this.paint(FERN)
     for (let i = 0; i < 7; i++) {
       const base = -Math.PI / 2 + ((i / 6) * 2 - 1) * 1.15 + (hash(seed * 5 + i) - 0.5) * 0.2
-      const bend = sway ? Math.sin(this.time * 0.7 + i * 1.3 + seed * 2) * 0.05 : 0
+      // Turned whichever way carries the tip downwind.
+      const bend = swaying ? sway(x, this.time, i * 1.3 + seed * 2) * 0.05 * (Math.sin(base) > 0 ? -1 : 1) : 0
       const len = size * (0.75 + hash(seed * 7 + i) * 0.35) * H
       const parts: Part[] = []
       let [px, py] = [x * H, y * H]
+      const spine: [number, number][] = [[px, py]]
+      const widths = [1]
       let angle = base + bend
       for (let s = 0; s < 7; s++) {
         const q = s / 7
         angle += (Math.cos(base) >= 0 ? 1 : -1) * 0.1 * (0.4 + Math.abs(Math.cos(base))) + bend * 0.3
         const nx = px + Math.cos(angle) * (len / 7)
         const ny = py + Math.sin(angle) * (len / 7)
-        parts.push(cap(px, py, nx, ny, lerp(0.004, 0.0012, q) * H, lerp(0.004, 0.0012, q + 1 / 7) * H, fern))
+        parts.push(cap(px, py, nx, ny, this.thick(lerp(0.004, 0.0012, q)), this.thick(lerp(0.004, 0.0012, q + 1 / 7), 0.7), fern))
         const leaf = Math.sin(Math.PI * (0.25 + q * 0.75)) * size * 0.22 * H
-        for (const side of [-1, 1]) parts.push(cap(nx, ny, nx + Math.cos(angle + side * 1.15) * leaf, ny + Math.sin(angle + side * 1.15) * leaf, 0.0045 * H, 0.001 * H, fern))
+        spine.push([nx, ny])
+        widths.push(leaf * 0.55)
+        if (!this.cells) for (const side of [-1, 1]) parts.push(cap(nx, ny, nx + Math.cos(angle + side * 1.15) * leaf, ny + Math.sin(angle + side * 1.15) * leaf, 0.0045 * H, 0.001 * H, fern))
         ;[px, py] = [nx, ny]
       }
-      this.shape(parts, this.lighting, this.look.style === "rim" ? 0.3 : 0.6)
+      if (this.cells) parts.push(...blade(spine, widths, fern))
+      // On terminal cells rim light would outline every frond in scribbles; they stay near-silhouettes there.
+      this.shape(parts, this.lighting, this.look.style === "rim" ? (this.cells ? 0.18 : 0.3) : 0.6)
     }
+  }
+
+  // Where the plume levels off and its smoke starts to drift away as ash, in screen heights.
+  private plumeTop() {
+    return this.A - VENT_X + 0.08
   }
 
   // Smoke billows up from the crater and leans downwind, lit from below by the lava when it is fresh.
   private drawSmoke() {
     const { A, H, look } = this
     const [hot, cool, alpha] = look.smoke
+    // A passing gust bends the plume further over.
+    const blown = 0.0025 * gust(A - VENT_X, this.time)
     for (const s of this.smoke) {
       const t = s.age
-      const x = (VENT_X * A + (hash(s.seed) - 0.5) * 0.02 + 0.002 * t + 0.0009 * t * t + 0.006 * Math.sin(t * 0.7 + s.seed)) * H
+      const x = (A - VENT_X + (hash(s.seed) - 0.5) * 0.02 + 0.002 * t + 0.0009 * t * t + 0.006 * Math.sin(t * 0.7 + s.seed) + blown * t) * H
       const y = (CRATER - 0.004 - 0.018 * t + 0.0004 * t * t) * H
       const r = (0.012 + 0.006 * t) * (0.8 + hash(s.seed + 1) * 0.4) * H
       const a = alpha * smoothstep(0, 1.5, t) * (1 - smoothstep(8, SMOKE_LIFE, t))
@@ -577,6 +704,7 @@ class Prehistoric extends Canvas {
   // The sauropod browses one tree's crown, turns, plods over to the other tree and browses there.
   private stepSauropod(dt: number) {
     const s = this.sauropod
+    stepGait(s.g, s.mode === "walk" ? (0.05 * dt) / 0.06 : 0, dt, s.face)
     s.pose = clamp(s.pose + (s.mode === "browse" ? 0.5 : -0.5) * dt, 0, 1)
     if (s.mode === "browse") {
       s.timer -= dt
@@ -595,7 +723,6 @@ class Prehistoric extends Canvas {
     const [from, to] = this.sauropodSpots()
     const speed = 0.05 / Math.max(0.05, Math.abs(to - from))
     s.p = clamp(s.p + s.face * speed * dt, 0, 1)
-    s.phase += dt * 0.05 / 0.06
     if ((s.face > 0 && s.p < 1) || (s.face < 0 && s.p > 0)) return
     s.mode = "browse"
     s.timer = rand(3, 6)
@@ -609,40 +736,35 @@ class Prehistoric extends Canvas {
   private drawSauropod() {
     const H = this.H
     const s = this.sauropod
+    const g = s.g
     const [from, to] = this.sauropodSpots()
-    const bx = lerp(from, to, s.p)
-    const F = 0.668
-    const f = s.face
-    const side = f < 0 ? -1 : 1
+    const side = s.face < 0 ? -1 : 1
+    const rise = bob(g.phase) * g.go * 0.004
+    const P = body(lerp(from, to, s.p) * H, 0.668 * H, H, s.face)
     const skin = this.paint(SAUROPOD)
-    const dark = this.paint([SAUROPOD[0] * 0.75, SAUROPOD[1] * 0.75, SAUROPOD[2] * 0.75])
-    const walking = s.mode === "walk" ? 1 : 0
-    const P = (u: number, v: number): [number, number] => [(bx + u * f) * H, (F + v) * H]
-    const leg = (u: number, offset: number, color: RGB) => {
-      const p = (s.phase + offset) % 1
-      const q = p < 0.5 ? p / 0.5 : (p - 0.5) / 0.5
-      const du = walking * (p < 0.5 ? lerp(0.025, -0.025, q) : lerp(-0.025, 0.025, smoothstep(0, 1, q)))
-      const lift = walking * (p < 0.5 ? 0 : Math.sin(Math.PI * q) * 0.01)
-      return cap(...P(u, -0.075), ...P(u + du, -lift), 0.014 * H, 0.012 * H, color)
-    }
-    this.shape([leg(0.055, 0.5, dark), leg(-0.075, 0, dark)], this.lighting, 0.5)
+    const legs = { fore: 0.07, hind: 0.06, top: 0.085 - rise, w: 0.022, a: 0.038, b: 0.037, reach: 0.018, lift: 0.012, r: [0.02, 0.016, 0.015] as [number, number, number] }
+    this.shape(quadruped(P, g, true, { ...legs, color: this.paint([SAUROPOD[0] * 0.75, SAUROPOD[1] * 0.75, SAUROPOD[2] * 0.75]) }), this.lighting, 0.5)
     const browsing: [number, number] = [this.trees[side > 0 ? 1 : 0] - side * 0.035 + Math.sin(this.time * 0.4) * 0.006, (side > 0 ? 0.35 : 0.33) + Math.sin(this.time * 0.9) * 0.004]
-    const shoulder = P(0.07, -0.108)
-    const walkHead: [number, number] = [shoulder[0] / H + f * 0.11, shoulder[1] / H - 0.14]
+    const shoulder = P(0.07, -0.11 - rise)
+    // Walking, the head rides ahead of the shoulders, nodding a beat behind each step.
+    const walkHead = P(0.18, -0.25 - rise + Math.cos(TAU * 2 * g.phase - 1.5) * 0.004 * g.go)
     const pose = smoothstep(0, 1, s.pose)
-    const head: [number, number] = [lerp(walkHead[0], browsing[0], pose) * H, lerp(walkHead[1], browsing[1], pose) * H]
+    const head: [number, number] = [lerp(walkHead[0], browsing[0] * H, pose), lerp(walkHead[1], browsing[1] * H, pose)]
     const ctrl: [number, number] = [shoulder[0] + (head[0] - shoulder[0]) * 0.1, head[1] + (shoulder[1] - head[1]) * 0.6]
-    const parts: Part[] = [leg(0.075, 0, skin), leg(-0.055, 0.5, skin)]
-    parts.push(ell(...P(0, -0.09), Math.max(0.035, 0.115 * Math.abs(f)) * H, 0.05 * H, -0.12 * side * Math.abs(f), skin))
-    const tail = (t: number): [number, number] => {
-      const sway = Math.sin(this.time * 0.5 + t * 2) * 0.01 * t
-      return P(lerp(-0.08, -0.29, t), lerp(-0.095, -0.03 + sway, t) + 0.03 * Math.sin(Math.PI * t))
-    }
-    for (let i = 0; i < 6; i++) parts.push(cap(...tail(i / 6), ...tail((i + 1) / 6), lerp(0.03, 0.003, i / 6) * H, lerp(0.03, 0.003, (i + 1) / 6) * H, skin))
     const neck = (t: number): [number, number] => [(1 - t) ** 2 * shoulder[0] + 2 * (1 - t) * t * ctrl[0] + t * t * head[0], (1 - t) ** 2 * shoulder[1] + 2 * (1 - t) * t * ctrl[1] + t * t * head[1]]
-    for (let i = 0; i < 8; i++) parts.push(cap(...neck(i / 8), ...neck((i + 1) / 8), lerp(0.028, 0.009, i / 8) * H, lerp(0.028, 0.009, (i + 1) / 8) * H, skin))
-    parts.push(ell(head[0] + side * 0.008 * H, head[1], 0.017 * H, 0.0105 * H, side * 0.2, skin))
-    this.shape(parts, this.lighting, 0.6)
+    // The tail trails a turn and sways a beat behind the steps.
+    const tail = (t: number) => P(lerp(-0.08, -0.29, t), lerp(-0.097 - rise, -0.03, t) + 0.03 * Math.sin(Math.PI * t) + (Math.sin(this.time * 0.5 + t * 2) * 0.01 + Math.sin(TAU * 2 * g.phase - t * 2) * 0.006 * g.go) * t, -g.lag * 0.06 * t * t)
+    this.shape(
+      [
+        ...quadruped(P, g, false, { ...legs, color: skin }),
+        ell(...P(0, -0.092 - rise), P.len(0.115, 0.04), 0.05 * H, -0.12 * P.along, skin),
+        ...chain(tail, 6, 0.03 * H, 0.003 * H, skin),
+        ...chain(neck, 8, 0.028 * H, 0.009 * H, skin),
+        ell(head[0] + side * 0.008 * H, head[1], 0.017 * H, 0.0105 * H, side * 0.2, skin),
+      ],
+      this.lighting,
+      0.6,
+    )
   }
 
   // Now and then a T. rex stomps across the foreground, tail swaying, kicking up dust at each footfall.
@@ -679,49 +801,51 @@ class Prehistoric extends Canvas {
     const r = this.rex
     if (r.x < -5) return
     const H = this.H
-    const S = 0.3 * H
-    const x = r.x * H
-    const y = 0.935 * H
-    const bob = Math.abs(Math.cos(r.phase * TAU)) * 0.015
-    const P = (u: number, v: number): [number, number] => [x + u * r.dir * S, y + v * S]
+    const P = body(r.x * H, 0.935 * H, 0.3 * H, r.dir)
+    const S = P.S
+    const rise = bob(r.phase, 0.55) * 0.02
     const skin = this.paint(REX)
     const dark = this.paint([REX[0] * 0.7, REX[1] * 0.7, REX[2] * 0.7])
+    // A bird-like leg: a heavy thigh, the knee forward, a long shin back to the ankle, then the foot to splayed toes.
     const leg = (offset: number, color: RGB): Part[] => {
-      const p = (r.phase + offset) % 1
-      const q = p < 0.5 ? p / 0.5 : (p - 0.5) / 0.5
-      const fu = p < 0.5 ? lerp(0.17, -0.17, q) : lerp(-0.17, 0.17, smoothstep(0, 1, q))
-      const lift = p < 0.5 ? 0 : Math.sin(Math.PI * q) * 0.07
-      const hip: [number, number] = [0, -0.56 + bob]
-      const ankle: [number, number] = [fu - 0.06, -0.13 - lift]
-      const knee: [number, number] = [(hip[0] + ankle[0]) / 2 + 0.1, (hip[1] + ankle[1]) / 2]
+      const [reach, lift] = stride(r.phase, offset, 0.55)
+      const fu = reach * 0.19
+      const fv = -lift * 0.08
+      const ankle: [number, number] = [fu - 0.08, fv - 0.13]
       return [
-        cap(...P(...hip), ...P(...knee), 0.11 * S, 0.06 * S, color),
-        cap(...P(...knee), ...P(...ankle), 0.055 * S, 0.035 * S, color),
-        cap(...P(...ankle), ...P(fu, -lift), 0.035 * S, 0.03 * S, color),
-        cap(...P(fu, -lift), ...P(fu + 0.1, -lift), 0.03 * S, 0.015 * S, color),
+        ...limb(P, 0, -0.57 - rise, ...ankle, 0.25, 0.27, -1, 0.14 * S, 0.065 * S, 0.04 * S, color),
+        cap(...P(...ankle), ...P(fu + 0.01, fv - 0.025), 0.04 * S, 0.03 * S, color),
+        cap(...P(fu - 0.01, fv - 0.022), ...P(fu + 0.12, fv - 0.012 - lift * 0.03), 0.032 * S, 0.012 * S, color),
       ]
     }
     this.shape(leg(0.5, dark), this.lighting, 0.5)
-    const parts = leg(0, skin)
-    const tail = (t: number): [number, number] => P(lerp(-0.18, -0.9, t), lerp(-0.62 + bob, -0.5, t) + Math.sin(r.phase * TAU + t * 2) * 0.03 * t)
-    for (let i = 0; i < 6; i++) parts.push(cap(...tail(i / 6), ...tail((i + 1) / 6), lerp(0.13, 0.012, i / 6) * S, lerp(0.13, 0.012, (i + 1) / 6) * S, skin))
-    const nod = Math.sin(r.phase * TAU * 2) * 0.012
-    parts.push(
-      ell(...P(0.04, -0.62 + bob), 0.3 * S, 0.15 * S, -0.12 * r.dir, skin),
-      cap(...P(0.24, -0.68 + bob), ...P(0.38, -0.78 + bob + nod), 0.1 * S, 0.075 * S, skin),
-      ell(...P(0.5, -0.8 + bob + nod), 0.15 * S, 0.075 * S, 0.06 * r.dir, skin),
-      cap(...P(0.42, -0.74 + bob + nod), ...P(0.62, -0.75 + bob + nod), 0.045 * S, 0.03 * S, skin),
-      cap(...P(0.27, -0.58 + bob), ...P(0.33, -0.5 + bob), 0.026 * S, 0.02 * S, skin),
-      cap(...P(0.33, -0.5 + bob), ...P(0.37, -0.53 + bob), 0.018 * S, 0.008 * S, skin),
-    )
-    this.shape(parts, this.lighting, 0.7)
+    const nod = Math.cos(TAU * 2 * r.phase - 1.2) * 0.015
+    const jaw = Math.max(0, Math.sin(this.creatureTime * 0.9 + 1)) ** 8 * 0.05
+    // The tail counterbalances the head and swings a beat behind each step.
+    const tail = (t: number) => P(lerp(-0.16, -0.95, t), lerp(-0.66 - rise, -0.57, t) - 0.04 * Math.sin(Math.PI * t) + Math.sin(TAU * 2 * r.phase - 1 - t * 2.5) * 0.03 * t)
+    const [hu, hv] = [0.47, -0.84 - rise + nod]
     this.shape(
-      [0, 1, 2, 3].map((k) => cap(...P(-0.16 + k * 0.1, -0.76 + bob), ...P(-0.13 + k * 0.1, -0.63 + bob), 0.02 * S, 0.01 * S, dark)),
+      [
+        ...leg(0, skin),
+        ...chain(tail, 7, 0.14 * S, 0.012 * S, skin),
+        ell(...P(0.04, -0.64 - rise), 0.29 * S, 0.15 * S, 0.12 * r.dir, skin),
+        ell(...P(0.2, -0.62 - rise), 0.13 * S, 0.14 * S, 0, skin),
+        cap(...P(0.24, -0.7 - rise), ...P(hu - 0.07, hv + 0.02), 0.11 * S, 0.075 * S, skin),
+        ell(...P(hu, hv), 0.12 * S, 0.075 * S, 0.1 * r.dir, skin),
+        cap(...P(hu + 0.04, hv - 0.01), ...P(hu + 0.19, hv + 0.025), 0.065 * S, 0.042 * S, skin),
+        cap(...P(hu - 0.02, hv + 0.05), ...P(hu + 0.16, hv + 0.06 + jaw), 0.05 * S, 0.026 * S, skin),
+        ...limb(P, 0.27, -0.6 - rise, 0.35, -0.53 - rise + nod * 0.5, 0.07, 0.07, 1, 0.026 * S, 0.02 * S, 0.014 * S, skin),
+      ],
+      this.lighting,
+      0.7,
+    )
+    this.shape(
+      [0, 1, 2, 3].map((k) => cap(...P(-0.16 + k * 0.1, -0.77 - rise), ...P(-0.13 + k * 0.1, -0.64 - rise), 0.02 * S, 0.01 * S, dark)),
       this.lighting,
       0.2,
     )
     const eye = this.paint([0.95, 0.7, 0.1])
-    this.disc(...P(0.52, -0.84 + bob + nod), 0.016 * S, eye[0], eye[1], eye[2], 1)
+    this.disc(...P(hu + 0.05, hv - 0.035), 0.016 * S, eye[0], eye[1], eye[2], 1)
   }
 
   private stepDelorean(dt: number) {
@@ -797,8 +921,7 @@ class Prehistoric extends Canvas {
     w.wanderT -= dt
     if (w.wanderT <= 0) {
       w.wanderT = rand(6, 14)
-      w.wx = rand(zone[0], zone[1])
-      w.wy = rand(zone[2], zone[3])
+      ;[w.wx, w.wy] = this.openSpot(...zone)
     }
     const dx = w.wx - w.x
     const dy = w.wy - w.y
@@ -814,33 +937,38 @@ class Prehistoric extends Canvas {
     w.y += (dy / d) * speed * dt
   }
 
-  // A triceratops with its bony frill and three horns, lowering its head to crop the ferns.
+  // A triceratops with its bony frill and three horns, plodding on stout legs and lowering its head to crop the ferns.
   private drawTriceratops(w: Walker) {
     const H = this.H
-    const S = 0.2 * H * (0.6 + (w.y - 0.7) * 2.5) * w.size
-    const x = w.x * H
-    const y = w.y * H
-    const P = (u: number, v: number): [number, number] => [x + u * w.face * S, y + v * S]
-    const swing = w.moving ? Math.sin(w.phase) * 0.06 : 0
+    const g = w.g
+    const P = body(w.x * H, w.y * H, 0.27 * H * (0.6 + (w.y - 0.7) * 2.5) * w.size, g.turn)
+    const S = P.S
     const skin = this.paint(TRIKE)
-    const g = w.graze
-    const [hu, hv] = [lerp(0.5, 0.58, g), lerp(-0.5, -0.24, g)]
-    const parts: Part[] = []
-    for (const [u, s] of [[0.24, 1], [0.3, -1], [-0.22, -1], [-0.28, 1]] as const) parts.push(cap(...P(u, -0.3), ...P(u + swing * s, 0), 0.07 * S, 0.06 * S, skin))
-    parts.push(
-      cap(...P(-0.36, -0.44), ...P(-0.68, -0.3), 0.09 * S, 0.015 * S, skin),
-      ell(...P(0, -0.44), 0.42 * S, 0.24 * S, 0, skin),
-      ell(...P(hu - 0.08, hv - 0.1), 0.12 * S, 0.19 * S, lerp(-0.45, -0.1, g) * w.face, this.paint([0.62, 0.34, 0.18])),
-      ell(...P(hu + 0.06, hv + 0.02), 0.14 * S, 0.085 * S, lerp(0.25, 0.8, g) * w.face, skin),
-      cap(...P(hu + 0.17, hv + 0.06), ...P(hu + 0.23, hv + 0.11), 0.04 * S, 0.012 * S, skin),
+    const rise = bob(g.phase) * g.go * 0.012
+    const legs = { fore: 0.24, hind: 0.24, top: 0.32 - rise, w: 0.11, a: 0.17, b: 0.16, reach: 0.15, lift: 0.07, r: [0.1, 0.065, 0.055] as [number, number, number], paw: [0.03, this.paint([0.4, 0.33, 0.21])] as [number, RGB] }
+    this.shape(quadruped(P, g, true, { ...legs, color: this.paint([TRIKE[0] * 0.75, TRIKE[1] * 0.75, TRIKE[2] * 0.75]) }), this.lighting, 0.7)
+    const gz = smoothstep(0, 1, w.graze)
+    const nod = Math.cos(TAU * 2 * g.phase - 1) * 0.02 * g.go
+    const [hu, hv] = [lerp(0.48, 0.56, gz), lerp(-0.44, -0.22, gz) + nod - rise]
+    const tail = (t: number) => P(lerp(-0.26, -0.74, t), lerp(-0.48 - rise, -0.3, t) + Math.sin(TAU * 2 * g.phase - t * 2) * 0.025 * t * g.go, -g.lag * 0.08 * t * t)
+    this.shape(
+      [
+        ...quadruped(P, g, false, { ...legs, color: skin }),
+        ...chain(tail, 5, 0.15 * S, 0.015 * S, skin),
+        ell(...P(-0.02, -0.46 - rise), P.len(0.4, 0.2), 0.23 * S, 0.08 * P.along, skin),
+        ell(...P(hu - 0.08, hv - 0.1), P.len(0.11, 0.18), 0.19 * S, lerp(-0.45, -0.1, gz) * P.along, this.paint([0.62, 0.34, 0.18])),
+        cap(...P(hu - 0.02, hv - 0.02), ...P(hu + 0.19, hv + 0.07), 0.1 * S, 0.045 * S, skin),
+        cap(...P(hu + 0.17, hv + 0.06), ...P(hu + 0.23, hv + 0.12), 0.04 * S, 0.012 * S, this.paint([0.3, 0.25, 0.17])),
+      ],
+      this.lighting,
+      0.7,
     )
-    this.shape(parts, this.lighting, 0.7)
     const bone = this.paint(BONE)
     this.shape(
       [
-        cap(...P(hu + 0.02, hv - 0.04), ...P(hu + 0.28, hv - 0.2 + g * 0.14), 0.025 * S, 0.004 * S, bone),
-        cap(...P(hu + 0.06, hv - 0.03), ...P(hu + 0.31, hv - 0.15 + g * 0.14), 0.022 * S, 0.004 * S, bone),
-        cap(...P(hu + 0.16, hv + 0.01), ...P(hu + 0.2, hv - 0.06), 0.02 * S, 0.004 * S, bone),
+        cap(...P(hu + 0.02, hv - 0.06), ...P(hu + 0.28, hv - 0.22 + gz * 0.14), 0.026 * S, 0.004 * S, bone),
+        cap(...P(hu + 0.05, hv - 0.05, 0.05), ...P(hu + 0.31, hv - 0.17 + gz * 0.14, 0.08), 0.022 * S, 0.004 * S, bone),
+        cap(...P(hu + 0.15, hv + 0.01), ...P(hu + 0.19, hv - 0.07), 0.022 * S, 0.004 * S, bone),
       ],
       this.lighting,
       0.5,
@@ -890,8 +1018,7 @@ class Prehistoric extends Canvas {
       if (n.wait > 0) return
       const [cx, cy, rx, ry] = this.lake()
       n.t = 0
-      n.x = cx + rand(-0.6, 0.6) * rx
-      n.y = cy + rand(-0.2, 0.4) * ry
+      ;[n.x, n.y] = this.openSpot(cx - 0.6 * rx, cx + 0.6 * rx, cy - 0.2 * ry, cy + 0.4 * ry)
       n.dir = Math.random() < 0.5 ? 1 : -1
       return
     }
@@ -957,9 +1084,9 @@ export const prehistoric: Wallpaper = {
       [14, 28, 10],
     ],
     sunset: [
-      [30, 14, 26],
-      [36, 16, 16],
-      [10, 6, 6],
+      [18, 14, 14],
+      [34, 12, 8],
+      [12, 6, 5],
     ],
     night: [
       [4, 6, 16],

@@ -1,10 +1,15 @@
 import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
+import { bob, limb, stride } from "../src/creature"
 import { eggWait } from "../src/egg"
 import { bird, flyAway, startle, type Flier } from "../src/flock"
+import { haze } from "../src/grade"
+import { lightPool } from "../src/light"
 import { TAU, clamp, fbm1, hash, hash2, lerp, rand, smoothstep, type RGB } from "../src/math"
-import { driftClouds, makeClouds, makeStars, makeStorm, paintClouds, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
+import { groundShadow, sunShade, type Shade } from "../src/shadow"
+import { driftClouds, makeClouds, makeStars, makeStorm, paintClouds, paintHaze, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
 import type { Activity, Settings, Time, Wallpaper } from "../src/wallpaper"
 import { WeatherLayer } from "../src/weather"
+import { gust, sway } from "../src/wind"
 
 // The scene runs slower than real time, which keeps it calm behind text.
 const TIME_SCALE = 0.35
@@ -27,7 +32,7 @@ interface Look {
   sky: [number, RGB][]
   orb: Orb
   stars: number
-  clouds: { puffy: boolean; top: RGB; bottom: RGB; alpha: number }
+  clouds: { top: RGB; bottom: RGB; alpha: number }
   // The far skyline's hazy color and the river from far to near.
   haze: RGB
   river: [far: RGB, near: RGB]
@@ -54,11 +59,11 @@ const LOOKS: Record<Time, Look> = {
     ],
     orb: { x: 0.14, y: 0.11, r: 0.035, core: [5, 4.6, 3.8], glow: [1, 0.95, 0.8], near: 0.45, wide: 0.12 },
     stars: 0,
-    clouds: { puffy: true, top: [1.1, 1.1, 1.1], bottom: [0.6, 0.66, 0.78], alpha: 0.85 },
-    haze: [0.55, 0.65, 0.78],
+    clouds: { top: [1.1, 1.1, 1.1], bottom: [0.6, 0.66, 0.78], alpha: 0.85 },
+    haze: [0.48, 0.6, 0.8],
     river: [
-      [0.2, 0.36, 0.48],
-      [0.08, 0.2, 0.3],
+      [0.12, 0.3, 0.48],
+      [0.05, 0.16, 0.3],
     ],
     reflect: 0.55,
     tint: [1, 1, 1],
@@ -69,23 +74,24 @@ const LOOKS: Record<Time, Look> = {
   },
   sunset: {
     style: "rim",
-    light: [1, 0.5, 0.2],
+    // Smog: magenta overhead, thick amber over the rooftops, and a dull orange sun sinking between the towers.
+    light: [1, 0.55, 0.16],
     sky: [
-      [0, [0.03, 0.02, 0.08]],
-      [0.25, [0.12, 0.04, 0.12]],
-      [0.45, [0.45, 0.14, 0.14]],
-      [BANK, [1, 0.5, 0.18]],
+      [0, [0.06, 0.012, 0.06]],
+      [0.2, [0.2, 0.035, 0.16]],
+      [0.38, [0.55, 0.14, 0.22]],
+      [BANK, [1, 0.56, 0.14]],
     ],
-    orb: { x: 0.7, y: 0.5, r: 0.055, core: [3.2, 1.7, 0.6], glow: [1, 0.42, 0.14], near: 0.5, wide: 0.25 },
-    stars: 20,
-    clouds: { puffy: false, top: [0.1, 0.035, 0.09], bottom: [0.8, 0.3, 0.2], alpha: 0.55 },
-    haze: [0.36, 0.14, 0.16],
+    orb: { x: 0.62, y: 0.4, r: 0.065, core: [2.6, 1.3, 0.35], glow: [1, 0.5, 0.12], near: 0.45, wide: 0.35 },
+    stars: 0,
+    clouds: { top: [0.2, 0.04, 0.16], bottom: [0.95, 0.4, 0.3], alpha: 0.5 },
+    haze: [0.6, 0.27, 0.12],
     river: [
-      [0.4, 0.16, 0.14],
-      [0.1, 0.05, 0.09],
+      [0.62, 0.28, 0.12],
+      [0.14, 0.03, 0.1],
     ],
     reflect: 0.6,
-    tint: [0.2, 0.12, 0.11],
+    tint: [0.22, 0.1, 0.13],
     windows: [AMBER, GOLD],
     lit: 0.18,
     glow: 0.55,
@@ -93,15 +99,16 @@ const LOOKS: Record<Time, Look> = {
   },
   night: {
     style: "rim",
-    light: [0.25, 0.3, 1],
+    light: [0.35, 0.42, 1.4],
     sky: [
       [0, [0.004, 0.006, 0.03]],
-      [0.32, [0.014, 0.016, 0.06]],
-      [BANK, [0.1, 0.035, 0.14]],
+      [0.32, [0.016, 0.018, 0.07]],
+      [0.45, [0.05, 0.025, 0.12]],
+      [BANK, [0.15, 0.05, 0.2]],
     ],
     orb: { x: 0.82, y: 0.12, r: 0.03, core: [1, 0.72, 0.3], glow: [0.45, 0.3, 0.12], near: 0.2, wide: 0.08, moon: true },
     stars: 50,
-    clouds: { puffy: false, top: [0.015, 0.02, 0.05], bottom: [0.08, 0.05, 0.2], alpha: 0.4 },
+    clouds: { top: [0.015, 0.02, 0.05], bottom: [0.08, 0.05, 0.2], alpha: 0.4 },
     haze: [0.035, 0.03, 0.08],
     river: [
       [0.03, 0.025, 0.08],
@@ -124,12 +131,12 @@ const DAYLIGHT = (() => {
 
 // Daytime colors.
 const FACADES: RGB[] = [
-  [0.5, 0.56, 0.64],
-  [0.68, 0.62, 0.52],
-  [0.32, 0.46, 0.6],
-  [0.58, 0.42, 0.36],
-  [0.4, 0.52, 0.54],
-  [0.62, 0.62, 0.68],
+  [0.3, 0.42, 0.6],
+  [0.7, 0.55, 0.4],
+  [0.18, 0.33, 0.55],
+  [0.62, 0.36, 0.26],
+  [0.22, 0.43, 0.48],
+  [0.66, 0.6, 0.53],
 ]
 const PAINT: RGB[] = [
   [0.75, 0.12, 0.1],
@@ -140,6 +147,12 @@ const PAINT: RGB[] = [
   [0.3, 0.55, 0.4],
   [0.55, 0.56, 0.6],
 ]
+const HAIR: RGB[] = [
+  [0.12, 0.08, 0.05],
+  [0.45, 0.28, 0.12],
+  [0.05, 0.05, 0.06],
+  [0.7, 0.55, 0.3],
+]
 const NEON: RGB[] = [
   [1.5, 0.2, 0.95],
   [0.2, 1.3, 1.25],
@@ -148,6 +161,10 @@ const NEON: RGB[] = [
   [1.4, 0.95, 0.2],
 ]
 const CONCRETE: RGB = [0.58, 0.56, 0.53]
+const FLAGS: RGB[] = [
+  [0.8, 0.12, 0.1],
+  [0.12, 0.32, 0.75],
+]
 const STEEL: RGB = [0.62, 0.17, 0.11]
 const HEADLIGHT: RGB = [1.4, 0.95, 0.3]
 const TAILLIGHT: RGB = [1.4, 0.08, 0.06]
@@ -188,8 +205,11 @@ interface Car {
 interface Walker {
   x: number
   dir: number
+  // Strides taken: one per step of both feet.
   phase: number
+  size: number
   coat: RGB
+  hair: RGB
   umbrella: RGB
 }
 
@@ -215,6 +235,7 @@ class City extends Canvas {
   private readonly activity: Activity
   private readonly look: Look
   private lighting: Lighting = { style: "front", dir: DAYLIGHT }
+  private readonly shade: Shade
   private background = new Float32Array(0)
   // The river with the skyline reflected in it, which each frame ripples sideways where `water` is set.
   private river = new Float32Array(0)
@@ -248,13 +269,15 @@ class City extends Canvas {
     super()
     this.activity = settings.activity
     this.look = LOOKS[settings.time]
+    if (settings.time === "day") this.frame = 0.4
     this.stars = makeStars(this.look.stars, 0.45)
-    this.clouds = makeClouds(this.look.clouds.puffy ? 3 : 4, this.look.clouds.puffy, 0.04, 0.1)
+    this.clouds = makeClouds(2, "stratus", 0.05, 0.12)
     this.weather = new WeatherLayer(settings.weather ?? "clear", settings.time, BANK)
+    this.shade = sunShade(settings.time, this.look.orb, this.weather.covered)
     this.wet = settings.weather ? settings.weather === "rain" || settings.weather === "snow" : this.look.night && settings.activity === "teeming"
     if (settings.activity !== "teeming") return
     const umbrellas: RGB[] = [[0.1, 0.55, 0.6], [0.6, 0.1, 0.4], [0.65, 0.35, 0.05], [0.3, 0.15, 0.6], [0.6, 0.1, 0.08]]
-    this.walkers = Array.from({ length: 5 }, (_, i) => ({ x: 0.15 + i * 0.37, dir: i % 2 ? -1 : 1, phase: Math.random() * TAU, coat: PAINT[(i * 3) % PAINT.length], umbrella: umbrellas[i] }))
+    this.walkers = Array.from({ length: 5 }, (_, i) => ({ x: 0.15 + i * 0.37, dir: i % 2 ? -1 : 1, phase: Math.random(), size: [1, 0.92, 1.06, 0.97, 1.03][i], coat: PAINT[(i * 3) % PAINT.length], hair: HAIR[i % HAIR.length], umbrella: umbrellas[i] }))
     if (this.look.night && !settings.weather) this.rain = Array.from({ length: 30 }, () => ({ x: Math.random() * 2, y: Math.random(), speed: rand(0.9, 1.3) }))
   }
 
@@ -277,7 +300,7 @@ class City extends Canvas {
       if (b.x < -0.15) b.x = this.A + 0.15
     }
     for (const w of this.walkers) {
-      w.phase += cdt * 6
+      w.phase += (0.06 * cdt) / (0.07 * w.size)
       w.x += w.dir * 0.06 * cdt
       if (w.x > this.A + 0.05) w.x = -0.05
       if (w.x < -0.05) w.x = this.A + 0.05
@@ -296,7 +319,7 @@ class City extends Canvas {
     this.hdr.set(this.background)
     if (!this.weather.covered) paintStars(this.hdr, W, H, this.visibleStars, this.time, BANK, 0.4)
     const [top, bottom] = this.weather.scud ?? [look.clouds.top, look.clouds.bottom]
-    paintClouds(this.hdr, W, H, this.clouds, top, bottom, look.clouds.alpha, look.clouds.puffy)
+    paintClouds(this.hdr, W, H, this.clouds, top, bottom, look.clouds.alpha, this.weather.covered ? undefined : look.orb)
     paintStorm(this.hdr, W, H, this.storm, look.clouds.top, look.clouds.bottom, this.gloom)
     if (this.hero.t >= 0) this.drawHero()
     this.drawBlimp()
@@ -304,12 +327,17 @@ class City extends Canvas {
     this.drawLights()
     if (this.activity !== "calm") this.drawTrain()
     if (this.activity === "teeming") for (const b of this.boats) this.drawBoat(b)
+    this.drawPromenade()
+    for (const c of this.cars) this.ground(c.x, LANES[c.lane].y, (c.bus ? 0.08 : 0.04) * LANES[c.lane].scale, (c.bus ? 0.023 : 0.015) * LANES[c.lane].scale, 1)
     for (const c of this.cars) if (c.lane === 0) this.drawCar(c)
     for (const c of this.cars) if (c.lane === 1) this.drawCar(c)
     // The barrier sits in front of the near lane, so it is copied back over the cars.
     const a = Math.floor((ROAD + 0.012) * H) * W * 3
     this.hdr.set(this.background.subarray(a, Math.ceil((ROAD + 0.026) * H) * W * 3), a)
+    for (const w of this.walkers) this.ground(w.x, 0.996, 0.02, 0.1, 0.8)
     for (const w of this.walkers) this.drawWalker(w)
+    // At night the lamps under the highway light the sidewalk and the people passing beneath them.
+    if (look.night) for (let i = 0; this.pillarX(i) - 0.21 < this.A + 0.1; i++) lightPool(this.hdr, W, H, (this.pillarX(i) - 0.21) * H, 0.96 * H, 0.14 * H, 0.08 * H, [1, 0.5, 0.12], 3, 0)
     for (const b of this.pigeons) this.shape(bird(b, H, 0.022 * H, this.paint([0.42, 0.44, 0.5])), this.lighting, 0.4)
     this.drawRain()
     this.weather.draw(this.hdr, W, H)
@@ -335,17 +363,22 @@ class City extends Canvas {
     this.beacons = []
     this.flickers = []
     this.sign = undefined
-    // Hazy towers on the far side of the city, then the downtown skyline, tallest toward the middle.
+    // Hazy towers on the far side of the city, then the skyline, tallest in two districts toward the sides where text
+    // rarely covers them, and lower across the middle.
     for (let x = -0.03, i = 0; x < A + 0.03; i++) {
       const w = 0.035 + hash(i * 1.7 + 0.3) * 0.05
       this.paintTower(this.tower(x, w, 0.06 + hash(i * 3.1 + 0.7) ** 1.5 * 0.17, i + 500, true))
       x += w * (0.7 + hash(i * 5.3) * 0.4)
     }
+    // City haze glowing with the horizon's light over the far towers, which the downtown skyline stands in front of.
+    const horizon = look.sky[look.sky.length - 1][1]
+    paintHaze(this.hdr, W, H, BANK - 0.3, BANK, horizon, 0.7)
     const near: Tower[] = []
     for (let x = -0.02, i = 0; x < A + 0.02; i++) {
       const w = 0.05 + hash(i * 2.3 + 0.1) * 0.055
-      const downtown = 0.13 * Math.exp(-(((x + w / 2 - 0.55 * A) / 0.4) ** 2))
-      near.push(this.tower(x, w, 0.08 + hash(i * 4.7 + 0.2) ** 1.6 * 0.23 + downtown, i, false))
+      const c = x + w / 2
+      const downtown = 0.16 * Math.max(Math.exp(-(((c - 0.36) / 0.26) ** 2)), Math.exp(-(((c - A + 0.36) / 0.26) ** 2)))
+      near.push(this.tower(x, w, 0.08 + hash(i * 4.7 + 0.2) ** 1.6 * (0.16 + downtown * 0.45) + downtown, i, false))
       x += w + (hash(i * 6.1) - 0.35) * 0.03
     }
     // The tallest two get a spire and an antenna.
@@ -353,6 +386,8 @@ class City extends Canvas {
     tallest[0].crown = 3
     tallest[1].crown = 2
     for (const t of near) this.paintTower(t)
+    if (look === LOOKS.day) haze(this.hdr, sky, W, H, BANK, BANK + 0.01, 0.12)
+    paintHaze(this.hdr, W, H, BANK - 0.1, BANK, horizon, 0.25)
     this.visibleStars = this.stars.filter((s) => {
       const o = (Math.floor(s.y * H) * W + Math.floor(s.x * W)) * 3
       return this.hdr[o] === sky[o] && this.hdr[o + 1] === sky[o + 1] && this.hdr[o + 2] === sky[o + 2]
@@ -376,6 +411,11 @@ class City extends Canvas {
     if (this.warm) return
     this.warm = true
     for (let i = 0; i < 400; i++) this.stepTraffic(0.25)
+  }
+
+  private ground(x: number, y: number, w: number, h: number, tip?: number) {
+    const H = this.H
+    groundShadow(this.hdr, this.W, H, this.shade, x * H, y * H, w * H, h * H, tip)
   }
 
   private paint(c: RGB): RGB {
@@ -446,7 +486,8 @@ class City extends Canvas {
           const shade = day ? side * (0.9 + 0.15 * up) : 1
           let r = body[0] * shade
           let g = body[1] * shade
-          let b = body[2] * shade
+          // The shaded side takes the blue of the sky.
+          let b = body[2] * shade * (side < 1 ? 1.25 : 1)
           const wu = u - 0.004
           const wv = v - 0.006
           const fu = wu / cw - Math.floor(wu / cw)
@@ -457,9 +498,9 @@ class City extends Canvas {
             const row = Math.floor(wv / (t.windows === 2 ? ch * 1.5 : ch))
             const h = hash2(t.seed * 13.1 + col * 1.7, row * 3.3 + k * 17)
             const glass = day ? 0.55 + 0.2 * up : 0.6
-            r = lerp(r * glass, 0.45, day ? 0.25 : 0)
-            g = lerp(g * glass, 0.6, day ? 0.25 : 0)
-            b = lerp(b * glass, 0.78, day ? 0.25 : 0)
+            r = lerp(r * glass, 0.26, day ? 0.35 : 0)
+            g = lerp(g * glass, 0.46, day ? 0.35 : 0)
+            b = lerp(b * glass, 0.78, day ? 0.35 : 0)
             if (h < look.lit * (t.far ? 0.6 : 1)) {
               const h2 = hash(h * 91.7)
               const c = palette[h2 < 0.75 ? t.palette % palette.length : Math.floor(h2 * 997) % palette.length]
@@ -623,26 +664,22 @@ class City extends Canvas {
   private paintHighway() {
     const { A, H } = this
     const edge = this.paint([0.45, 0.42, 0.38])
-    this.polygon(this.rect(-0.01, QUAY, A + 0.01, ROAD), this.paint([0.5, 0.47, 0.42]))
+    this.polygon(this.rect(-0.01, QUAY, A + 0.01, ROAD), this.paint([0.52, 0.43, 0.34]))
     this.polygon(this.rect(-0.01, QUAY, A + 0.01, QUAY + 0.004), edge)
     const rail: Part[] = [cap(-1, (QUAY - 0.012) * H, A * H + 1, (QUAY - 0.012) * H, 0.0012 * H, 0.0012 * H, edge)]
     for (let x = 0.01; x < A; x += 0.03) rail.push(cap(x * H, QUAY * H, x * H, (QUAY - 0.012) * H, 0.001 * H, 0.001 * H, edge))
     this.shape(rail, this.lighting, 0.3)
-    // Trees along the promenade, between the highway lamps.
-    const leaves = this.paint([0.22, 0.42, 0.18])
-    for (let x = 0.29; x < A + 0.05; x += 0.34) {
-      const base = QUAY + 0.014
-      this.shape([cap(x * H, base * H, x * H, (base - 0.022) * H, 0.002 * H, 0.0015 * H, this.paint([0.35, 0.25, 0.16]))], this.lighting, 0.4)
-      this.shape([ell(x * H, (base - 0.036) * H, 0.014 * H, 0.013 * H, 0, leaves), ell((x - 0.011) * H, (base - 0.026) * H, 0.011 * H, 0.009 * H, 0, leaves), ell((x + 0.011) * H, (base - 0.027) * H, 0.011 * H, 0.009 * H, 0, leaves)], this.lighting, 0.7)
-    }
+    // Shadows of the promenade trees, which are drawn each frame so they can sway.
+    for (let x = 0.29; x < A + 0.05; x += 0.34) this.ground(x, QUAY + 0.014, 0.03, 0.05, 1.3)
     // Shade under the deck, deepening toward it, then the street and its sidewalk.
     for (let y = UNDER; y < STREET; y += 0.005) this.polygon(this.rect(-0.01, y, A + 0.01, y + 0.0052), this.paint([0.12 + (y - UNDER) * 2, 0.12 + (y - UNDER) * 2, 0.15 + (y - UNDER) * 2]))
     this.polygon(this.rect(-0.01, STREET, A + 0.01, 0.965), this.paint([0.26, 0.26, 0.28]))
     for (let x = 0.02; x < A; x += 0.07) this.polygon(this.rect(x, 0.931, x + 0.032, 0.935), this.paint([0.8, 0.72, 0.35]))
-    this.polygon(this.rect(-0.01, 0.965, A + 0.01, 1.01), this.paint([0.48, 0.46, 0.43]))
+    this.polygon(this.rect(-0.01, 0.965, A + 0.01, 1.01), this.paint([0.44, 0.37, 0.31]))
     this.polygon(this.rect(-0.01, 0.965, A + 0.01, 0.969), this.paint([0.62, 0.6, 0.56]))
     for (let i = 0; this.pillarX(i) - 0.04 < A; i++) {
       const x = this.pillarX(i)
+      this.ground(x, STREET, 0.045, STREET - UNDER, 1)
       this.polygon([[(x - 0.028) * H, UNDER * H], [(x + 0.028) * H, UNDER * H], [(x + 0.02) * H, STREET * H], [(x - 0.02) * H, STREET * H]], this.paint(CONCRETE))
       this.polygon([[(x + 0.012) * H, UNDER * H], [(x + 0.028) * H, UNDER * H], [(x + 0.02) * H, STREET * H], [(x + 0.008) * H, STREET * H]], this.paint([0.42, 0.41, 0.4]))
     }
@@ -744,6 +781,39 @@ class City extends Canvas {
       this.polygon(this.rect(f.x, f.y, f.x + f.w, f.y + f.h), on ? f.on : f.off)
     }
     if (this.sign && look.glow > 0 && hash(Math.floor(this.time * 0.4) + 3.7) > 0.15) this.neon(this.sign, true, true)
+  }
+
+  // Trees along the promenade between the highway lamps, nodding in the wind, and two flags that hang slack in calm
+  // air and stream out when a gust comes through.
+  private drawPromenade() {
+    const { A, H } = this
+    const base = QUAY + 0.014
+    const leaves = this.paint([0.22, 0.42, 0.18])
+    for (let i = 0, x = 0.29; x < A + 0.05; i++, x += 0.34) {
+      const lean = sway(x, this.time, i * 1.7, 0.9) * 0.0015
+      this.shape([cap(x * H, base * H, (x + lean * 0.5) * H, (base - 0.022) * H, 0.002 * H, 0.0015 * H, this.paint([0.35, 0.25, 0.16]))], this.lighting, 0.4)
+      this.shape([ell((x + lean) * H, (base - 0.036) * H, 0.014 * H, 0.013 * H, 0, leaves), ell((x - 0.011 + lean * 0.7) * H, (base - 0.026) * H, 0.011 * H, 0.009 * H, 0, leaves), ell((x + 0.011 + lean * 0.7) * H, (base - 0.027) * H, 0.011 * H, 0.009 * H, 0, leaves)], this.lighting, 0.7)
+    }
+    const pole = this.paint([0.62, 0.62, 0.64])
+    for (const [i, x] of [0.205, 0.205 + 0.34 * Math.floor((A - 0.4) / 0.34)].entries()) {
+      const top = base - 0.075
+      this.shape([cap(x * H, base * H, x * H, (top - 0.004) * H, 0.0013 * H, 0.001 * H, pole)], this.lighting, 0.4)
+      const g = gust(x, this.time)
+      // From hanging nearly straight down to flying level, rippling faster the harder it blows.
+      const droop = 1.25 * (1 - (0.3 + 0.7 * g))
+      const L = 0.03
+      const upper: [number, number][] = []
+      const lower: [number, number][] = []
+      for (let k = 0; k <= 6; k++) {
+        const s = (k / 6) * L
+        const wave = Math.sin(k * 1.1 - this.time * (3 + 5 * g) + i) * 0.0025 * (k / 6)
+        const px = x + s * Math.cos(droop) + wave * Math.sin(droop)
+        const py = top + s * Math.sin(droop) + wave * Math.cos(droop)
+        upper.push([px * H, py * H])
+        lower.push([px * H, (py + 0.016) * H])
+      }
+      this.polygon([...upper, ...lower.reverse()], this.paint(FLAGS[i]))
+    }
   }
 
   private stepTraffic(dt: number) {
@@ -946,24 +1016,37 @@ class City extends Canvas {
     if (lit) this.glow(this.hdr, X(L / 2), y - 0.006 * H, 0.004 * H, 0.004 * H, HEADLIGHT, 1.5 * look.glow)
   }
 
-  // People strolling along the sidewalk, under umbrellas when it rains.
+  // People strolling along the sidewalk, under umbrellas when it rains. Each step lands and holds, knees bending,
+  // arms swinging against the legs and the body rising over each stride.
   private drawWalker(w: Walker) {
     const { H, look } = this
-    const S = 0.1 * H
-    const x = w.x * H
-    const y = 0.996 * H
-    const P = (u: number, v: number): [number, number] => [x + u * w.dir * S, y + v * S]
-    const swing = Math.sin(w.phase) * 0.12
+    const S = 0.1 * H * w.size
+    const rise = bob(w.phase) * 0.015
+    const P = (u: number, v: number): [number, number] => [w.x * H + u * w.dir * S, 0.996 * H + (v - rise) * S]
     const coat = this.paint(w.coat)
     const legs = this.paint([0.15, 0.15, 0.2])
     const skin = this.paint([0.8, 0.6, 0.48])
+    const shoe = this.paint([0.08, 0.07, 0.07])
+    const side = (s: number, far: boolean): Part[] => {
+      const [reach, lift] = stride(w.phase, s > 0 ? 0 : 0.5)
+      const fu = reach * 0.21
+      const fv = -lift * 0.07 - 0.025 + rise
+      const umbrella = this.wet && !far
+      const hand: [number, number] = umbrella ? [0.12, -0.85] : [-reach * 0.13 + 0.02, -0.44]
+      const shade = (c: RGB): RGB => (far ? [c[0] * 0.7, c[1] * 0.7, c[2] * 0.7] : c)
+      return [
+        ...limb(P, 0, -0.47, fu, fv, 0.24, 0.24, -1, 0.045 * S, 0.037 * S, 0.032 * S, shade(legs)),
+        cap(...P(fu - 0.02, fv), ...P(fu + 0.06, fv + 0.006), 0.028 * S, 0.024 * S, shoe),
+        ...limb(P, 0.01, -0.77, ...hand, 0.18, 0.18, umbrella ? -1 : 1, 0.033 * S, 0.028 * S, 0.025 * S, shade(coat)),
+      ]
+    }
+    this.shape(side(-1, true), this.lighting, 0.6)
     this.shape(
       [
-        cap(...P(0, -0.45), ...P(-swing, 0), 0.04 * S, 0.035 * S, legs),
-        cap(...P(0, -0.45), ...P(swing, 0), 0.04 * S, 0.035 * S, legs),
+        ...side(1, false),
         cap(...P(0, -0.42), ...P(0.01, -0.8), 0.085 * S, 0.075 * S, coat),
-        cap(...P(0.01, -0.76), ...P(swing * 0.5 + (this.wet ? 0.12 : 0), this.wet ? -0.85 : -0.45), 0.03 * S, 0.026 * S, coat),
-        ell(...P(0.02, -0.89), 0.06 * S, 0.068 * S, 0, skin),
+        ell(...P(0.02, -0.89 + Math.cos(TAU * 2 * w.phase - 1) * 0.008), 0.06 * S, 0.068 * S, 0, skin),
+        ell(...P(0.005, -0.925 + Math.cos(TAU * 2 * w.phase - 1) * 0.008), 0.062 * S, 0.04 * S, -0.3 * w.dir, this.paint(w.hair)),
       ],
       this.lighting,
       0.6,
@@ -1007,9 +1090,9 @@ export const city: Wallpaper = {
       [26, 26, 32],
     ],
     sunset: [
-      [30, 14, 26],
-      [34, 14, 22],
-      [14, 8, 12],
+      [28, 8, 26],
+      [38, 16, 12],
+      [16, 8, 12],
     ],
     night: [
       [3, 4, 16],

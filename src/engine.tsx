@@ -4,7 +4,7 @@ import { appendFileSync } from "node:fs"
 import { watchEgg } from "./egg"
 import { lerp, smoothstep, type RGB } from "./math"
 import { OCTANTS } from "./octants"
-import { AGENT_EVENTS, type AgentEvent, type Brightness, type Power, type Scene, type Scrim, type Settings, type Wallpaper } from "./wallpaper"
+import { AGENT_EVENTS, type AgentEvent, type Brightness, type Power, type Scene, type Scrim, type Settings, type TextMap, type Wallpaper } from "./wallpaper"
 
 export {
   ACTIVITIES,
@@ -22,6 +22,7 @@ export {
   type Scrim,
   type Season,
   type Settings,
+  type TextMap,
   type Time,
   type Wallpaper,
   type Weather,
@@ -73,6 +74,10 @@ const LEVELS: Record<Brightness, ReturnType<typeof level>> = {
 const DESATURATE = { day: 0.22, sunset: 0.22, night: 0.04 }
 // Seconds a change of wallpaper, activity or time of day crossfades over by default.
 export const FADE = 1.2
+// The map of where text sits that scenes get (see Scene.textMap): its grid, and how many frames apart it is rebuilt.
+const MAP_COLS = 16
+const MAP_ROWS = 9
+const MAP_EVERY = 15
 
 // Crossfades two equally sized RGBA frames into out.
 function mix(a: Uint8Array, b: Uint8Array, out: Uint8Array, t: number) {
@@ -259,8 +264,9 @@ const QUADRANTS = [
   0x20, 0x2598, 0x259d, 0x2580, 0x2596, 0x258c, 0x259e, 0x259b, 0x2597, 0x259a, 0x2590, 0x259c, 0x2584, 0x2599, 0x259f, 0x2588,
 ]
 
-// Picks the two-colour split of a cell's four sub-pixels with the least error and writes it as a quadrant block.
-function writeQuadrant(q8: Float32Array, char: Uint32Array, fg: Uint16Array, bg: Uint16Array, i: number, o: number) {
+// Picks the two-colour split of a cell's four sub-pixels with the least error and writes it as a quadrant block. Like
+// writeOctant it keeps last frame's split unless the new one is clearly better. Returns the mask used.
+function writeQuadrant(q8: Float32Array, previous: number, char: Uint32Array, fg: Uint16Array, bg: Uint16Array, i: number, o: number) {
   const q = quad4
   for (let s = 0; s < 4; s++) {
     const top = ((s >> 1) * 4 + (s & 1)) * 3
@@ -268,68 +274,75 @@ function writeQuadrant(q8: Float32Array, char: Uint32Array, fg: Uint16Array, bg:
   }
   let bestMask = 0
   let bestErr = Infinity
-  let fr = 0
-  let fgr = 0
-  let fb = 0
-  let br = 0
-  let bgg = 0
-  let bb = 0
   for (let m = 0; m < 8; m++) {
-    let ar = 0
-    let ag = 0
-    let ab = 0
-    let an = 0
-    let cr = 0
-    let cg = 0
-    let cb = 0
-    let cn = 0
-    for (let s = 0; s < 4; s++) {
-      if (m & (1 << s)) {
-        ar += q[s * 3]
-        ag += q[s * 3 + 1]
-        ab += q[s * 3 + 2]
-        an++
-      } else {
-        cr += q[s * 3]
-        cg += q[s * 3 + 1]
-        cb += q[s * 3 + 2]
-        cn++
-      }
-    }
-    if (an) ((ar /= an), (ag /= an), (ab /= an))
-    if (cn) ((cr /= cn), (cg /= cn), (cb /= cn))
-    let err = 0
-    for (let s = 0; s < 4; s++) {
-      const on = m & (1 << s)
-      const dr = q[s * 3] - (on ? ar : cr)
-      const dg = q[s * 3 + 1] - (on ? ag : cg)
-      const db = q[s * 3 + 2] - (on ? ab : cb)
-      err += dr * dr + dg * dg + db * db
-    }
-    if (err < bestErr - 0.5) {
-      bestErr = err
+    evalQuad(q, m)
+    if (split.err < bestErr - 0.5) {
+      bestErr = split.err
       bestMask = m
-      fr = ar
-      fgr = ag
-      fb = ab
-      br = cr
-      bgg = cg
-      bb = cb
     }
   }
-  bg[o] = br
-  bg[o + 1] = bgg
-  bg[o + 2] = bb
-  bg[o + 3] = 255
-  if (bestMask === 0) {
-    char[i] = 0x20
-    return
+  let chosen = bestMask
+  if (previous >= 0 && previous !== bestMask) {
+    evalQuad(q, previous)
+    if (split.err <= bestErr * 1.35 + HYSTERESIS / 2) chosen = previous
   }
-  char[i] = QUADRANTS[bestMask]
-  fg[o] = fr
-  fg[o + 1] = fgr
-  fg[o + 2] = fb
+  evalQuad(q, chosen)
+  bg[o] = split.br
+  bg[o + 1] = split.bg
+  bg[o + 2] = split.bb
+  bg[o + 3] = 255
+  if (chosen === 0) {
+    char[i] = 0x20
+    return chosen
+  }
+  char[i] = QUADRANTS[chosen]
+  fg[o] = split.fr
+  fg[o + 1] = split.fg
+  fg[o + 2] = split.fb
   fg[o + 3] = 255
+  return chosen
+}
+
+// Like evalMask, for a cell's four quadrant sub-pixels.
+function evalQuad(q: Float32Array, mask: number) {
+  let fr = 0
+  let fg = 0
+  let fb = 0
+  let fn = 0
+  let br = 0
+  let bg = 0
+  let bb = 0
+  let bn = 0
+  for (let s = 0; s < 4; s++) {
+    if (mask & (1 << s)) {
+      fr += q[s * 3]
+      fg += q[s * 3 + 1]
+      fb += q[s * 3 + 2]
+      fn++
+    } else {
+      br += q[s * 3]
+      bg += q[s * 3 + 1]
+      bb += q[s * 3 + 2]
+      bn++
+    }
+  }
+  if (fn) ((fr /= fn), (fg /= fn), (fb /= fn))
+  if (bn) ((br /= bn), (bg /= bn), (bb /= bn))
+  let err = 0
+  for (let s = 0; s < 4; s++) {
+    const on = mask & (1 << s)
+    const dr = q[s * 3] - (on ? fr : br)
+    const dg = q[s * 3 + 1] - (on ? fg : bg)
+    const db = q[s * 3 + 2] - (on ? fb : bb)
+    err += dr * dr + dg * dg + db * db
+  }
+  split.fr = fr
+  split.fg = fg
+  split.fb = fb
+  split.br = br
+  split.bg = bg
+  split.bb = bb
+  split.err = err
 }
 
 function isBlock(char: number) {
@@ -466,6 +479,10 @@ export function createEngine(
   let grid = new Float32Array(0)
   let gridBlur = new Float32Array(0)
   let light = false
+  const textMap: TextMap = { cols: MAP_COLS, rows: MAP_ROWS, cover: new Float32Array(MAP_COLS * MAP_ROWS) }
+  const mapCount = new Float32Array(MAP_COLS * MAP_ROWS)
+  let mapped = false
+  let mapFresh = false
 
   // Box-filters the scene down to the 2x4-per-cell octant grid, then applies an unsharp mask.
   const buildGrid = (px: Uint8Array, PW: number, PH: number, GW: number, GH: number) => {
@@ -694,8 +711,8 @@ export function createEngine(
     const target = `${targetW}x${targetH}`
     const resized = target !== lastTarget
     lastTarget = target
-    scene.resize(targetW, targetH)
-    from?.scene.resize(targetW, targetH)
+    scene.resize(targetW, targetH, !pixels)
+    from?.scene.resize(targetW, targetH, !pixels)
     // The scene advances at most once per timer interval, and not at all while paused; redraws in between (typing, UI
     // updates) reuse the last frame.
     const now = performance.now()
@@ -727,6 +744,11 @@ export function createEngine(
     // Blending in the previous frame fades at the same speed per second whatever the frame rate.
     const persistence = interval > 1000 / FPS ? PERSISTENCE ** (interval / (1000 / FPS)) : PERSISTENCE
     paint(buf, from ? mixed : scene.pixels, scene.W, scene.H, advanced, pixels, desaturate, shade, persistence, scrim)
+    if (mapFresh) {
+      mapFresh = false
+      scene.textMap?.(textMap)
+      from?.scene.textMap?.(textMap)
+    }
     if (options.dump && !dumped && frames > 120) {
       dumped = true
       write(buf, options.dump)
@@ -816,6 +838,19 @@ export function createEngine(
     if (open.length !== cells) open = new Uint8Array(cells)
     openW = W
     for (let i = 0; i < cells; i++) open[i] = surface[i] && char[i] === SPACE && mask[((i / W) | 0) * 2 * W + (i % W)] < OPEN ? 1 : 0
+    if (frames % MAP_EVERY === 1) {
+      const cover = textMap.cover
+      cover.fill(0)
+      mapCount.fill(0)
+      for (let i = 0; i < cells; i++) {
+        const g = Math.floor((((i / W) | 0) * MAP_ROWS) / H) * MAP_COLS + Math.floor(((i % W) * MAP_COLS) / W)
+        cover[g] += surface[i] ? Math.min(1, mask[((i / W) | 0) * 2 * W + (i % W)] * look.reach) : 1
+        mapCount[g]++
+      }
+      for (let g = 0; g < cover.length; g++) cover[g] /= Math.max(1, mapCount[g])
+      mapped = true
+      mapFresh = true
+    }
 
     const cursor = renderer.getCursorState()
     const cursorX = cursor.visible ? cursor.x - 1 : -1
@@ -881,7 +916,7 @@ export function createEngine(
         }
         if (ch === SPACE && !atCursor(x, y)) {
           if (octants) previousMask[i] = writeOctant(q, order, previousMask[i], char, fg, bg, i, o)
-          else writeQuadrant(q, char, fg, bg, i, o)
+          else previousMask[i] = writeQuadrant(q, previousMask[i], char, fg, bg, i, o)
           applyTint(bg, o, cellTint[i])
           if (char[i] !== SPACE) applyTint(fg, o, cellTint[i])
           continue
@@ -909,6 +944,7 @@ export function createEngine(
     const created = next.create(chosen)
     if (busy) created.react?.("busy")
     if (failed) created.react?.("error")
+    if (mapped) created.textMap?.(textMap)
     return created
   }
 

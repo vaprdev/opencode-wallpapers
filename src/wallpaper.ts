@@ -2,12 +2,13 @@ import type { RGB } from "./math"
 
 // A wallpaper's animation. Each frame the engine resizes the scene to the sub-pixel grid it needs, steps it by the
 // elapsed seconds, renders it, and reads `pixels` (RGBA, W x H; only resize may replace the array). Extending Canvas
-// provides everything but step and render.
+// provides everything but step and render. resize's cells is set when each pixel becomes one sub-pixel of a terminal
+// character cell, fitted to two colors per cell, so the scene can draw bolder.
 export interface Scene {
   readonly W: number
   readonly H: number
   readonly pixels: Uint8Array
-  resize(W: number, H: number): void
+  resize(W: number, H: number, cells?: boolean): void
   step(dt: number): void
   render(): void
   // Optional: what the OpenCode agent is doing. Scenes bring on a rare visitor when a task is done and turn overcast
@@ -16,6 +17,17 @@ export interface Scene {
   react?(event: AgentEvent): void
   // Optional reaction to a click on open background, in screen heights: x runs 0..W/H across and y 0..1 down.
   poke?(x: number, y: number): void
+  // Optional: where OpenCode's text sits, sent when the scene starts and about once a second after that, so creatures
+  // can keep to open ground and visitors can come on where they'll be seen.
+  textMap?(map: TextMap): void
+}
+
+// A coarse grid over the whole screen, row-major: how much each cell is covered by text, its scrim or a panel, from 0
+// (open) to 1 (hidden).
+export interface TextMap {
+  readonly cols: number
+  readonly rows: number
+  readonly cover: Float32Array
 }
 
 export const AGENT_EVENTS = ["busy", "idle", "done", "error"] as const

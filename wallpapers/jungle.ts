@@ -1,8 +1,13 @@
-import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
+import { Canvas, blade, cap, ell, type Lighting, type Part } from "../src/canvas"
+import { limb } from "../src/creature"
 import { eggWait } from "../src/egg"
+import { haze, mottle } from "../src/grade"
+import { fireflyLight } from "../src/light"
 import { TAU, clamp, fbm1, hash, lerp, rand, smoothstep, type RGB } from "../src/math"
+import { groundShadow, sunShade, type Shade } from "../src/shadow"
 import type { Activity, Settings, Time, Wallpaper } from "../src/wallpaper"
 import { WeatherLayer } from "../src/weather"
+import { SwayLayer, gust, sway } from "../src/wind"
 
 // The scene runs slower than real time, which keeps it calm behind text.
 const TIME_SCALE = 0.35
@@ -13,6 +18,8 @@ const CHORUS = 3
 const RAY_N = 1024
 // How long the sloth's visit lasts, in creature time.
 const SLOTH = 24
+// Where the monkey hangs from the high branch, in screen heights from the right edge.
+const MONKEY = 0.38
 
 // What changes with the time of day. Plants and animals have one daytime color each; tint darkens them into
 // silhouettes at sunset and night, while the mist, distant trees, water and light shafts get their own colors.
@@ -32,11 +39,11 @@ const LOOKS: Record<Time, Look> = {
     style: "front",
     light: [1, 0.95, 0.75],
     mist: [
-      [0.7, 0.85, 0.72],
-      [0.32, 0.52, 0.36],
-      [0.06, 0.12, 0.06],
+      [0.6, 0.8, 0.6],
+      [0.22, 0.45, 0.28],
+      [0.04, 0.1, 0.04],
     ],
-    far: [0.33, 0.52, 0.38],
+    far: [0.3, 0.52, 0.34],
     water: [0.8, 0.92, 1],
     shafts: 0.35,
     tint: [1, 1, 1],
@@ -58,11 +65,11 @@ const LOOKS: Record<Time, Look> = {
   },
   night: {
     style: "rim",
-    light: [0.1, 0.7, 0.62],
+    light: [0.14, 0.95, 0.85],
     mist: [
-      [0.02, 0.08, 0.12],
-      [0.008, 0.035, 0.05],
-      [0.002, 0.008, 0.01],
+      [0.02, 0.085, 0.13],
+      [0.014, 0.065, 0.09],
+      [0.003, 0.012, 0.016],
     ],
     far: [0.015, 0.05, 0.06],
     water: [0.04, 0.38, 0.5],
@@ -93,6 +100,8 @@ const DAYLIGHT = (() => {
 
 const RAYS_A = buildRays(3)
 const RAYS_B = buildRays(11)
+const MIST_A = buildRays(23)
+const MIST_B = buildRays(37)
 
 // A big foreground leaf rooted at (x, y), pointing along angle (radians, 0 = right, negative = up).
 interface Leaf {
@@ -128,6 +137,7 @@ class Jungle extends Canvas {
   private readonly weather: WeatherLayer
   private readonly rainy: boolean
   private lighting: Lighting = { style: "front", dir: DAYLIGHT }
+  private readonly shade: Shade
   private background = new Float32Array(0)
   private leaves: Leaf[] = []
   private groundPx = new Float32Array(0)
@@ -140,10 +150,15 @@ class Jungle extends Canvas {
   private pollen = Array.from({ length: 40 }, () => ({ x: Math.random() * 4, y: 0.1 + Math.random() * 0.7, s: Math.random() }))
   // A click sets the monkey swinging harder: kick is how hard, fading away, and swing is the phase of that swing.
   private monkey = { kick: 0, swing: 0 }
+  // How far the jaguar has lifted its head to look about: it springs toward that now and then and sinks back.
+  private jaguarHead = { p: 0, v: 0 }
   // The vine in the left corner, in screen heights, which the sloth climbs down.
   private liana = { x: 0, length: 0, phase: 0 }
   // The easter egg: a sloth lowers itself down the vine, smiles at you, and climbs back up. t is creature time.
   private sloth = { wait: eggWait() * TIME_SCALE, t: -1 }
+  // The hanging vines, painted once, swing out in the gusts; mist drifts along the floor on the same wind.
+  private vines = new SwayLayer()
+  private mist = 0
 
   constructor(settings: Settings) {
     super()
@@ -151,8 +166,11 @@ class Jungle extends Canvas {
     const rainy = settings.season === "summer" || settings.season === "autumn"
     this.rainy = rainy
     const look = LOOKS[settings.time]
+    // Under the canopy the light is diffuse, so things on the floor get contact shadows but cast none.
+    this.shade = sunShade(settings.time, { x: 0.85, y: -0.15 }, true)
     const wet = RAINY_MIST[settings.time]
     this.look = rainy ? { ...look, mist: [mixRGB(look.mist[0], wet, 0.55), mixRGB(look.mist[1], wet, 0.4), look.mist[2]], far: mixRGB(look.far, wet, 0.4), shafts: look.shafts * 0.25 } : look
+    if (settings.time === "day") this.frame = 0.3
     // Without a weather setting, the rainy season brings a light shower.
     this.weather = new WeatherLayer(settings.weather ?? (rainy ? "rain" : "clear"), settings.time, 0.66, !settings.weather)
     const count = this.look.night ? 0 : { calm: 0, lively: 2, teeming: 4 }[settings.activity]
@@ -166,8 +184,9 @@ class Jungle extends Canvas {
     this.time += dt
     const cdt = dt * CREATURE_SPEED
     this.creatureTime += cdt
+    this.mist += (0.02 + 0.1 * gust(0.5 * this.A, this.time)) * dt
     for (const p of this.pollen) {
-      p.x += (0.004 + p.s * 0.006) * dt
+      p.x += (0.004 + p.s * 0.006 + gust(p.x, this.time) * 0.05) * dt
       p.y += Math.sin(this.time * 0.4 + p.s * 20) * 0.003 * dt
       if (p.x > this.A) p.x -= this.A
     }
@@ -187,6 +206,9 @@ class Jungle extends Canvas {
     const m = this.monkey
     m.kick *= Math.exp(-cdt * 0.5)
     m.swing += cdt * 6
+    const j = this.jaguarHead
+    j.v += ((Math.max(0, Math.sin(this.creatureTime * 0.35)) ** 12 - j.p) * 25 - j.v * 3) * cdt
+    j.p += j.v * cdt
     const sl = this.sloth
     if (sl.t < 0) {
       sl.wait -= dt
@@ -210,20 +232,23 @@ class Jungle extends Canvas {
     if (this.activity === "calm") return
     const m = this.monkey
     // Start the extra swing from rest so the push never makes it jump, swinging away from the click.
-    if (m.kick < 0.05) m.swing = x < this.rightBranch(0.71 * this.A)[0] / this.H ? Math.PI : 0
+    if (m.kick < 0.05) m.swing = x < this.A - MONKEY ? Math.PI : 0
     m.kick = 1
   }
 
   render() {
     this.hdr.set(this.background)
+    this.vines.draw(this.hdr, this.W, this.H, this.time)
     this.drawShafts()
     this.drawFalls()
+    const mist = this.look.mist[1]
+    driftMist(this.hdr, this.W, this.H, this.mist, mist[0], mist[1], mist[2], this.rainy ? 0.3 : 0.22)
     if (this.toucan.x > -5) this.drawToucan(this.toucan)
     if (this.sloth.t >= 0) this.drawSloth()
     if (this.activity !== "calm") this.drawMonkey()
     if (this.activity === "teeming") {
-      this.drawMacaw(0.795, -1, 0)
-      this.drawMacaw(0.765, 1, 1.7)
+      this.drawMacaw(this.A - 0.19, -1, 0)
+      this.drawMacaw(this.A - 0.24, 1, 1.7)
       this.drawJaguar()
       this.drawFrog()
     }
@@ -239,6 +264,7 @@ class Jungle extends Canvas {
     const { W, H, A, look } = this
     this.lighting = look.style === "front" ? { style: "front", dir: DAYLIGHT } : { style: "rim", color: look.light, x: 0.85 * W, y: -0.15 * H }
     this.drawMist()
+    const mist = this.hdr.slice()
     // Distant trees fade into the mist: thin trunks and a hazy band of canopy.
     for (let i = 0; i < Math.round(A * 7); i++) {
       const x = (i + 0.2 + hash(i * 3.1) * 0.6) * (A / Math.round(A * 7)) * H
@@ -250,8 +276,10 @@ class Jungle extends Canvas {
       this.lighting,
       0.15,
     )
-    // A rocky cliff with the waterfall pouring over it.
-    const fx = 0.55 * A
+    // By day the distant trees melt further into the mist.
+    if (look.style === "front") haze(this.hdr, mist, W, H, 1, 1.01, 0.3)
+    // A rocky cliff with the waterfall pouring over it, on the left; the animals' tree stands on the right.
+    const fx = 0.32
     this.falls = { x: fx * H, top: 0.27 * H, bottom: 0.66 * H, half: (this.rainy ? 0.026 : 0.018) * H }
     const rock = mixRGB(this.paint(ROCK), look.far, 0.35)
     const boulders: [number, number, number, number][] = [
@@ -276,17 +304,20 @@ class Jungle extends Canvas {
       this.lighting,
     )
     // Vines hanging from the canopy, clear of the waterfall.
+    this.vines.begin(this.hdr)
     for (let i = 0; i < 7; i++) {
       const vine = { x: (0.06 + (i / 6) * 0.88) * A, length: 0.25 + hash(i * 2.2) * 0.35, phase: hash(i * 4.4) * TAU }
       if (Math.abs(vine.x - fx) < 0.06) continue
       if (i === 0) this.liana = vine
       this.drawVine(vine.x * H, vine.length * H, vine.phase)
     }
+    // Hanging from the top, they swing more toward their tips.
+    this.vines.end(this.hdr, W, H, 0.014 * H, (_x, y) => clamp(y / (0.55 * H), 0, 1) ** 1.3)
     // Two big trunks with buttress roots, and the branches the animals use.
-    this.drawTrunk(0.2 * A * H, 0.045 * H)
-    this.drawTrunk(0.86 * A * H, 0.038 * H)
-    this.shape([cap(...this.leftBranch(0.2 * A + 0.03), ...this.leftBranch(0.48 * A), 0.022 * H, 0.012 * H, this.paint(TRUNK))], this.lighting)
-    this.shape([cap(...this.rightBranch(0.86 * A - 0.03), ...this.rightBranch(0.66 * A), 0.018 * H, 0.01 * H, this.paint(TRUNK))], this.lighting)
+    this.drawTrunk(0.04 * H, 0.045 * H)
+    this.drawTrunk((A - 0.12) * H, 0.038 * H)
+    this.shape([cap(...this.lowBranch(A - 0.15), ...this.lowBranch(A - 0.5), 0.022 * H, 0.012 * H, this.paint(TRUNK))], this.lighting)
+    this.shape([cap(...this.highBranch(A - 0.15), ...this.highBranch(A - 0.46), 0.018 * H, 0.01 * H, this.paint(TRUNK))], this.lighting)
     // The forest floor and its ferns.
     this.groundPx = new Float32Array(W)
     for (let x = 0; x < W; x++) this.groundPx[x] = (0.86 + 0.02 * Math.sin((x / H) * 3.3) + (fbm1(x * 0.02, 4) - 0.5) * 0.03) * H
@@ -296,8 +327,12 @@ class Jungle extends Canvas {
         const c = this.paint(FLOOR)
         this.blend((y * W + x) * 3, c[0] * k, c[1] * k, c[2] * k, clamp(y + 1 - this.groundPx[x], 0, 1))
       }
+    // Sun flecks and shade across the forest floor.
+    if (look.style === "front") mottle(this.hdr, W, H, 0.8, 1, 0.3, [1.5, 1.35, 0.8], [0.7, 0.8, 0.8])
+    for (const [x, r] of [[0.04, 0.045], [A - 0.12, 0.038]]) groundShadow(this.hdr, W, H, this.shade, x * H, this.groundPx[clamp(Math.round(x * H), 0, W - 1)] + 0.03 * H, r * 6 * H, H)
     for (let i = 0; i < Math.round(A * 6); i++) {
       const x = (hash(i * 3.9) * A) * H
+      groundShadow(this.hdr, W, H, this.shade, x, this.groundPx[clamp(Math.round(x), 0, W - 1)] + 2, (0.1 + hash(i * 1.1) * 0.07) * H, 0.1 * H)
       this.drawFern(x, this.groundPx[clamp(Math.round(x), 0, W - 1)] + 2, (0.08 + hash(i * 1.1) * 0.06) * H, hash(i * 5.5) > 0.5 ? 1 : -1)
     }
     // Big leaves framing the corners, drawn each frame so they can sway.
@@ -307,6 +342,7 @@ class Jungle extends Canvas {
       ...[0.6, 0.95].map((angle, i) => ({ x: -0.02, y: -0.04, angle, length: [0.3, 0.26][i], phase: i * 1.3 + 2 })),
       ...[2.5, 2.2].map((angle, i) => ({ x: A + 0.02, y: -0.04, angle, length: [0.3, 0.25][i], phase: i * 1.7 + 3 })),
     ]
+    this.vines.seal(this.hdr, W)
     this.background = this.hdr.slice()
   }
 
@@ -315,15 +351,14 @@ class Jungle extends Canvas {
     return [c[0] * t[0], c[1] * t[1], c[2] * t[2]]
   }
 
-  // Points along the two animal branches, in pixels, at x in screen heights.
-  private leftBranch(x: number): [number, number] {
-    const t = (x - (0.2 * this.A + 0.03)) / (0.28 * this.A - 0.03)
-    return [x * this.H, lerp(0.47, 0.43, t) * this.H]
+  // Points along the two animal branches of the right-hand tree, in pixels, at x in screen heights. They rise a little
+  // toward their tips.
+  private lowBranch(x: number): [number, number] {
+    return [x * this.H, lerp(0.69, 0.65, (this.A - 0.15 - x) / 0.35) * this.H]
   }
 
-  private rightBranch(x: number): [number, number] {
-    const t = ((0.86 * this.A - 0.03) - x) / (0.2 * this.A - 0.03)
-    return [x * this.H, lerp(0.31, 0.29, t) * this.H]
+  private highBranch(x: number): [number, number] {
+    return [x * this.H, lerp(0.31, 0.29, (this.A - 0.15 - x) / 0.31) * this.H]
   }
 
   // Misty depth: bright and hazy above, dark at the forest floor.
@@ -378,10 +413,12 @@ class Jungle extends Canvas {
     for (let i = 0; i < 10; i++) {
       const [ax, ay] = at(i / 10)
       const [bx, by] = at((i + 1) / 10)
-      parts.push(cap(ax, ay, bx, by, size * 0.025, size * 0.02, this.paint(LEAF)))
+      parts.push(cap(ax, ay, bx, by, this.thick((size * 0.025) / this.H), this.thick((size * 0.02) / this.H, 0.8), this.paint(LEAF)))
       const leaflet = size * 0.14 * (1 - i / 12)
-      for (const s of [-1, 1]) parts.push(ell(ax + s * leaflet * 0.4, ay - leaflet * 0.5, leaflet * 0.6, leaflet * 0.18, s * 0.9 - 0.5 * side, this.paint(LEAF)))
+      if (!this.cells) for (const s of [-1, 1]) parts.push(ell(ax + s * leaflet * 0.4, ay - leaflet * 0.5, leaflet * 0.6, leaflet * 0.18, s * 0.9 - 0.5 * side, this.paint(LEAF)))
     }
+    // On terminal cells the leaflets merge into one blade.
+    if (this.cells) parts.push(...blade(Array.from({ length: 11 }, (_, i) => at(i / 10)), Array.from({ length: 11 }, (_, i) => size * 0.1 * (1 - i / 12)), this.paint(LEAF)))
     this.shape(parts, this.lighting, 0.6)
   }
 
@@ -445,7 +482,7 @@ class Jungle extends Canvas {
       if (b.next > 0) return
       b.dir = Math.random() < 0.5 ? 1 : -1
       b.x = b.dir > 0 ? -0.15 : this.A + 0.15
-      b.y = rand(0.18, 0.32)
+      b.y = this.openRow(0.16, 0.32)
       return
     }
     b.x += b.dir * 0.08 * dt
@@ -480,29 +517,34 @@ class Jungle extends Canvas {
     )
   }
 
-  // A spider monkey hanging by its tail from the right-hand branch, swinging slowly; at night it barely stirs.
+  // A spider monkey hanging by its tail from the high branch, swinging slowly, its long arms and legs trailing each
+  // swing; at night it barely stirs.
   private drawMonkey() {
     const H = this.H
-    const [ax, ay] = this.rightBranch(0.71 * this.A)
+    const [ax, ay] = this.highBranch(this.A - MONKEY)
     const m = this.monkey
-    const swing = (this.look.night ? 0.05 : 0.35) * Math.sin(this.creatureTime * 1.2) + (this.look.night ? 0.2 : 0.4) * m.kick * Math.sin(m.swing)
+    const night = this.look.night
+    const swingAt = (t: number) => (night ? 0.05 : 0.35) * Math.sin(t * 1.2) + (night ? 0.2 : 0.4) * m.kick * Math.sin(m.swing - (this.creatureTime - t) * 6)
+    const swing = swingAt(this.creatureTime)
+    // Limbs hang a beat behind the body, so they trail each swing and catch up at its end.
+    const trail = (swingAt(this.creatureTime - 0.3) - swing) * 1.4
     const cs = Math.cos(swing)
     const sn = Math.sin(swing)
     const P = (u: number, v: number): [number, number] => [ax + (u * cs - v * sn) * H, ay + (u * sn + v * cs) * H]
+    const hang = (u0: number, v0: number, u: number, v: number): [number, number] => [u0 + (u - u0) * Math.cos(trail) - (v - v0) * Math.sin(trail), v0 + (u - u0) * Math.sin(trail) + (v - v0) * Math.cos(trail)]
     const fur = this.paint([0.3, 0.2, 0.12])
     const parts: Part[] = [cap(ax - 0.008 * H, ay - 0.01 * H, ax + 0.008 * H, ay - 0.01 * H, 0.004 * H, 0.004 * H, fur)]
     for (let i = 0; i < 4; i++) parts.push(cap(...P(Math.sin(i * 0.8) * 0.006, (i / 4) * 0.07), ...P(Math.sin((i + 1) * 0.8) * 0.006, ((i + 1) / 4) * 0.07), 0.004 * H, 0.004 * H, fur))
     parts.push(
-      cap(...P(0, 0.07), ...P(0, 0.14), 0.018 * H, 0.016 * H, fur),
-      cap(...P(0, 0.075), ...P(-0.025, 0.045), 0.006 * H, 0.005 * H, fur),
-      cap(...P(0, 0.075), ...P(0.025, 0.05), 0.006 * H, 0.005 * H, fur),
-      cap(...P(-0.006, 0.135), ...P(-0.03, 0.2), 0.006 * H, 0.005 * H, fur),
-      cap(...P(0.006, 0.135), ...P(0.04, 0.19), 0.006 * H, 0.005 * H, fur),
-      ell(...P(0, 0.165), 0.02 * H, 0.019 * H, swing, fur),
-      ell(...P(0, 0.17), 0.012 * H, 0.011 * H, swing, this.paint([0.65, 0.5, 0.38])),
+      cap(...P(0, 0.07), ...P(0, 0.14), 0.018 * H, 0.02 * H, fur),
+      ...[-1, 1].flatMap((s) => limb(P, s * 0.006, 0.078, ...hang(s * 0.006, 0.078, s * 0.035, 0.05), 0.03, 0.03, s, 0.007 * H, 0.005 * H, 0.004 * H, fur)),
+      ...[-1, 1].flatMap((s) => limb(P, s * 0.008, 0.135, ...hang(s * 0.008, 0.135, s * 0.03, 0.225), 0.05, 0.05, -s, 0.006 * H, 0.005 * H, 0.004 * H, fur)),
+      ell(...P(0, 0.165), 0.019 * H, 0.019 * H, swing, fur),
+      ...[-1, 1].map((s) => ell(...P(s * 0.018, 0.16), 0.006 * H, 0.006 * H, 0, fur)),
+      ell(...P(0, 0.172), 0.012 * H, 0.011 * H, swing, this.paint([0.65, 0.5, 0.38])),
     )
     this.shape(parts, this.lighting, 0.7)
-    for (const s of [-1, 1]) this.add(...P(s * 0.005, 0.167), 0.01, 0.01, 0.01)
+    for (const s of [-1, 1]) this.add(...P(s * 0.005, 0.169), 0.01, 0.01, 0.01)
   }
 
   // A three-toed sloth hanging from the corner vine by its long arms, lowering itself hand over hand out of the
@@ -513,7 +555,8 @@ class Jungle extends Canvas {
     const v = this.liana
     const s = lerp(0.2, 0.75, smoothstep(0, 10, t) * (1 - smoothstep(14, 24, t)))
     const at = (q: number): [number, number] => [(v.x + Math.sin(q * Math.PI * 0.8 + v.phase) * 0.02 * q) * H, q * v.length * H]
-    const [gx, gy] = at(s)
+    const [vx, gy] = at(s)
+    const gx = vx + this.vines.offset(vx, gy)
     const S = 0.17 * H
     const climbing = (t < 10 || t > 14) && t < 24
     const reach = climbing ? Math.sin(t * 4) * 0.05 : 0
@@ -543,10 +586,10 @@ class Jungle extends Canvas {
     this.shape([ell(...F(-0.035, 0.215), 0.028 * S, 0.012 * S, tilt - 0.35, dark), ell(...F(0.035, 0.215), 0.028 * S, 0.012 * S, tilt + 0.35, dark), ell(...F(0, 0.245), 0.014 * S, 0.008 * S, tilt, dark)], this.lighting, 0)
   }
 
-  // A scarlet macaw perched upright on the right-hand branch, bobbing its head now and then.
+  // A scarlet macaw perched upright on the high branch, bobbing its head now and then.
   private drawMacaw(at: number, face: number, phase: number) {
     const H = this.H
-    const [x, y] = this.rightBranch(at * this.A)
+    const [x, y] = this.highBranch(at)
     const S = 0.11 * H
     const bob = this.look.night ? 0 : Math.sin(this.creatureTime * 2 + phase) * 0.012
     const P = (u: number, v: number): [number, number] => [x + u * face * S, y - 0.012 * H + v * S]
@@ -568,52 +611,65 @@ class Jungle extends Canvas {
     this.add(...P(0.07, -0.7 + bob), 0.01, 0.01, 0.01)
   }
 
-  // A jaguar draped along the left-hand branch, legs dangling, breathing slowly as its tail sways.
+  // A jaguar draped along the low branch facing the trunk, chin on one paw and the other legs dangling, breathing
+  // slowly as its tail sways. Now and then it lifts its head to look about, and lets it sink back to rest.
   private drawJaguar() {
-    const { A, H } = this
+    const H = this.H
+    // x runs along its back from the tail end, in screen heights.
     const top = (x: number): [number, number] => {
-      const [px, py] = this.leftBranch(x * A)
+      const [px, py] = this.lowBranch(this.A - 0.46 + x)
       return [px, py - 0.035 * H]
     }
     const breathe = 1 + 0.03 * Math.sin(this.creatureTime * 1.5)
     const coat = this.paint([0.85, 0.58, 0.22])
-    const [hx, hy] = top(0.445)
-    const [rx, ry] = top(0.29)
-    const [fx, fy] = top(0.415)
+    const pale = this.paint([0.92, 0.82, 0.62])
+    const lift = this.jaguarHead.p
+    const [rx, ry] = top(0.015)
+    const [fx, fy] = top(0.167)
+    const [hx, hy] = [top(0.236)[0] - lift * 0.004 * H, top(0.236)[1] - lift * 0.022 * H]
+    // Dangling legs swing gently, the paws a beat behind.
+    const dangle = (t: number) => Math.sin(this.creatureTime * 0.6 - t) * 0.006 * H
     const parts: Part[] = [
-      cap(...top(0.29), ...top(0.41), 0.03 * H * breathe, 0.028 * H * breathe, coat),
-      cap(fx, fy + 0.015 * H, fx + 0.004 * H, fy + 0.085 * H, 0.011 * H, 0.009 * H, coat),
-      cap(fx - 0.02 * H, fy + 0.015 * H, fx - 0.018 * H, fy + 0.07 * H, 0.01 * H, 0.008 * H, coat),
-      cap(rx + 0.01 * H, ry + 0.015 * H, rx + 0.012 * H, ry + 0.08 * H, 0.012 * H, 0.009 * H, coat),
-      ell(hx, hy - 0.005 * H, 0.026 * H, 0.023 * H, 0, coat),
-      ell(hx + 0.016 * H, hy + 0.004 * H, 0.012 * H, 0.009 * H, 0, this.paint([0.92, 0.82, 0.62])),
-      cap(hx - 0.014 * H, hy - 0.02 * H, hx - 0.016 * H, hy - 0.034 * H, 0.007 * H, 0.004 * H, coat),
-      cap(hx + 0.006 * H, hy - 0.024 * H, hx + 0.008 * H, hy - 0.038 * H, 0.007 * H, 0.004 * H, coat),
+      ell(rx, ry - 0.002 * H, 0.033 * H, 0.03 * H * breathe, -0.08, coat),
+      cap(...top(0.03), ...top(0.152), 0.025 * H * breathe, 0.027 * H * breathe, coat),
+      ell(fx, fy, 0.03 * H, 0.03 * H * breathe, 0, coat),
+      cap(fx + 0.012 * H, fy - 0.006 * H, hx - 0.012 * H, hy + 0.004 * H, 0.02 * H, 0.016 * H, coat),
+      cap(fx + 0.008 * H, fy + 0.012 * H, fx + 0.036 * H, fy + 0.03 * H, 0.011 * H, 0.009 * H, coat),
+      ell(fx + 0.042 * H, fy + 0.031 * H, 0.012 * H, 0.007 * H, 0, coat),
+      cap(fx - 0.012 * H, fy + 0.016 * H, fx - 0.008 * H + dangle(0), fy + 0.05 * H, 0.011 * H, 0.008 * H, coat),
+      cap(fx - 0.008 * H + dangle(0), fy + 0.05 * H, fx - 0.006 * H + dangle(0.6), fy + 0.08 * H, 0.008 * H, 0.007 * H, coat),
+      ell(fx - 0.004 * H + dangle(0.8), fy + 0.084 * H, 0.009 * H, 0.007 * H, 0, coat),
+      cap(rx + 0.006 * H, ry + 0.014 * H, rx + 0.016 * H + dangle(0.3), ry + 0.05 * H, 0.014 * H, 0.009 * H, coat),
+      cap(rx + 0.016 * H + dangle(0.3), ry + 0.05 * H, rx + 0.012 * H + dangle(0.9), ry + 0.08 * H, 0.008 * H, 0.007 * H, coat),
+      ell(rx + 0.015 * H + dangle(1.1), ry + 0.084 * H, 0.009 * H, 0.007 * H, 0, coat),
+      ell(hx, hy - 0.005 * H, 0.024 * H, 0.021 * H, 0, coat),
+      ell(hx + 0.017 * H, hy + 0.003 * H, 0.012 * H, 0.009 * H, 0.2, pale),
+      ...[-0.012, 0.004].map((dx) => ell(hx + dx * H - lift * 0.002 * H, hy - (0.024 + lift * 0.004) * H, 0.006 * H, 0.006 * H, 0, coat)),
     ]
     // The tail hangs from the hips and sways, more at the tip.
-    let [tx, ty] = [rx - 0.02 * H, ry]
+    let [tx, ty] = [rx - 0.026 * H, ry]
     let angle = Math.PI / 2 + 0.25 * Math.sin(this.creatureTime * 0.8)
     for (let i = 0; i < 6; i++) {
       const nx = tx + Math.cos(angle) * 0.022 * H
       const ny = ty + Math.sin(angle) * 0.022 * H
-      parts.push(cap(tx, ty, nx, ny, 0.007 * H, 0.006 * H, i === 5 ? this.paint(BLACK) : coat))
-      angle += 0.12 * Math.sin(this.creatureTime * 0.8 + i * 0.5)
+      parts.push(cap(tx, ty, nx, ny, lerp(0.009, 0.006, i / 6) * H, lerp(0.009, 0.006, (i + 1) / 6) * H, i === 5 ? this.paint(BLACK) : coat))
+      angle += 0.12 * Math.sin(this.creatureTime * 0.8 - i * 0.5)
       ;[tx, ty] = [nx, ny]
     }
     this.shape(parts, this.lighting, 0.7)
     // Rosettes along the body.
     for (let i = 0; i < 14; i++) {
-      const [sx, sy] = top(lerp(0.295, 0.405, hash(i * 3.3)))
+      const [sx, sy] = top(lerp(0.008, 0.174, hash(i * 3.3)))
       this.shape([ell(sx, sy + (hash(i * 7.1) - 0.5) * 0.035 * H, 0.0045 * H, 0.0035 * H, 0, this.paint([0.12, 0.07, 0.03]))], this.lighting, 0)
     }
     const glow = this.look.night ? 1.5 : 0
     this.add(hx + 0.012 * H, hy - 0.008 * H, 0.8 * glow + 0.01, 1 * glow + 0.01, 0.3 * glow + 0.01)
   }
 
-  // A red-eyed tree frog on the left branch near the trunk, blinking now and then.
+  // A red-eyed tree frog on the high branch between the macaws and the monkey, blinking now and then.
   private drawFrog() {
     const H = this.H
-    const [x, y] = this.leftBranch(0.25 * this.A)
+    const [x, y] = this.highBranch(this.A - 0.3)
     const cy = y - 0.026 * H
     const green = this.paint([0.25, 0.7, 0.15])
     const blink = this.time % 7 < 0.15
@@ -636,8 +692,7 @@ class Jungle extends Canvas {
     b.wanderT -= dt
     if (b.wanderT <= 0 || Math.hypot(b.wx - b.x, b.wy - b.y) < 0.03) {
       b.wanderT = rand(4, 9)
-      b.wx = rand(0.1 * A, 0.9 * A)
-      b.wy = rand(0.3, 0.75)
+      ;[b.wx, b.wy] = this.openSpot(0.1 * A, 0.9 * A, 0.3, 0.75)
     }
     const dx = b.wx - b.x
     const dy = b.wy - b.y
@@ -672,6 +727,7 @@ class Jungle extends Canvas {
       for (const f of this.glowers) {
         const k = Math.max(together, Math.pow(Math.max(0, Math.sin(this.time * 1.3 + f.phase * 7)), 6))
         if (k < 0.02) continue
+        fireflyLight(this.hdr, this.W, H, f.x * H, f.y * H, k)
         this.disc(f.x * H, f.y * H, 1.3, 0.9 * k * 2, 1.2 * k * 2, 0.3 * k * 2, 0.6)
         this.add(f.x * H, f.y * H, 0.9 * k, 1.2 * k, 0.3 * k)
       }
@@ -687,7 +743,8 @@ class Jungle extends Canvas {
   // A big glossy leaf on a short stalk, swaying gently, with a pale midrib.
   private drawLeaf(l: Leaf) {
     const H = this.H
-    const angle = l.angle + Math.sin(this.time * 0.5 + l.phase) * 0.035
+    // Turned whichever way carries the tip downwind.
+    const angle = l.angle + sway(l.x, this.time, l.phase, 0.5) * 0.035 * (Math.sin(l.angle) > 0 ? -1 : 1)
     const dx = Math.cos(angle)
     const dy = Math.sin(angle)
     const x = l.x * H
@@ -701,6 +758,22 @@ class Jungle extends Canvas {
 
 function mixRGB(a: RGB, b: RGB, t: number): RGB {
   return [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)]
+}
+
+// Low mist drifting between the trunks on the breeze, thickest just above the floor and thinner behind the text.
+function driftMist(hdr: Float32Array, W: number, H: number, drift: number, r: number, g: number, b: number, strength: number) {
+  for (let y = Math.floor(0.5 * H); y < Math.min(H, Math.ceil(0.96 * H)); y++) {
+    const v = y / H
+    const band = Math.exp(-(((v - 0.8) / 0.12) ** 2)) * strength
+    for (let x = 0; x < W; x++) {
+      const u = x / H
+      const a = band * (0.45 + 0.55 * smoothstep(0.1, 0.3, Math.abs(x / W - 0.5))) * MIST_A[((u - drift) * 90 + v * 40) & (RAY_N - 1)] * (0.3 + 0.7 * MIST_B[((u - drift * 0.6) * 55 - v * 25 + 300) & (RAY_N - 1)])
+      const o = (y * W + x) * 3
+      hdr[o] += (r - hdr[o]) * a
+      hdr[o + 1] += (g - hdr[o + 1]) * a
+      hdr[o + 2] += (b - hdr[o + 2]) * a
+    }
+  }
 }
 
 // A wrapping strip of soft bands; two sliding past each other make the light shafts.
