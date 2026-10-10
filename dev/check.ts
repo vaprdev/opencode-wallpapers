@@ -12,7 +12,7 @@ mkdirSync("dev/out", { recursive: true })
 const debug = `${process.cwd()}/dev/out/check.log`
 rmSync(debug, { force: true })
 process.env.WALLPAPER_DEBUG = debug
-process.env.WALLPAPER_OCTANTS = "1"
+process.env.WALLPAPER_OCTANTS ??= "1"
 
 const args = parseArgs({ allowPositionals: true, options: { quiet: { type: "boolean" }, "max-ms": { type: "string" }, "max-flicker": { type: "string", default: "150" } } })
 const maxMs = Number(args.values["max-ms"] ?? Infinity)

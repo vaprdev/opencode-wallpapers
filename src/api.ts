@@ -1,5 +1,5 @@
 // The public API for wallpapers, imported as "opencode-wallpapers/api". Nothing here depends on OpenCode or OpenTUI.
-export { Canvas, cap, ell, type Lighting, type Part } from "./canvas"
+export { Canvas, blade, cap, ell, type Lighting, type Part } from "./canvas"
 export { eggWait } from "./egg"
 export { bird, flyAway, startle, type Flier } from "./flock"
 export { haze, mottle } from "./grade"

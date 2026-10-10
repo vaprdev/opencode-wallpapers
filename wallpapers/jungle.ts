@@ -1,4 +1,4 @@
-import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
+import { Canvas, blade, cap, ell, type Lighting, type Part } from "../src/canvas"
 import { eggWait } from "../src/egg"
 import { haze, mottle } from "../src/grade"
 import { fireflyLight } from "../src/light"
@@ -392,10 +392,12 @@ class Jungle extends Canvas {
     for (let i = 0; i < 10; i++) {
       const [ax, ay] = at(i / 10)
       const [bx, by] = at((i + 1) / 10)
-      parts.push(cap(ax, ay, bx, by, size * 0.025, size * 0.02, this.paint(LEAF)))
+      parts.push(cap(ax, ay, bx, by, this.thick((size * 0.025) / this.H), this.thick((size * 0.02) / this.H, 0.8), this.paint(LEAF)))
       const leaflet = size * 0.14 * (1 - i / 12)
-      for (const s of [-1, 1]) parts.push(ell(ax + s * leaflet * 0.4, ay - leaflet * 0.5, leaflet * 0.6, leaflet * 0.18, s * 0.9 - 0.5 * side, this.paint(LEAF)))
+      if (!this.cells) for (const s of [-1, 1]) parts.push(ell(ax + s * leaflet * 0.4, ay - leaflet * 0.5, leaflet * 0.6, leaflet * 0.18, s * 0.9 - 0.5 * side, this.paint(LEAF)))
     }
+    // On terminal cells the leaflets merge into one blade.
+    if (this.cells) parts.push(...blade(Array.from({ length: 11 }, (_, i) => at(i / 10)), Array.from({ length: 11 }, (_, i) => size * 0.1 * (1 - i / 12)), this.paint(LEAF)))
     this.shape(parts, this.lighting, 0.6)
   }
 

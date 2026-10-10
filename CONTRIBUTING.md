@@ -40,9 +40,14 @@ when idle at 5 fps, never more than 0.1 s at a time), then `render()`, and reads
 `src/canvas.ts`) and you only write `step` and `render`. Brightness is applied by the engine, so scenes ignore it.
 
 The grid is small: a 160x45 terminal is 320x180 sub-pixels in character mode (2x4 per cell), and 480x270 in pixel mode.
-`bun dev/snap.ts` renders at 720x400. Anything thinner than about 2 sub-pixels flickers or vanishes, so size things as
-fractions of the height `H`. Most scenes use x from 0 to `A` (the aspect ratio, `W / H`) and y from 0 to 1, and multiply
-by `H` to get pixels.
+`bun dev/snap.ts` renders at 720x400. Size things as fractions of the height `H`. Most scenes use x from 0 to `A` (the
+aspect ratio, `W / H`) and y from 0 to 1, and multiply by `H` to get pixels.
+
+In character mode each cell shows only two colors, so anything thinner than about 2 sub-pixels, and any texture finer
+than a cell, turns into speckle and shimmers as it moves. `Canvas` sets `this.cells` then (not in snaps or pixel mode),
+so a scene can draw bolder there: `thick(radius, min)` gives a stroke radius in pixels that never drops below `min` on
+cells, `blade(spine, widths, color)` draws a frond's leaflets as one scalloped blade, and textures can coarsen or drop
+out. Judge it with `bun dev/preview.ts`, and with `WALLPAPER_OCTANTS=0` for quadrant terminals.
 
 ### step and render
 
