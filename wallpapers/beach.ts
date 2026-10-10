@@ -221,7 +221,8 @@ class Beach extends Canvas {
     this.shade = sunShade(settings.time, look.orb, this.weather.covered)
     if (this.season === "summer" && !this.look.night) this.swimmers = Array.from({ length: { calm: 1, lively: 3, teeming: 5 }[settings.activity] }, (_, i) => ({ x: 0.25 + i * 0.13 + hash(i) * 0.05, y: 0.69 + hash(i * 3.3) * 0.03, phase: i * 1.9 }))
     this.stars = makeStars(this.look.stars, 0.45)
-    this.clouds = makeClouds(4, "cumulus", 0.07, 0.24)
+    // Long thin streaks catch the low sun better than heaps of cumulus.
+    this.clouds = settings.time === "sunset" ? makeClouds(4, "cirrus", 0.08, 0.3) : makeClouds(4, "cumulus", 0.07, 0.24)
     if (settings.activity !== "calm") this.dolphins = [0, 1].map((i) => ({ t: -1, x: 0, y: 0, dir: 1, wait: 4 + i * 9, under: -1 }))
   }
 
@@ -299,14 +300,15 @@ class Beach extends Canvas {
     if (this.activity === "teeming") this.drawCrab()
     for (const b of this.startled) this.shape(bird(b, this.H, 0.03 * this.H, this.paint([0.75, 0.78, 0.82])), this.lighting, 0.5)
     if (this.look.night) this.drawBonfire()
+    // Once the boat and birds are up: the sky and all of them mirrored in the open water. The palms stand on the sand,
+    // not at the water's edge, so they go in after it.
+    const s = this.sea
+    reflect(this.hdr, this.W, this.H, s.y0, s.y1, s.rows, s.amp, s.gloss, this.look.mirror, this.time, s.still)
     // Trunks are drawn each frame, over the sea, since they cross the water.
     for (const p of this.palms) {
       this.drawTrunk(p)
       this.drawFronds(p)
     }
-    // Last, once the palms, boat and birds are up: the sky and all of them mirrored in the open water.
-    const s = this.sea
-    reflect(this.hdr, this.W, this.H, s.y0, s.y1, s.rows, s.amp, s.gloss, this.look.mirror, this.time, s.still)
     this.weather.draw(this.hdr, this.W, this.H)
     this.finish()
   }

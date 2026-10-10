@@ -230,7 +230,8 @@ class Farm extends Canvas {
     const colors: RGB[] = this.season === "spring" ? [[1, 0.78, 0.86], [0.95, 0.6, 0.72]] : [[0.9, 0.45, 0.1], [0.75, 0.2, 0.07], [0.95, 0.7, 0.18]]
     this.leaves = Array.from({ length: Math.round(drifting) }, (_, i) => ({ x: Math.random() * 2, y: 0.4 + Math.random() * 0.55, phase: Math.random() * TAU, color: colors[i % colors.length] }))
     this.stars = makeStars(this.look.stars, 0.45)
-    this.clouds = makeClouds(5, "cumulus", 0.08, 0.3)
+    // Long thin streaks catch the low sun better than heaps of cumulus.
+    this.clouds = settings.time === "sunset" ? makeClouds(5, "cirrus", 0.06, 0.3) : makeClouds(5, "cumulus", 0.08, 0.3)
     const walker = (x: number, y: number): Walker => ({ x, y, wx: x, wy: y, wanderT: 0, face: 1, phase: Math.random() * TAU, graze: 0, rest: 0, look: 0, moving: false, g: gait(1, hash(x * 7 + y)) })
     if (settings.activity !== "calm") {
       this.cows = [walker(0.9, 0.8), walker(1.3, 0.84), ...(settings.activity === "teeming" ? [walker(1.1, 0.78)] : [])]

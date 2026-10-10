@@ -221,7 +221,8 @@ class Prehistoric extends Canvas {
     this.weather = new WeatherLayer(settings.weather ?? "clear", settings.time, HORIZON)
     this.shade = sunShade(settings.time, this.look.orb, this.weather.covered)
     this.allStars = makeStars(this.look.stars, 0.5)
-    this.clouds = makeClouds(3, "cumulus", 0.06, 0.28)
+    // Long thin streaks catch the low sun better than heaps of cumulus.
+    this.clouds = settings.time === "sunset" ? makeClouds(4, "stratus", 0.08, 0.3) : makeClouds(3, "cumulus", 0.06, 0.28)
     if (settings.activity !== "teeming") return
     const walker = (x: number, y: number, size: number): Walker => ({ x, y, wx: x, wy: y, wanderT: 0, face: 1, phase: Math.random() * TAU, graze: 0, rest: 0, moving: false, size, g: gait(1, hash(x * 7 + y)) })
     this.herd = [walker(0.3, 0.8, 1), walker(0.55, 0.84, 1.1), walker(0.42, 0.82, 0.65)]

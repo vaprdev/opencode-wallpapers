@@ -30,7 +30,7 @@ export function gust(x: number, t: number) {
 // (positive x) with livelier rocking as a gust passes. phase keeps neighbors out of step and rate is how fast it rocks.
 export function sway(x: number, t: number, phase = 0, rate = 0.7) {
   const g = gust(x, t)
-  return Math.sin(t * rate + phase) * (1 + 0.4 * g) + g * (2.2 + 0.3 * Math.sin(t * rate * 2.7 + phase * 1.7))
+  return Math.sin(t * rate + phase) * (1 + 0.4 * g) + g * (1.65 + 0.22 * Math.sin(t * rate * 2.7 + phase * 1.7))
 }
 
 // Plants painted once into a static background that still bend in the gusts: the pixels they cover shift downwind
@@ -58,7 +58,7 @@ export class SwayLayer {
     this.before = hdr.slice()
   }
 
-  // reach is how far the tips move in the strongest gust, in pixels; weight(x, y) in pixels is how much of that a pixel
+  // reach is about how far the tips move in the strongest gust, in pixels; weight(x, y) in pixels is how much of that a pixel
   // moves, from 0 at the roots to 1 at the tips.
   end(hdr: Float32Array, W: number, H: number, reach: number, weight: (x: number, y: number) => number) {
     const before = this.before
@@ -129,7 +129,7 @@ export class SwayLayer {
       const u = (this.dir > 0 ? this.x0 + x : W - this.x0 - x) / H
       const g = gust(u, t)
       // A little flutter on top of the lean, so the tips don't move as one stiff sheet.
-      this.shift[x] = this.dir * g * this.reach * (0.85 + 0.25 * Math.sin(t * 2.3 + u * 9))
+      this.shift[x] = this.dir * g * this.reach * (0.64 + 0.19 * Math.sin(t * 2.3 + u * 9))
       if (g > 0) any = true
     }
     if (any) shear(hdr, W, this.x0, this.y0, this.w, this.h, this.bare, this.layer, this.cover, this.weight, this.shift)

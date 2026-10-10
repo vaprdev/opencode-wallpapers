@@ -1,5 +1,6 @@
 import type { AgentEvent, TextMap } from "./wallpaper"
 import { clamp, rand, smoothstep, type RGB } from "./math"
+import { clearShadows, keepShadows } from "./shadow"
 
 // Bloom is computed at 1/BLOOM resolution, then again at half that for the wide halo.
 const BLOOM = 4
@@ -194,6 +195,7 @@ export abstract class Canvas {
       this.colF[x] = clamp(bx - i, 0, 1)
     }
     this.layout()
+    keepShadows(this.hdr)
   }
 
   // A stroke radius in screen heights, in pixels; on terminal cells never under min, since thinner strokes break up
@@ -247,6 +249,7 @@ export abstract class Canvas {
   protected finish(exposure = 1.25) {
     bloom(this.hdr, this.W, this.H, this.bw, this.bh, this.bloomA, this.bloomB, this.bw2, this.bh2, this.bloom2A, this.bloom2B, this.bloomUp)
     toneMap(this.hdr, this.pixels, this.W, this.H, this.bloomUp, this.vignette, this.rowA, this.rowB, this.rowF, this.colA, this.colB, this.colF, exposure)
+    clearShadows(this.hdr)
   }
 }
 
