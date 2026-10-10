@@ -97,7 +97,9 @@ This is the biggest single saving: a full-screen gradient with noise costs more 
 | `polygon(points, color, alpha?)` | An anti-aliased polygon in a flat color, for straight-edged things like buildings and boats |
 | `shape(parts, lighting, light?)` | Rounded parts joined into one lit form, for creatures, people and plants |
 
-For per-pixel effects such as water, sand or fog, loop over `hdr` directly.
+For per-pixel effects such as water, sand or fog, loop over `hdr` directly. `reflect()` in `src/water.ts` mirrors
+other rows of the scene into water rows with drifting ripples, a tint and a per-pixel weight; call it each frame over
+only the water's rows (as the beach and the prehistoric lake do), or once in `layout()` for still water such as ice.
 
 ### Shapes
 
