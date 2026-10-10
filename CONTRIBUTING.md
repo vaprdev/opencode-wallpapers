@@ -143,7 +143,8 @@ details), and values in between soften it.
   alpha, orb)` give clouds of one kind: `cumulus`, `towering` (standing on y, for a horizon), `cirrus`, `wisp`,
   `stratus` or `ash`. They are lit from the orb: the brighter of `top` and `bottom` faces it, and clouds near it are
   backlit with glowing edges. Pass no orb under an overcast deck to light them evenly from above. Each cloud's shape
-  is built once per screen size, so drawing them each frame is cheap.
+  is built once per screen size, so drawing them each frame is cheap. Heaped kinds read best by day and at night;
+  thin streaks (`cirrus`, `stratus`) catch a low sunset sun better.
 - `makeShadows(count, y0, y1)` and `paintShadows(hdr, W, H, shadows, ground, orb)` drift soft cloud shadows across
   the ground below `ground` under a high sun; `paintHaze(hdr, W, H, y0, y1, color, alpha)` paints a static haze band.
 
@@ -152,6 +153,9 @@ painted toward a copy of the sky taken right after `paintSky` (call it after eac
 `mottle(hdr, W, H, horizon, bottom, size, warm, cool)` lays broad warm and cool patches over the ground in perspective.
 Setting `this.frame` (0 to 1) in the constructor darkens the bottom corners to frame a bright foreground.
 
+`src/math.ts` has `TAU`, `lerp`, `clamp`, `smoothstep`, `rand`, stable hashes (`hash`, `hash2`, `hashString`), smooth
+noise (`noise1`, `noise2`, `fbm1`, `fbm2`), `hsv` and the `RGB` type.
+
 ### Shadows
 
 `src/shadow.ts` grounds things standing on the ground. Make one `Shade` with `sunShade(time, look.orb,
@@ -159,7 +163,10 @@ weather.covered)`, then call `groundShadow(hdr, W, H, shade, x, y, w, h, tip?, l
 thing, its width and height in pixels, before drawing it: static things in `layout()`, moving ones each frame. It draws a
 soft contact shadow and a cast shadow away from the light: short by day, long and spreading from the low sun at sunset,
 faint at night, contact only under cloud. `lift` (pixels off the ground) fades the contact shadow and slides the cast one
-away, for hops and lifts. Shadows multiply the ground toward a sky-tinted color, so they never gray it.
+away, for hops and lifts. Shadows multiply the ground toward a sky-tinted color, so they never gray it, and where
+they overlap the ground darkens only as much as the deepest of them, not stacking into dark patches.
+
+### Creatures
 
 `src/creature.ts` animates walkers. Pose a creature in body coordinates with `body(x, y, S, turn)` (u forward, v
 down, w across), and keep a `Gait` per walker: `stepGait(g, distance / stride, dt, face)` advances the step cycle with
@@ -167,9 +174,6 @@ the distance walked, so planted feet don't slide, eases between standing and wal
 view instead of flipping, and rings a springy `lag` for tails and ears to trail. `quadruped()` draws four jointed
 legs in diagonal pairs, `limb()` any two-segment limb with a bending joint, `stride()` and `bob()` one foot's step and
 the body's rise, and `chain()` a tapered tail or neck along a curve.
-
-`src/math.ts` has `TAU`, `lerp`, `clamp`, `smoothstep`, `rand`, stable hashes (`hash`, `hash2`, `hashString`), smooth
-noise (`noise1`, `noise2`, `fbm1`, `fbm2`), `hsv` and the `RGB` type.
 
 ## Time of day
 
@@ -335,9 +339,10 @@ bun dev/gif.ts all                                # re-renders the README's GIFs
 
 ## Your own package
 
-A wallpaper package imports the API from `opencode-wallpapers/api`, which has `Canvas`, `cap`, `ell`, the creature, sky,
-weather, flock, egg and math helpers, and the `Wallpaper` types, with no OpenCode or OpenTUI dependency. It isn't on
-npm yet, so build a clone of this repository and depend on it by path:
+A wallpaper package imports the API from `opencode-wallpapers/api`, which has `Canvas`, `cap`, `ell`, `blade`, the
+sky, grade, shadow, light, water, creature, wind, weather, flock, egg and math helpers, and the `Wallpaper` types,
+with no OpenCode or OpenTUI dependency. It isn't on npm yet, so build a clone of this repository and depend on it by
+path:
 
 ```sh
 (cd ~/code/opencode-wallpapers && bun install && bun run build)

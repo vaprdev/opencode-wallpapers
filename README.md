@@ -72,20 +72,20 @@ Every wallpaper has a day, sunset and night look. By default the time of day fol
 sunset from 6pm (and at dawn, 6 to 7am), night from 8pm, fading from one to the next over 45 seconds. Pick one in the
 menu to keep it fixed.
 
-- **Ocean:** sunlit water by day, golden light at sunset, and at night dark moonlit water with glowing plankton
-  and, in teeming, a diver's torch.
-- **Desert:** a high sun with sunlit rock and shadows by day, silhouettes in a hot ochre dust haze at sunset, and a
-  moonlit night with stars and the Milky Way, where an owl and bats take over the sky.
+- **Ocean:** sunlit water by day, golden light at sunset, and at night moonlit blue water with dark silhouettes,
+  glowing plankton and, in teeming, a diver's torch.
+- **Desert:** a high sun with sunlit rock and shadows by day, silhouettes and long shadows in a hot ochre dust haze at
+  sunset, and a moonlit night with stars, the Milky Way and a campfire, where an owl and bats take over the sky.
 - **Jungle:** sunlit greens by day, warm backlit mist at sunset, and a moonlit night lit by fireflies, where the
   jaguar's eyes glow.
 - **Space:** the planet's sunlit side by day, an orbital sunrise with the star flaring at its edge at sunset, and its
   night side with city lights and aurora under a bright Milky Way.
-- **Farm:** sunny fields by day, golden-hour light over warm grass at sunset, and a moonlit night with glowing
-  windows and fireflies.
+- **Farm:** sunny fields under drifting cloud shadows by day, golden-hour light and long shadows over warm grass at
+  sunset, and a moonlit night with glowing windows, an open barn door and fireflies.
 - **Tundra:** crisp blue-white snow by day, pink alpenglow at sunset, and deep blue snow under a green and violet
   aurora at night, with warm light from the igloos.
-- **Beach:** turquoise water by day, a pastel pink and teal sunset over a pink-lit sea, and a moon path at night with
-  glowing bioluminescent waves.
+- **Beach:** turquoise water mirroring the sky by day, a pastel pink and teal sunset over a pink-lit sea, and a moon
+  path at night with glowing bioluminescent waves and a bonfire on the sand.
 - **City:** glass towers in the sun by day, a smoggy amber and magenta sunset dropping between the towers, and at
   night windows, lamps and neon in saturated colors mirrored in the river, with rain and a wet street in teeming.
 - **Zen garden:** a sunlit pond mirroring the sky by day, a soft peach and lavender sunset glittering in it, and at
@@ -183,7 +183,9 @@ The plugin post-processes each frame OpenCode draws. Cells painted with OpenCode
 by the scene, while colored backgrounds such as diffs and selections are left alone. Text keeps a soft scrim that fades
 the scene toward a dark tint around it. Scenes render in HDR with bloom and tone mapping, then are fitted to two colors
 per character cell. While one look fades into another, both scenes render and blend, scrim included, so only
-transitions cost extra.
+transitions cost extra. Scenes keep their landmarks toward the edges, and the engine tells them where text sits, so
+creatures and visitors stop where they can be seen. Outdoor scenes share one wind: now and then a gust rolls across
+the screen, bending plants and carrying petals, snow and dust.
 
 ## Make a wallpaper
 
