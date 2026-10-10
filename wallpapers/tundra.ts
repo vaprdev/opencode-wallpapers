@@ -1,5 +1,6 @@
 import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
 import { eggWait } from "../src/egg"
+import { haze, mottle } from "../src/grade"
 import { TAU, clamp, fbm1, hash, lerp, rand, smoothstep, type RGB } from "../src/math"
 import { driftClouds, makeClouds, makeStars, makeStorm, paintClouds, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
 import type { Activity, Settings, Time, Wallpaper } from "../src/wallpaper"
@@ -39,18 +40,18 @@ const LOOKS: Record<Time, Look> = {
     style: "front",
     light: [1, 0.97, 0.9],
     sky: [
-      [0, [0.2, 0.42, 0.75]],
-      [0.3, [0.4, 0.62, 0.85]],
-      [HORIZON, [0.75, 0.85, 0.92]],
+      [0, [0.12, 0.32, 0.7]],
+      [0.3, [0.28, 0.52, 0.84]],
+      [HORIZON, [0.62, 0.76, 0.9]],
     ],
     orb: { x: 0.78, y: 0.22, r: 0.032, core: [4.5, 4.3, 3.8], glow: [1, 0.95, 0.85], near: 0.4, wide: 0.12 },
     stars: 0,
     clouds: { puffy: true, top: [1.05, 1.08, 1.12], bottom: [0.62, 0.7, 0.82], alpha: 0.85 },
-    snow: [0.8, 0.87, 0.95],
-    shade: [0.55, 0.66, 0.85],
-    rock: [0.35, 0.4, 0.5],
-    peaks: [0.85, 0.9, 0.97],
-    ice: [0.55, 0.75, 0.88],
+    snow: [0.76, 0.72, 0.64],
+    shade: [0.2, 0.36, 0.76],
+    rock: [0.26, 0.29, 0.4],
+    peaks: [0.92, 0.86, 0.78],
+    ice: [0.4, 0.66, 0.86],
     flakes: [0.9, 0.94, 1],
     tint: [1, 1, 1],
     aurora: 0,
@@ -152,6 +153,7 @@ class Tundra extends Canvas {
     super()
     this.activity = settings.activity
     this.look = LOOKS[settings.time]
+    if (settings.time === "day") this.frame = 0.4
     this.stars = makeStars(this.look.stars, 0.45)
     this.clouds = makeClouds(this.look.clouds.puffy ? 3 : 4, this.look.clouds.puffy, 0.06, 0.28)
     // Its own gentle snowfall under a clear sky, unless weather is chosen.
@@ -247,6 +249,7 @@ class Tundra extends Canvas {
     this.lighting = look.style === "front" ? { style: "front", dir: DAYLIGHT } : { style: "rim", color: look.light, x: look.orb.x * W, y: look.orb.y * H }
     paintSky(this.hdr, W, H, look.sky, look.orb)
     this.weather.cover(this.hdr, W, H)
+    const sky = this.hdr.slice()
     this.drawMountains()
     // Gentle drifts near the horizon, then the snowfield sweeping to the bottom of the screen.
     const drift = new Float32Array(W)
@@ -255,11 +258,17 @@ class Tundra extends Canvas {
       for (let y = Math.max(0, Math.floor(drift[x])); y < H; y++) {
         const v = y / H
         const waves = 0.5 + 0.5 * Math.sin((x / H) * 6 + v * 40 + fbm1(x * 0.02, 3) * 4)
-        const k = smoothstep(0.3, 1, waves) * 0.35 * (1 - (v - 0.6) * 0.8)
-        const c = lerpRGB(look.snow, look.shade, k)
+        const k = smoothstep(0.3, 1, waves) * (look === LOOKS.day ? 0.5 : 0.35) * (1 - (v - 0.6) * 0.8)
+        // By day the foreground lies in blue shadow, framing the sunlit middle distance.
+        const c = lerpRGB(look.snow, look.shade, look === LOOKS.day ? Math.min(1, k + smoothstep(0.72, 1.1, v) * 0.4) : k)
         const edge = look.style === "rim" ? Math.exp(-(y + 0.5 - drift[x]) / 2) * 0.3 : 0
         this.blend((y * W + x) * 3, c[0] + look.light[0] * edge, c[1] + look.light[1] * edge, c[2] + look.light[2] * edge, clamp(y + 1 - drift[x], 0, 1))
       }
+    // By day, broad blue cloud shadows drift over the snow, and the far field and peaks fade into the sky.
+    if (look === LOOKS.day) {
+      mottle(this.hdr, W, H, 0.6, 1, 0.7, [1.04, 1, 0.9], [0.46, 0.62, 1])
+      haze(this.hdr, sky, W, H, 0.6, 0.8, 0.15, 0)
+    }
     this.drawLake(0.5 * A, 0.72, 0.3, 0.045)
     for (const [fx, h] of [[0.3, 0.1], [0.36, 0.08], [0.7, 0.09], [0.76, 0.11]] as const) this.drawPine(fx * A, 0.625, h, 0.5)
     this.drawIgloo(0.86 * A, 0.7, 0.055)
@@ -292,7 +301,8 @@ class Tundra extends Canvas {
       for (let y = Math.max(0, Math.floor(top[x])); y < (HORIZON + 0.06) * H; y++) {
         const haze = clamp((y / H - 0.35) * 1.2, 0, 0.4)
         let c = y < snowLine ? look.peaks : look.rock
-        if (look.style === "front") c = scaleRGB(c, slope > 0.3 ? 1.05 : slope < -0.3 ? 0.72 : 0.9)
+        // Sunlit faces warm, shaded ones a crisp blue.
+        if (look.style === "front") c = mulRGB(c, slope > 0.3 ? [1.05, 1, 0.92] : slope < -0.3 ? [0.45, 0.6, 0.92] : [0.8, 0.82, 0.9])
         const edge = look.style === "rim" ? Math.exp(-(y + 0.5 - top[x]) / 1.8) * 0.5 : 0
         c = lerpRGB(c, look.sky[look.sky.length - 1][1], haze * 0.5)
         this.blend((y * W + x) * 3, c[0] + look.light[0] * edge, c[1] + look.light[1] * edge, c[2] + look.light[2] * edge, clamp(y + 1 - top[x], 0, 1))
@@ -657,6 +667,10 @@ function lerpRGB(a: RGB, b: RGB, t: number): RGB {
 
 function scaleRGB(c: RGB, k: number): RGB {
   return [c[0] * k, c[1] * k, c[2] * k]
+}
+
+function mulRGB(a: RGB, b: RGB): RGB {
+  return [a[0] * b[0], a[1] * b[1], a[2] * b[2]]
 }
 
 export const tundra: Wallpaper = {

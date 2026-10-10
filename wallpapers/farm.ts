@@ -1,5 +1,6 @@
 import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
 import { eggWait } from "../src/egg"
+import { haze, mottle } from "../src/grade"
 import { TAU, clamp, fbm1, hash, hash2, lerp, rand, smoothstep, type RGB } from "../src/math"
 import { driftClouds, makeClouds, makeStars, makeStorm, paintClouds, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
 import type { Activity, Season, Settings, Time, Wallpaper } from "../src/wallpaper"
@@ -40,7 +41,7 @@ const LOOKS: Record<Time, Look> = {
     clouds: { puffy: true, top: [1.1, 1.1, 1.1], bottom: [0.6, 0.66, 0.78], alpha: 0.9 },
     hills: [
       [0.42, 0.6, 0.38],
-      [0.3, 0.55, 0.16],
+      [0.25, 0.5, 0.12],
     ],
     tint: [1, 1, 1],
     windows: 0,
@@ -144,6 +145,14 @@ const CROWN: Record<Season, [crown: RGB, specks: RGB[]]> = {
 }
 // Where the two trees stand, as fractions of the width.
 const TREES = [0.42, 0.95]
+// Daytime crops on the far fields, as multipliers of the far hill color.
+const CROPS: RGB[] = [
+  [1, 1, 1],
+  [0.66, 0.82, 0.62],
+  [1.1, 1.08, 0.8],
+  [1.45, 1.12, 0.45],
+  [1.2, 0.86, 0.55],
+]
 const WOOD: RGB = [0.45, 0.3, 0.16]
 const BLACK: RGB = [0.05, 0.05, 0.05]
 
@@ -195,6 +204,7 @@ class Farm extends Canvas {
     super()
     this.activity = settings.activity
     this.look = LOOKS[settings.time]
+    if (settings.time === "day") this.frame = 0.4
     this.season = settings.season ?? "summer"
     this.hills = GROUND[this.season]?.[settings.time] ?? this.look.hills
     // Without a weather setting, winter brings a light flurry.
@@ -304,17 +314,29 @@ class Farm extends Canvas {
       farTop[x] = (0.52 - 0.03 * fbm1(u * 1.5, 3) - 0.015 * Math.sin(u * 3)) * H
       this.nearTop[x] = (0.6 - 0.025 * Math.sin(u * 2.2 + 1) - 0.02 * fbm1(u * 2, 5)) * H
     }
+    const day = look === LOOKS.day
+    const sky = this.hdr.slice()
     this.fillBelow(farTop, (x, y, d) => {
-      const field = hash2(Math.floor((x / H) * 5 + (y / H) * 9), Math.floor((y / H) * 22))
+      const fu = (x / H) * 5 + (y / H) * 9
+      const fv = (y / H) * 22
+      const field = hash2(Math.floor(fu), Math.floor(fv))
       const k = 1 + (field < 0.33 ? -0.15 : field < 0.66 ? 0 : 0.12) * patchwork
       const gold = field > golden && season !== "winter" ? 0.3 : 0
-      return this.rim([far[0] * k + gold * far[0], far[1] * k + gold * 0.2 * far[1], far[2] * k * (1 - gold)], x, d, 1.5)
+      const c: RGB = [far[0] * k + gold * far[0], far[1] * k + gold * 0.2 * far[1], far[2] * k * (1 - gold)]
+      if (!day || season === "winter") return this.rim(c, x, d, 1.5)
+      // By day each field takes its own crop, from deep green to ploughed ochre, edged by dark hedgerows.
+      const crop = CROPS[Math.floor(hash2(Math.floor(fu) + 7.1, Math.floor(fv) + 3.3) * CROPS.length)]
+      const hedge = Math.min(fu - Math.floor(fu), (fv - Math.floor(fv)) * 0.4) < 0.05 ? 0.5 : 1
+      return [c[0] * crop[0] * hedge, c[1] * crop[1] * hedge, c[2] * crop[2] * hedge]
     })
+    // The far fields fade into the sky, then the pasture in front of them stays crisp.
+    if (day) haze(this.hdr, sky, W, H, 0.5, 0.62, 0.24, 0.08)
     this.fillBelow(this.nearTop, (x, y, d) => {
       const blades = 1 - grass + grass * Math.sin(x * 1.7 + y * 0.6 + fbm1(x * 0.1, 2) * 6)
       const depth = 1 - clamp((y / H - 0.6) * 0.6, 0, 0.25)
       return this.rim([near[0] * blades * depth, near[1] * blades * depth, near[2] * blades * depth], x, d, 2)
     })
+    if (day) mottle(this.hdr, W, H, 0.58, 1, 0.55, season === "winter" ? [1.03, 1, 0.92] : [1.14, 1.06, 0.7], season === "winter" ? [0.62, 0.74, 1] : [0.66, 0.84, 0.66])
     // A dirt road winding across the middle distance.
     for (let x = 0; x < W; x++) {
       const cy = this.roadY(x / H) * H

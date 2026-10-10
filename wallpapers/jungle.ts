@@ -1,5 +1,6 @@
 import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
 import { eggWait } from "../src/egg"
+import { haze, mottle } from "../src/grade"
 import { TAU, clamp, fbm1, hash, lerp, rand, smoothstep, type RGB } from "../src/math"
 import type { Activity, Settings, Time, Wallpaper } from "../src/wallpaper"
 import { WeatherLayer } from "../src/weather"
@@ -32,11 +33,11 @@ const LOOKS: Record<Time, Look> = {
     style: "front",
     light: [1, 0.95, 0.75],
     mist: [
-      [0.7, 0.85, 0.72],
-      [0.32, 0.52, 0.36],
-      [0.06, 0.12, 0.06],
+      [0.6, 0.8, 0.6],
+      [0.22, 0.45, 0.28],
+      [0.04, 0.1, 0.04],
     ],
-    far: [0.33, 0.52, 0.38],
+    far: [0.3, 0.52, 0.34],
     water: [0.8, 0.92, 1],
     shafts: 0.35,
     tint: [1, 1, 1],
@@ -153,6 +154,7 @@ class Jungle extends Canvas {
     const look = LOOKS[settings.time]
     const wet = RAINY_MIST[settings.time]
     this.look = rainy ? { ...look, mist: [mixRGB(look.mist[0], wet, 0.55), mixRGB(look.mist[1], wet, 0.4), look.mist[2]], far: mixRGB(look.far, wet, 0.4), shafts: look.shafts * 0.25 } : look
+    if (settings.time === "day") this.frame = 0.3
     // Without a weather setting, the rainy season brings a light shower.
     this.weather = new WeatherLayer(settings.weather ?? (rainy ? "rain" : "clear"), settings.time, 0.66, !settings.weather)
     const count = this.look.night ? 0 : { calm: 0, lively: 2, teeming: 4 }[settings.activity]
@@ -239,6 +241,7 @@ class Jungle extends Canvas {
     const { W, H, A, look } = this
     this.lighting = look.style === "front" ? { style: "front", dir: DAYLIGHT } : { style: "rim", color: look.light, x: 0.85 * W, y: -0.15 * H }
     this.drawMist()
+    const mist = this.hdr.slice()
     // Distant trees fade into the mist: thin trunks and a hazy band of canopy.
     for (let i = 0; i < Math.round(A * 7); i++) {
       const x = (i + 0.2 + hash(i * 3.1) * 0.6) * (A / Math.round(A * 7)) * H
@@ -250,6 +253,8 @@ class Jungle extends Canvas {
       this.lighting,
       0.15,
     )
+    // By day the distant trees melt further into the mist.
+    if (look.style === "front") haze(this.hdr, mist, W, H, 1, 1.01, 0.3)
     // A rocky cliff with the waterfall pouring over it.
     const fx = 0.55 * A
     this.falls = { x: fx * H, top: 0.27 * H, bottom: 0.66 * H, half: (this.rainy ? 0.026 : 0.018) * H }
@@ -296,6 +301,8 @@ class Jungle extends Canvas {
         const c = this.paint(FLOOR)
         this.blend((y * W + x) * 3, c[0] * k, c[1] * k, c[2] * k, clamp(y + 1 - this.groundPx[x], 0, 1))
       }
+    // Sun flecks and shade across the forest floor.
+    if (look.style === "front") mottle(this.hdr, W, H, 0.8, 1, 0.3, [1.5, 1.35, 0.8], [0.7, 0.8, 0.8])
     for (let i = 0; i < Math.round(A * 6); i++) {
       const x = (hash(i * 3.9) * A) * H
       this.drawFern(x, this.groundPx[clamp(Math.round(x), 0, W - 1)] + 2, (0.08 + hash(i * 1.1) * 0.06) * H, hash(i * 5.5) > 0.5 ? 1 : -1)

@@ -1,5 +1,6 @@
 import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
 import { eggWait } from "../src/egg"
+import { haze, mottle } from "../src/grade"
 import { bird, flyAway, startle, type Flier } from "../src/flock"
 import { TAU, clamp, fbm1, hash, hash2, lerp, rand, smoothstep, type RGB } from "../src/math"
 import { driftClouds, makeClouds, makeStars, makeStorm, paintClouds, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
@@ -44,12 +45,12 @@ const LOOKS: Record<Time, Look> = {
     stars: 0,
     clouds: { puffy: true, top: [1.1, 1.1, 1.1], bottom: [0.6, 0.68, 0.8], alpha: 0.9 },
     sea: [
-      [0.12, 0.42, 0.62],
-      [0.08, 0.6, 0.62],
+      [0.04, 0.26, 0.56],
+      [0.03, 0.54, 0.6],
     ],
     sand: [
-      [0.86, 0.76, 0.55],
-      [0.62, 0.52, 0.36],
+      [0.8, 0.65, 0.43],
+      [0.5, 0.4, 0.27],
     ],
     foam: [0.92, 0.96, 1],
     glitter: 0.15,
@@ -190,6 +191,7 @@ class Beach extends Canvas {
     const look = offSeason && settings.time === "day" ? { ...LOOKS.day, ...OFF_SEASON } : LOOKS[settings.time]
     // With the sun or moon behind cloud, only a trace of the glitter path is left.
     this.look = this.weather.covered ? { ...look, glitter: look.glitter * 0.15 } : look
+    if (settings.time === "day") this.frame = 0.4
     if (this.season === "summer" && !this.look.night) this.swimmers = Array.from({ length: { calm: 1, lively: 3, teeming: 5 }[settings.activity] }, (_, i) => ({ x: 0.25 + i * 0.13 + hash(i) * 0.05, y: 0.69 + hash(i * 3.3) * 0.03, phase: i * 1.9 }))
     this.stars = makeStars(this.look.stars, 0.45)
     this.clouds = makeClouds(this.look.clouds.puffy ? 4 : 5, this.look.clouds.puffy, 0.08, 0.3)
@@ -282,6 +284,7 @@ class Beach extends Canvas {
     this.lighting = look.style === "front" ? { style: "front", dir: DAYLIGHT } : { style: "rim", color: look.light, x: look.orb.x * W, y: look.orb.y * H }
     paintSky(this.hdr, W, H, look.sky, look.orb)
     this.weather.cover(this.hdr, W, H)
+    const sky = this.hdr.slice()
     // A small island on the horizon.
     const ix = 0.16 * A
     this.polygon(Array.from({ length: 21 }, (_, i) => [(ix + Math.cos((i / 20) * Math.PI) * 0.08) * H, (HORIZON - Math.sin((i / 20) * Math.PI) * 0.025) * H] as const), this.paint([0.2, 0.35, 0.22]))
@@ -300,6 +303,11 @@ class Beach extends Canvas {
         this.hdr[o + 1] = dry[1] * ripple
         this.hdr[o + 2] = dry[2] * ripple
       }
+    // By day the island fades into the sky, and the sand drifts between warm and cool.
+    if (look.style === "front") {
+      haze(this.hdr, sky, W, H, HORIZON, HORIZON + 0.01, 0.4)
+      mottle(this.hdr, W, H, HORIZON, 1, 0.6, [1.12, 1, 0.8], [0.72, 0.78, 0.92])
+    }
     // Summer brings a crowd of umbrellas and sunbathers; out of season the beach is empty but for driftwood.
     const season = this.season
     if (season === "summer") for (const [i, [x, y, stripe]] of UMBRELLAS.slice(0, { calm: 2, lively: 4, teeming: 6 }[this.activity]).entries()) this.drawUmbrella(x * A, y, stripe, i % 3 === 2 ? undefined : SKIN[i % SKIN.length])
@@ -329,6 +337,7 @@ class Beach extends Canvas {
     const t = this.time
     const [far, near] = look.sea
     const [, wet] = look.sand
+    const sky = look.sky[look.sky.length - 1][1]
     const ox = look.orb.x * W
     const roll = (t * 0.08) % 1
     for (let x = 0; x < W; x++) {
@@ -347,9 +356,11 @@ class Beach extends Canvas {
           continue
         }
         const depth = clamp((y / H - HORIZON) / (edge / H - HORIZON), 0, 1)
-        let r = lerp(far[0], near[0], depth)
-        let g = lerp(far[1], near[1], depth)
-        let b = lerp(far[2], near[2], depth)
+        // By day the far water pales into the haze along the horizon.
+        const mist = look.style === "front" ? (1 - depth) ** 4 * 0.5 : 0
+        let r = lerp(lerp(far[0], near[0], depth), sky[0], mist)
+        let g = lerp(lerp(far[1], near[1], depth), sky[1], mist)
+        let b = lerp(lerp(far[2], near[2], depth), sky[2], mist)
         const streak = Math.sin(u * (30 - depth * 18) + y * 0.9 + t * 0.6 + Math.sin(y * 0.37) * 3)
         const shine = streak > 0.9 ? (streak - 0.9) * 2 * (0.4 + depth) : 0
         r += look.light[0] * shine * 0.25

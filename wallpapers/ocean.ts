@@ -119,6 +119,8 @@ class Ocean extends Canvas {
   private floorPx = new Float32Array(0)
   private farPx = new Float32Array(0)
   private midPx = new Float32Array(0)
+  // By day, broad lighter and darker stretches along the near ridge, so it reads as rock rather than a flat cutout.
+  private midTone = new Float32Array(0)
   private pad = 0
   private lastA = 1
   private fish: Fish[] = []
@@ -378,12 +380,14 @@ class Ocean extends Canvas {
     this.pad = Math.ceil(H * 0.2)
     this.farPx = new Float32Array(W + this.pad * 2)
     this.midPx = new Float32Array(W + this.pad * 2)
+    this.midTone = new Float32Array(W + this.pad * 2)
     for (let x = 0; x < W + this.pad * 2; x++) {
       const u = (x - this.pad) / H
       const spires = Math.pow(noise1(u * 4.2, 9), 5) * 0.32
       this.farPx[x] = (0.56 - (fbm1(u * 1.4, 7) - 0.5) * 0.3 - spires) * H
       const arches = Math.pow(noise1(u * 6.5, 12), 7) * 0.25
       this.midPx[x] = (0.72 - (fbm1(u * 2.3, 11) - 0.5) * 0.2 - arches) * H
+      this.midTone[x] = this.timeOfDay === "day" ? 0.7 + 0.6 * smoothstep(0.3, 0.7, fbm1(u * 3.1, 17)) : 1
     }
     // Three kelp strands in the gaps between the creatures' areas.
     this.kelp = this.activity === "teeming" ? [[0.05, 0.28], [0.5, 0.21], [0.96, 0.3]].map(([x, height]) => ({ x: x * A, height, phase: x * 9 })) : []
@@ -612,7 +616,7 @@ class Ocean extends Canvas {
 
   // Depth-graded water with god rays, distant ridges, and a bright rippling surface with caustics.
   private drawWater() {
-    const { W, H, hdr, rowCol, rayFade, farPx, midPx } = this
+    const { W, H, hdr, rowCol, rayFade, farPx, midPx, midTone } = this
     const t = this.time
     const surf = SURFACE * H
     const camFar = Math.round(Math.sin(t * 0.09) * H * 0.04) + this.pad
@@ -652,9 +656,10 @@ class Ocean extends Canvas {
         const near = midPx[x + camMid]
         if (y > near) {
           const k = smoothstep(near, near + 2, y)
-          r = lerp(r, r * 0.35, k)
-          g = lerp(g, g * 0.42, k)
-          b = lerp(b, b * 0.5, k)
+          const tone = midTone[x + camMid]
+          r = lerp(r, r * 0.35 * tone, k)
+          g = lerp(g, g * 0.42 * tone, k)
+          b = lerp(b, b * 0.5 * tone, k)
         }
         const ray = RAYS_A[((x + ry1) | 0) & 1023] * (0.45 + 0.55 * RAYS_B[((x * 0.7 + ry2) | 0) & 1023]) * rf * flick
         hdr[i] = r + ray * 0.5

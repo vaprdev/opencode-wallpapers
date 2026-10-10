@@ -49,8 +49,8 @@ const LOOKS: Record<Time, Look> = {
     ring: 1,
     lighting: "front",
     tint: [1, 1, 1],
-    ringColor: [0.75, 0.68, 0.55],
-    rockColor: [0.75, 0.68, 0.6],
+    ringColor: [0.78, 0.64, 0.46],
+    rockColor: [0.62, 0.54, 0.46],
     starTints: false,
   },
   sunset: {
@@ -139,6 +139,7 @@ class Space extends Canvas {
     super()
     this.activity = settings.activity
     this.look = LOOKS[settings.time]
+    if (settings.time === "day") this.frame = 0.25
     if (settings.activity === "teeming")
       this.rocks = Array.from({ length: 6 }, (_, i) => ({
         x: Math.random() * 2,
@@ -287,7 +288,11 @@ class Space extends Canvas {
         const a = 0.75 * density
         const k = look.ring * (0.6 + 0.4 * density)
         const o = y * W + x
-        const [rr, rg, rb] = look.ringColor
+        // By day the bands alternate between warm tan and cool gray dust.
+        const warm = look.lighting === "front" ? 0.16 * Math.sin(rho * 9 + 1) : 0
+        const rr = look.ringColor[0] * (1 + warm)
+        const rg = look.ringColor[1]
+        const rb = look.ringColor[2] * (1 - warm * 1.5)
         if (qy < 0) {
           this.blend(o * 3, rr * k, rg * k, rb * k, a)
           if (a > 0.3) this.ringMask[o] = 1

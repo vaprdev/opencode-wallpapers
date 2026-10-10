@@ -1,5 +1,6 @@
 import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
 import { eggWait } from "../src/egg"
+import { haze, mottle } from "../src/grade"
 import { bird, flyAway, startle, type Flier } from "../src/flock"
 import { TAU, clamp, fbm1, hash, hash2, lerp, rand, smoothstep, type RGB } from "../src/math"
 import { driftClouds, makeClouds, makeStars, makeStorm, paintClouds, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
@@ -58,7 +59,7 @@ const LOOKS: Record<Time, Look> = {
     forest: [0.14, 0.3, 0.13],
     ground: [
       [0.36, 0.5, 0.2],
-      [0.24, 0.42, 0.12],
+      [0.2, 0.38, 0.1],
     ],
     rock: [0.32, 0.25, 0.22],
     lava: [
@@ -192,6 +193,7 @@ class Prehistoric extends Canvas {
     super()
     this.activity = settings.activity
     this.look = LOOKS[settings.time]
+    if (settings.time === "day") this.frame = 0.4
     this.weather = new WeatherLayer(settings.weather ?? "clear", settings.time, HORIZON)
     this.allStars = makeStars(this.look.stars, 0.5)
     this.clouds = makeClouds(this.look.clouds.puffy ? 4 : 5, this.look.clouds.puffy, 0.06, 0.3)
@@ -277,6 +279,8 @@ class Prehistoric extends Canvas {
     this.lighting = look.style === "front" ? { style: "front", dir: DAYLIGHT } : { style: "rim", color: look.light, x: look.orb.x * W, y: look.orb.y * H }
     paintSky(this.hdr, W, H, look.sky, look.orb)
     this.weather.cover(this.hdr, W, H)
+    const sky = this.hdr.slice()
+    const day = look === LOOKS.day
     const vx = VENT_X * A
     const ridgeTop = new Float32Array(W)
     const volcanoTop = new Float32Array(W)
@@ -311,6 +315,8 @@ class Prehistoric extends Canvas {
       const b = lerp(look.rock[2] * (1 + ash), look.forest[2], green) * k
       return this.rim([r, gg, b], x, d, 2)
     })
+    // By day the ridge and volcano fade into the sky, then the forest and far plain, while the foreground stays crisp.
+    if (day) haze(this.hdr, sky, W, H, 0.62, 0.63, 0.1)
     this.paintLava(vx)
     this.fillBelow(forestTop, (x, y, d) => {
       const k = 0.8 + 0.2 * fbm1(x * 0.3, 41) + (hash2(x, y) - 0.5) * 0.1
@@ -322,6 +328,10 @@ class Prehistoric extends Canvas {
       const blades = 0.9 + 0.1 * Math.sin(x * 1.7 + y * 0.6 + fbm1(x * 0.1, 2) * 6) + (hash2(x, y) - 0.5) * 0.05
       return this.rim([lerp(far[0], near[0], depth) * blades, lerp(far[1], near[1], depth) * blades, lerp(far[2], near[2], depth) * blades], x, d, 2)
     })
+    if (day) {
+      mottle(this.hdr, W, H, 0.62, 1, 0.55, [1.16, 1.04, 0.66], [0.68, 0.84, 0.72])
+      haze(this.hdr, sky, W, H, 0.62, 0.8, 0.14, 0, 0.56)
+    }
     if (this.activity === "teeming") this.paintLake()
     this.trees = [0.08 * A, Math.max(0.4 * A, 0.08 * A + 0.45)]
     this.drawTree(this.trees[0], 0.665, 0.29)
