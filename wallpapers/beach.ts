@@ -10,6 +10,7 @@ import { driftClouds, makeClouds, makeShadows, makeStars, makeStorm, paintClouds
 import type { Activity, Season, Settings, Time, Wallpaper } from "../src/wallpaper"
 import { reflect } from "../src/water"
 import { WeatherLayer } from "../src/weather"
+import { sway } from "../src/wind"
 
 // The scene runs slower than real time, which keeps it calm behind text.
 const TIME_SCALE = 0.35
@@ -511,13 +512,14 @@ class Beach extends Canvas {
     const [cx, cy] = [p.crown[0] * H, p.crown[1] * H]
     for (let i = 0; i < 8; i++) {
       const base = -Math.PI / 2 + ((i / 7) * 2 - 1) * 1.6 + p.lean * 0.15
-      const sway = Math.sin(this.time * 0.8 + i * 1.3 + p.lean) * 0.06
+      // Turned whichever way carries the tip downwind.
+      const bend = sway(p.crown[0], this.time, i * 1.3 + p.lean, 0.8) * 0.06 * (Math.sin(base) > 0 ? -1 : 1)
       const length = (0.17 + hash(i * 3.1 + p.lean) * 0.05) * H
       const parts: Part[] = []
       let [x, y] = [cx, cy]
       const spine: [number, number][] = [[x, y]]
       const widths = [this.thick(0.005)]
-      let angle = base + sway
+      let angle = base + bend
       for (let s = 0; s < 8; s++) {
         const q = s / 8
         // Fronds pointing sideways droop more.

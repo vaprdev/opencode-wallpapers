@@ -7,6 +7,7 @@ import { TAU, clamp, fbm1, hash, lerp, rand, smoothstep, type RGB } from "../src
 import { groundShadow, sunShade, type Shade } from "../src/shadow"
 import type { Activity, Settings, Time, Wallpaper } from "../src/wallpaper"
 import { WeatherLayer } from "../src/weather"
+import { SwayLayer, gust, sway } from "../src/wind"
 
 // The scene runs slower than real time, which keeps it calm behind text.
 const TIME_SCALE = 0.35
@@ -97,6 +98,8 @@ const DAYLIGHT = (() => {
 
 const RAYS_A = buildRays(3)
 const RAYS_B = buildRays(11)
+const MIST_A = buildRays(23)
+const MIST_B = buildRays(37)
 
 // A big foreground leaf rooted at (x, y), pointing along angle (radians, 0 = right, negative = up).
 interface Leaf {
@@ -151,6 +154,9 @@ class Jungle extends Canvas {
   private liana = { x: 0, length: 0, phase: 0 }
   // The easter egg: a sloth lowers itself down the vine, smiles at you, and climbs back up. t is creature time.
   private sloth = { wait: eggWait() * TIME_SCALE, t: -1 }
+  // The hanging vines, painted once, swing out in the gusts; mist drifts along the floor on the same wind.
+  private vines = new SwayLayer()
+  private mist = 0
 
   constructor(settings: Settings) {
     super()
@@ -176,8 +182,9 @@ class Jungle extends Canvas {
     this.time += dt
     const cdt = dt * CREATURE_SPEED
     this.creatureTime += cdt
+    this.mist += (0.02 + 0.1 * gust(0.5 * this.A, this.time)) * dt
     for (const p of this.pollen) {
-      p.x += (0.004 + p.s * 0.006) * dt
+      p.x += (0.004 + p.s * 0.006 + gust(p.x, this.time) * 0.05) * dt
       p.y += Math.sin(this.time * 0.4 + p.s * 20) * 0.003 * dt
       if (p.x > this.A) p.x -= this.A
     }
@@ -229,8 +236,11 @@ class Jungle extends Canvas {
 
   render() {
     this.hdr.set(this.background)
+    this.vines.draw(this.hdr, this.W, this.H, this.time)
     this.drawShafts()
     this.drawFalls()
+    const mist = this.look.mist[1]
+    driftMist(this.hdr, this.W, this.H, this.mist, mist[0], mist[1], mist[2], this.rainy ? 0.3 : 0.22)
     if (this.toucan.x > -5) this.drawToucan(this.toucan)
     if (this.sloth.t >= 0) this.drawSloth()
     if (this.activity !== "calm") this.drawMonkey()
@@ -292,12 +302,15 @@ class Jungle extends Canvas {
       this.lighting,
     )
     // Vines hanging from the canopy, clear of the waterfall.
+    this.vines.begin(this.hdr)
     for (let i = 0; i < 7; i++) {
       const vine = { x: (0.06 + (i / 6) * 0.88) * A, length: 0.25 + hash(i * 2.2) * 0.35, phase: hash(i * 4.4) * TAU }
       if (Math.abs(vine.x - fx) < 0.06) continue
       if (i === 0) this.liana = vine
       this.drawVine(vine.x * H, vine.length * H, vine.phase)
     }
+    // Hanging from the top, they swing more toward their tips.
+    this.vines.end(this.hdr, W, H, 0.014 * H, (_x, y) => clamp(y / (0.55 * H), 0, 1) ** 1.3)
     // Two big trunks with buttress roots, and the branches the animals use.
     this.drawTrunk(0.2 * A * H, 0.045 * H)
     this.drawTrunk(0.86 * A * H, 0.038 * H)
@@ -327,6 +340,7 @@ class Jungle extends Canvas {
       ...[0.6, 0.95].map((angle, i) => ({ x: -0.02, y: -0.04, angle, length: [0.3, 0.26][i], phase: i * 1.3 + 2 })),
       ...[2.5, 2.2].map((angle, i) => ({ x: A + 0.02, y: -0.04, angle, length: [0.3, 0.25][i], phase: i * 1.7 + 3 })),
     ]
+    this.vines.seal(this.hdr, W)
     this.background = this.hdr.slice()
   }
 
@@ -540,7 +554,8 @@ class Jungle extends Canvas {
     const v = this.liana
     const s = lerp(0.2, 0.75, smoothstep(0, 10, t) * (1 - smoothstep(14, 24, t)))
     const at = (q: number): [number, number] => [(v.x + Math.sin(q * Math.PI * 0.8 + v.phase) * 0.02 * q) * H, q * v.length * H]
-    const [gx, gy] = at(s)
+    const [vx, gy] = at(s)
+    const gx = vx + this.vines.offset(vx, gy)
     const S = 0.17 * H
     const climbing = (t < 10 || t > 14) && t < 24
     const reach = climbing ? Math.sin(t * 4) * 0.05 : 0
@@ -727,7 +742,8 @@ class Jungle extends Canvas {
   // A big glossy leaf on a short stalk, swaying gently, with a pale midrib.
   private drawLeaf(l: Leaf) {
     const H = this.H
-    const angle = l.angle + Math.sin(this.time * 0.5 + l.phase) * 0.035
+    // Turned whichever way carries the tip downwind.
+    const angle = l.angle + sway(l.x, this.time, l.phase, 0.5) * 0.035 * (Math.sin(l.angle) > 0 ? -1 : 1)
     const dx = Math.cos(angle)
     const dy = Math.sin(angle)
     const x = l.x * H
@@ -741,6 +757,22 @@ class Jungle extends Canvas {
 
 function mixRGB(a: RGB, b: RGB, t: number): RGB {
   return [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)]
+}
+
+// Low mist drifting between the trunks on the breeze, thickest just above the floor and thinner behind the text.
+function driftMist(hdr: Float32Array, W: number, H: number, drift: number, r: number, g: number, b: number, strength: number) {
+  for (let y = Math.floor(0.5 * H); y < Math.min(H, Math.ceil(0.96 * H)); y++) {
+    const v = y / H
+    const band = Math.exp(-(((v - 0.8) / 0.12) ** 2)) * strength
+    for (let x = 0; x < W; x++) {
+      const u = x / H
+      const a = band * (0.45 + 0.55 * smoothstep(0.1, 0.3, Math.abs(x / W - 0.5))) * MIST_A[((u - drift) * 90 + v * 40) & (RAY_N - 1)] * (0.3 + 0.7 * MIST_B[((u - drift * 0.6) * 55 - v * 25 + 300) & (RAY_N - 1)])
+      const o = (y * W + x) * 3
+      hdr[o] += (r - hdr[o]) * a
+      hdr[o + 1] += (g - hdr[o + 1]) * a
+      hdr[o + 2] += (b - hdr[o + 2]) * a
+    }
+  }
 }
 
 // A wrapping strip of soft bands; two sliding past each other make the light shafts.

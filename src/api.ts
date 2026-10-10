@@ -26,3 +26,4 @@ export {
   type Weather,
 } from "./wallpaper"
 export { WeatherLayer } from "./weather"
+export { SwayLayer, gust, sway } from "./wind"

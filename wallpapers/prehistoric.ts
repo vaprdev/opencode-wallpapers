@@ -10,6 +10,7 @@ import { driftClouds, makeClouds, makeShadows, makeStars, makeStorm, paintClouds
 import type { Activity, Settings, Time, Wallpaper } from "../src/wallpaper"
 import { reflect } from "../src/water"
 import { WeatherLayer } from "../src/weather"
+import { SwayLayer, gust, sway } from "../src/wind"
 
 // The scene runs slower than real time, which keeps it calm behind text.
 const TIME_SCALE = 0.35
@@ -193,6 +194,8 @@ class Prehistoric extends Canvas {
   // Lava pixels (hdr index, strength, height down the flow) that pulse each frame.
   private lava = { index: new Int32Array(0), k: new Float32Array(0), along: new Float32Array(0) }
   private trees: [number, number] = [0, 0]
+  // The far ferns and cycads, painted once, bend as the gusts pass.
+  private plants = new SwayLayer()
   private rex = { x: -9, dir: 1, next: 2, phase: 0 }
   private dust: { x: number; y: number; vx: number; age: number }[] = []
   // p runs from browsing the left tree (0) to browsing the right one (1).
@@ -268,6 +271,7 @@ class Prehistoric extends Canvas {
 
   render() {
     this.hdr.set(this.background)
+    this.plants.draw(this.hdr, this.W, this.H, this.time)
     if (!this.weather.covered) paintStars(this.hdr, this.W, this.H, this.stars, this.time, 0.5, this.look.stars > 50 ? 0.5 : 0.3)
     const orange = this.look.lava[1]
     flowLava(this.hdr, this.lava.index, this.lava.k, this.lava.along, this.time, orange[0], orange[1], orange[2])
@@ -387,15 +391,22 @@ class Prehistoric extends Canvas {
     this.drawTree(this.trees[0], 0.665, 0.29)
     this.drawTree(this.trees[1], 0.662, 0.31)
     this.drawTree(0.93 * A, 0.64, 0.45)
-    for (const [i, [x, y, s]] of [
+    this.plants.begin(this.hdr)
+    const ferns = [
       [0.32, 0.78, 0.07],
       [0.88, 0.74, 0.08],
       [0.48, 0.9, 0.08],
-    ].entries())
-      this.drawFern(x * A, y, s, i + 7, false)
-    this.drawCycad(0.04 * A, 0.86, 0.09)
-    this.drawCycad(0.47 * A, 0.835, 0.07)
-    this.drawCycad(0.9 * A, 0.84, 0.1)
+    ]
+    for (const [i, [x, y, s]] of ferns.entries()) this.drawFern(x * A, y, s, i + 7, false)
+    const cycads = [
+      [0.04, 0.86, 0.09],
+      [0.47, 0.835, 0.07],
+      [0.9, 0.84, 0.1],
+    ]
+    for (const [x, base, size] of cycads) this.drawCycad(x * A, base, size)
+    // Each plant bends from its base, the cycads' wide crowns over a wider reach.
+    const reach = [...ferns.map(([x, y, s]) => [x * A, y, s, s * 1.2]), ...cycads.map(([x, y, s]) => [x * A, y, s, s * 2.2])]
+    this.plants.end(this.hdr, W, H, 0.01 * H, (px, py) => reach.reduce((w, [x, y, s, r]) => (Math.abs(px / H - x) < r ? Math.max(w, clamp((y - py / H) / (s * 1.2), 0, 1)) : w), 0))
     // Plants painted over the water stay in front of its reflection.
     const p = this.pool
     const o = p.y0 * W * 3
@@ -600,12 +611,13 @@ class Prehistoric extends Canvas {
   }
 
   // A clump of fern fronds arching out and drooping at the tips; the front clumps sway in the breeze.
-  private drawFern(x: number, y: number, size: number, seed: number, sway: boolean) {
+  private drawFern(x: number, y: number, size: number, seed: number, swaying: boolean) {
     const H = this.H
     const fern = this.paint(FERN)
     for (let i = 0; i < 7; i++) {
       const base = -Math.PI / 2 + ((i / 6) * 2 - 1) * 1.15 + (hash(seed * 5 + i) - 0.5) * 0.2
-      const bend = sway ? Math.sin(this.time * 0.7 + i * 1.3 + seed * 2) * 0.05 : 0
+      // Turned whichever way carries the tip downwind.
+      const bend = swaying ? sway(x, this.time, i * 1.3 + seed * 2) * 0.05 * (Math.sin(base) > 0 ? -1 : 1) : 0
       const len = size * (0.75 + hash(seed * 7 + i) * 0.35) * H
       const parts: Part[] = []
       let [px, py] = [x * H, y * H]
@@ -639,9 +651,11 @@ class Prehistoric extends Canvas {
   private drawSmoke() {
     const { A, H, look } = this
     const [hot, cool, alpha] = look.smoke
+    // A passing gust bends the plume further over.
+    const blown = 0.0025 * gust(VENT_X * A, this.time)
     for (const s of this.smoke) {
       const t = s.age
-      const x = (VENT_X * A + (hash(s.seed) - 0.5) * 0.02 + 0.002 * t + 0.0009 * t * t + 0.006 * Math.sin(t * 0.7 + s.seed)) * H
+      const x = (VENT_X * A + (hash(s.seed) - 0.5) * 0.02 + 0.002 * t + 0.0009 * t * t + 0.006 * Math.sin(t * 0.7 + s.seed) + blown * t) * H
       const y = (CRATER - 0.004 - 0.018 * t + 0.0004 * t * t) * H
       const r = (0.012 + 0.006 * t) * (0.8 + hash(s.seed + 1) * 0.4) * H
       const a = alpha * smoothstep(0, 1.5, t) * (1 - smoothstep(8, SMOKE_LIFE, t))

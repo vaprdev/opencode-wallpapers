@@ -9,6 +9,7 @@ import { groundShadow, sunShade, type Shade } from "../src/shadow"
 import { driftClouds, makeClouds, makeStars, makeStorm, paintClouds, paintHaze, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
 import type { Activity, Settings, Time, Wallpaper } from "../src/wallpaper"
 import { WeatherLayer } from "../src/weather"
+import { gust, sway } from "../src/wind"
 
 // The scene runs slower than real time, which keeps it calm behind text.
 const TIME_SCALE = 0.35
@@ -160,6 +161,10 @@ const NEON: RGB[] = [
   [1.4, 0.95, 0.2],
 ]
 const CONCRETE: RGB = [0.58, 0.56, 0.53]
+const FLAGS: RGB[] = [
+  [0.8, 0.12, 0.1],
+  [0.12, 0.32, 0.75],
+]
 const STEEL: RGB = [0.62, 0.17, 0.11]
 const HEADLIGHT: RGB = [1.4, 0.95, 0.3]
 const TAILLIGHT: RGB = [1.4, 0.08, 0.06]
@@ -322,6 +327,7 @@ class City extends Canvas {
     this.drawLights()
     if (this.activity !== "calm") this.drawTrain()
     if (this.activity === "teeming") for (const b of this.boats) this.drawBoat(b)
+    this.drawPromenade()
     for (const c of this.cars) this.ground(c.x, LANES[c.lane].y, (c.bus ? 0.08 : 0.04) * LANES[c.lane].scale, (c.bus ? 0.023 : 0.015) * LANES[c.lane].scale, 1)
     for (const c of this.cars) if (c.lane === 0) this.drawCar(c)
     for (const c of this.cars) if (c.lane === 1) this.drawCar(c)
@@ -661,14 +667,8 @@ class City extends Canvas {
     const rail: Part[] = [cap(-1, (QUAY - 0.012) * H, A * H + 1, (QUAY - 0.012) * H, 0.0012 * H, 0.0012 * H, edge)]
     for (let x = 0.01; x < A; x += 0.03) rail.push(cap(x * H, QUAY * H, x * H, (QUAY - 0.012) * H, 0.001 * H, 0.001 * H, edge))
     this.shape(rail, this.lighting, 0.3)
-    // Trees along the promenade, between the highway lamps.
-    const leaves = this.paint([0.22, 0.42, 0.18])
-    for (let x = 0.29; x < A + 0.05; x += 0.34) {
-      const base = QUAY + 0.014
-      this.ground(x, base, 0.03, 0.05, 1.3)
-      this.shape([cap(x * H, base * H, x * H, (base - 0.022) * H, 0.002 * H, 0.0015 * H, this.paint([0.35, 0.25, 0.16]))], this.lighting, 0.4)
-      this.shape([ell(x * H, (base - 0.036) * H, 0.014 * H, 0.013 * H, 0, leaves), ell((x - 0.011) * H, (base - 0.026) * H, 0.011 * H, 0.009 * H, 0, leaves), ell((x + 0.011) * H, (base - 0.027) * H, 0.011 * H, 0.009 * H, 0, leaves)], this.lighting, 0.7)
-    }
+    // Shadows of the promenade trees, which are drawn each frame so they can sway.
+    for (let x = 0.29; x < A + 0.05; x += 0.34) this.ground(x, QUAY + 0.014, 0.03, 0.05, 1.3)
     // Shade under the deck, deepening toward it, then the street and its sidewalk.
     for (let y = UNDER; y < STREET; y += 0.005) this.polygon(this.rect(-0.01, y, A + 0.01, y + 0.0052), this.paint([0.12 + (y - UNDER) * 2, 0.12 + (y - UNDER) * 2, 0.15 + (y - UNDER) * 2]))
     this.polygon(this.rect(-0.01, STREET, A + 0.01, 0.965), this.paint([0.26, 0.26, 0.28]))
@@ -779,6 +779,39 @@ class City extends Canvas {
       this.polygon(this.rect(f.x, f.y, f.x + f.w, f.y + f.h), on ? f.on : f.off)
     }
     if (this.sign && look.glow > 0 && hash(Math.floor(this.time * 0.4) + 3.7) > 0.15) this.neon(this.sign, true, true)
+  }
+
+  // Trees along the promenade between the highway lamps, nodding in the wind, and two flags that hang slack in calm
+  // air and stream out when a gust comes through.
+  private drawPromenade() {
+    const { A, H } = this
+    const base = QUAY + 0.014
+    const leaves = this.paint([0.22, 0.42, 0.18])
+    for (let i = 0, x = 0.29; x < A + 0.05; i++, x += 0.34) {
+      const lean = sway(x, this.time, i * 1.7, 0.9) * 0.0015
+      this.shape([cap(x * H, base * H, (x + lean * 0.5) * H, (base - 0.022) * H, 0.002 * H, 0.0015 * H, this.paint([0.35, 0.25, 0.16]))], this.lighting, 0.4)
+      this.shape([ell((x + lean) * H, (base - 0.036) * H, 0.014 * H, 0.013 * H, 0, leaves), ell((x - 0.011 + lean * 0.7) * H, (base - 0.026) * H, 0.011 * H, 0.009 * H, 0, leaves), ell((x + 0.011 + lean * 0.7) * H, (base - 0.027) * H, 0.011 * H, 0.009 * H, 0, leaves)], this.lighting, 0.7)
+    }
+    const pole = this.paint([0.62, 0.62, 0.64])
+    for (const [i, x] of [0.205, 0.205 + 0.34 * Math.floor((A - 0.4) / 0.34)].entries()) {
+      const top = base - 0.075
+      this.shape([cap(x * H, base * H, x * H, (top - 0.004) * H, 0.0013 * H, 0.001 * H, pole)], this.lighting, 0.4)
+      const g = gust(x, this.time)
+      // From hanging nearly straight down to flying level, rippling faster the harder it blows.
+      const droop = 1.25 * (1 - (0.3 + 0.7 * g))
+      const L = 0.03
+      const upper: [number, number][] = []
+      const lower: [number, number][] = []
+      for (let k = 0; k <= 6; k++) {
+        const s = (k / 6) * L
+        const wave = Math.sin(k * 1.1 - this.time * (3 + 5 * g) + i) * 0.0025 * (k / 6)
+        const px = x + s * Math.cos(droop) + wave * Math.sin(droop)
+        const py = top + s * Math.sin(droop) + wave * Math.cos(droop)
+        upper.push([px * H, py * H])
+        lower.push([px * H, (py + 0.016) * H])
+      }
+      this.polygon([...upper, ...lower.reverse()], this.paint(FLAGS[i]))
+    }
   }
 
   private stepTraffic(dt: number) {

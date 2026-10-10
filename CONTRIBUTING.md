@@ -208,6 +208,15 @@ make one `WeatherLayer` (from `src/weather.ts`) with the weather, time of day an
 Skip stars when `covered` is set, and color clouds with `scud` when it is. Passing `light` as the last argument gives a
 seasonal shower or flurry without the cloud deck, as the farm does in winter. `wallpapers/farm.ts` shows all of it.
 
+## Wind
+
+Every outdoor scene shares one wind from `src/wind.ts`, so a gust rolls across the whole screen from left to right
+every minute or so and then dies away. `gust(x, t)` is how hard it blows at x (screen heights) and scene time t, from 0
+to 1: add it to anything that drifts, such as petals, snow or dust. `sway(x, t, phase, rate)` replaces a plant's own
+`Math.sin(t * rate + phase)`: the same rocking in calm air, plus a lean downwind as a gust passes. For plants painted
+once in `layout()`, a `SwayLayer` bends them without redrawing: call `begin()` before painting them, `end()` after
+with how far their tips move and a weight from roots to tips, and `draw()` right after copying the background.
+
 ## Scrim
 
 Text gets a soft scrim that fades the scene toward a dark color around it. `scrim` gives that color (0 to 255) for
