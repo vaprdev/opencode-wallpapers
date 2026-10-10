@@ -363,7 +363,8 @@ class City extends Canvas {
     this.beacons = []
     this.flickers = []
     this.sign = undefined
-    // Hazy towers on the far side of the city, then the downtown skyline, tallest toward the middle.
+    // Hazy towers on the far side of the city, then the skyline, tallest in two districts toward the sides where text
+    // rarely covers them, and lower across the middle.
     for (let x = -0.03, i = 0; x < A + 0.03; i++) {
       const w = 0.035 + hash(i * 1.7 + 0.3) * 0.05
       this.paintTower(this.tower(x, w, 0.06 + hash(i * 3.1 + 0.7) ** 1.5 * 0.17, i + 500, true))
@@ -375,8 +376,9 @@ class City extends Canvas {
     const near: Tower[] = []
     for (let x = -0.02, i = 0; x < A + 0.02; i++) {
       const w = 0.05 + hash(i * 2.3 + 0.1) * 0.055
-      const downtown = 0.13 * Math.exp(-(((x + w / 2 - 0.55 * A) / 0.4) ** 2))
-      near.push(this.tower(x, w, 0.08 + hash(i * 4.7 + 0.2) ** 1.6 * 0.23 + downtown, i, false))
+      const c = x + w / 2
+      const downtown = 0.16 * Math.max(Math.exp(-(((c - 0.36) / 0.26) ** 2)), Math.exp(-(((c - A + 0.36) / 0.26) ** 2)))
+      near.push(this.tower(x, w, 0.08 + hash(i * 4.7 + 0.2) ** 1.6 * (0.16 + downtown * 0.45) + downtown, i, false))
       x += w + (hash(i * 6.1) - 0.35) * 0.03
     }
     // The tallest two get a spire and an antenna.

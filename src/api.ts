@@ -21,6 +21,7 @@ export {
   type Scrim,
   type Season,
   type Settings,
+  type TextMap,
   type Time,
   type Wallpaper,
   type Weather,

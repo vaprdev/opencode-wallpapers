@@ -17,6 +17,17 @@ export interface Scene {
   react?(event: AgentEvent): void
   // Optional reaction to a click on open background, in screen heights: x runs 0..W/H across and y 0..1 down.
   poke?(x: number, y: number): void
+  // Optional: where OpenCode's text sits, sent when the scene starts and about once a second after that, so creatures
+  // can keep to open ground and visitors can come on where they'll be seen.
+  textMap?(map: TextMap): void
+}
+
+// A coarse grid over the whole screen, row-major: how much each cell is covered by text, its scrim or a panel, from 0
+// (open) to 1 (hidden).
+export interface TextMap {
+  readonly cols: number
+  readonly rows: number
+  readonly cover: Float32Array
 }
 
 export const AGENT_EVENTS = ["busy", "idle", "done", "error"] as const

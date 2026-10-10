@@ -400,26 +400,26 @@ class Desert extends Canvas {
     if (day) mottle(this.hdr, W, H, HORIZON, 1, 0.6, [1.1, 0.98, 0.8], [0.72, 0.7, 0.86])
     if (this.season === "spring") this.drawBloom()
     if (this.activity === "teeming") {
-      for (const fx of [0.47, 0.92]) {
-        const gy = backTop[Math.min(W - 1, Math.round(fx * W))] + 2
-        const h = fx < 0.5 ? 0.14 : 0.11
-        this.shadow(fx * A * H, gy, 0.25 * h * H, h * H)
-        this.drawSaguaro(fx * A * H, gy, (fx < 0.5 ? 0.14 : 0.11) * H, 0.5)
+      for (const [x, h] of [[0.45, 0.14], [A - 0.14, 0.11]]) {
+        const gy = backTop[clamp(Math.round(x * H), 0, W - 1)] + 2
+        this.shadow(x * H, gy, 0.25 * h * H, h * H)
+        this.drawSaguaro(x * H, gy, h * H, 0.5)
       }
     }
-    this.shadow(0.13 * A * H, this.ground(0.13), 0.085 * H, 0.34 * H)
-    this.drawSaguaro(0.13 * A * H, this.ground(0.13) + 3, 0.34 * H, 0)
-    this.shadow(0.8 * A * H, this.ground(0.8), 0.07 * H, 0.1 * H, 2.5)
-    this.drawSkull(0.8 * A * H, this.ground(0.8), 0.07 * H)
+    // The big saguaro and the skull keep to the sides, clear of the text in the middle.
+    this.shadow(0.22 * H, this.ground(0.22 / A), 0.085 * H, 0.34 * H)
+    this.drawSaguaro(0.22 * H, this.ground(0.22 / A) + 3, 0.34 * H, 0)
+    this.shadow((A - 0.32) * H, this.ground(1 - 0.32 / A), 0.07 * H, 0.1 * H, 2.5)
+    this.drawSkull((A - 0.32) * H, this.ground(1 - 0.32 / A), 0.07 * H)
     if (this.activity === "teeming") {
       this.shadow(0.33 * A * H, this.ground(0.33), 0.09 * H, 0.16 * H, 1.1)
       this.drawPricklyPear(0.33 * A * H, this.ground(0.33) + 2, H)
       this.shadow(0.62 * A * H, this.ground(0.62), 0.06 * H, 0.07 * H, 0.8)
       this.drawBarrel(0.62 * A * H, this.ground(0.62) + 1, H)
     }
-    // The coyote sits on the tallest near mesa.
-    let best = 0
-    for (let x = 1; x < W; x++) if (this.nearTop[x] < this.nearTop[best]) best = x
+    // The coyote sits on the tallest near mesa toward either side, where text rarely covers it, but not behind the saguaro.
+    let best = W - 1 - Math.round(W * 0.05)
+    for (let x = 0; x < W; x++) if (Math.abs(x / W - 0.5) > 0.3 && Math.abs(x / W - 0.5) < 0.47 && Math.abs(x / H - 0.22) > 0.1 && this.nearTop[x] < this.nearTop[best]) best = x
     this.coyoteX = best
     this.background = this.hdr.slice()
   }
@@ -627,7 +627,7 @@ class Desert extends Canvas {
     s.wanderT -= dt
     if (s.wanderT <= 0 || Math.hypot(s.wx - s.x, s.wy - s.y) < 0.02) {
       s.wanderT = rand(6, 14)
-      s.wx = rand(0.3 * A, 0.7 * A)
+      s.wx = this.openSpot(0.3 * A, 0.7 * A, 0.9, 0.9)[0]
       s.wy = crest(s.wx) + rand(0.015, 0.06)
     }
     const dx = s.wx - s.x

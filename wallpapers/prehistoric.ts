@@ -17,8 +17,8 @@ const TIME_SCALE = 0.35
 // Animals move at a quarter of scene speed, so even the T. rex plods.
 const CREATURE_SPEED = 0.25
 const HORIZON = 0.6
-// The volcano's crater, in screen heights; its x is a fraction of the width.
-const VENT_X = 0.7
+// The volcano's crater, in screen heights: its x from the right edge, so it stays clear of the text in the middle.
+const VENT_X = 0.4
 const CRATER = 0.205
 // Smoke puffs leave the crater on a loop: each one is the same plume at a different age.
 const SMOKE_LIFE = 14
@@ -300,7 +300,7 @@ class Prehistoric extends Canvas {
     this.drawRex()
     const A = this.A
     // At night the lava lights the ground, the lake and anything walking near the volcano's foot.
-    if (this.night) lightPool(this.hdr, this.W, this.H, (VENT_X * A + 0.08) * this.H, 0.63 * this.H, 0.45 * this.H, 0.13 * this.H, [1, 0.36, 0.06], 2.4 + 0.4 * Math.sin(this.time * 0.6), 0.03)
+    if (this.night) lightPool(this.hdr, this.W, this.H, (A - VENT_X + 0.08) * this.H, 0.63 * this.H, 0.45 * this.H, 0.13 * this.H, [1, 0.36, 0.06], 2.4 + 0.4 * Math.sin(this.time * 0.6), 0.03)
     for (const [i, x] of [0.01, 0.2, 0.76, 0.99].entries()) this.drawFern(x * A, 1.03, 0.17 + hash(i) * 0.04, i, true)
     if (this.activity === "teeming") for (const d of this.dragonflies) this.drawDragonfly(d)
     if (this.delorean.t >= 0) this.drawDelorean()
@@ -328,7 +328,7 @@ class Prehistoric extends Canvas {
     const sky = this.hdr.slice()
     const day = look === LOOKS.day
     for (const [i, c] of this.ash.entries()) c.x = lerp(this.plumeTop(), A + c.w, (i + 0.3) / this.ash.length)
-    const vx = VENT_X * A
+    const vx = A - VENT_X
     const ridgeTop = new Float32Array(W)
     const volcanoTop = new Float32Array(W)
     const forestTop = new Float32Array(W)
@@ -383,14 +383,15 @@ class Prehistoric extends Canvas {
     this.pool = { y0: 0, y1: 0, rows: new Float32Array(0), amp: new Float32Array(0), gloss: new Float32Array(0) }
     if (this.activity === "teeming") this.paintLake()
     const water = this.hdr.slice(this.pool.y0 * W * 3, this.pool.y1 * W * 3)
-    this.trees = [0.08 * A, Math.max(0.4 * A, 0.08 * A + 0.45)]
+    // The sauropod's two trees keep to the left, the volcano to the right.
+    this.trees = [0.06, 0.48]
     const ground = (x: number, y: number, w: number, h: number, tip?: number) => groundShadow(this.hdr, W, H, this.shade, x * H, y * H, w * H, h * H, tip)
-    for (const [x, base, top] of [[this.trees[0], 0.665, 0.29], [this.trees[1], 0.662, 0.31], [0.93 * A, 0.64, 0.45]]) ground(x, base, 0.08, base - top, 1.5)
+    for (const [x, base, top] of [[this.trees[0], 0.665, 0.29], [this.trees[1], 0.662, 0.31], [A - 0.1, 0.64, 0.45]]) ground(x, base, 0.08, base - top, 1.5)
     for (const [x, y, s] of [[0.32, 0.78, 0.07], [0.88, 0.74, 0.08], [0.48, 0.9, 0.08]]) ground(x * A, y, s * 1.4, s * 0.8, 1.2)
     for (const [x, y, s] of [[0.04, 0.86, 0.09], [0.47, 0.835, 0.07], [0.9, 0.84, 0.1]]) ground(x * A, y, s * 1.4, s * 1.1, 1.5)
     this.drawTree(this.trees[0], 0.665, 0.29)
     this.drawTree(this.trees[1], 0.662, 0.31)
-    this.drawTree(0.93 * A, 0.64, 0.45)
+    this.drawTree(A - 0.1, 0.64, 0.45)
     this.plants.begin(this.hdr)
     const ferns = [
       [0.32, 0.78, 0.07],
@@ -537,7 +538,7 @@ class Prehistoric extends Canvas {
         this.blend(o, look.water[0], look.water[1], look.water[2], wet)
         gloss[(y - y0) * W + x] = wet * (0.72 + 0.06 * Math.sin(y * 2.1 + x * 0.05))
         // The volcano's glow shimmers on the water below it.
-        const sheen = look.glow * 0.25 * Math.exp(-Math.abs(x / H - VENT_X * A) / 0.1) * wet * (0.7 + 0.3 * Math.sin(y * 2.7))
+        const sheen = look.glow * 0.25 * Math.exp(-Math.abs(x / H - (A - VENT_X)) / 0.1) * wet * (0.7 + 0.3 * Math.sin(y * 2.7))
         this.hdr[o] += red[0] * sheen
         this.hdr[o + 1] += red[1] * sheen
         this.hdr[o + 2] += red[2] * sheen
@@ -557,7 +558,7 @@ class Prehistoric extends Canvas {
 
   // The lake's center and radii, in screen heights.
   private lake() {
-    return [0.66 * this.A, 0.735, Math.min(0.3, 0.22 * this.A), 0.042] as const
+    return [this.A - VENT_X - 0.1, 0.735, Math.min(0.3, 0.22 * this.A), 0.042] as const
   }
 
   // A monkey-puzzle conifer: a bare trunk with tiers of drooping branches toward its rounded top.
@@ -644,7 +645,7 @@ class Prehistoric extends Canvas {
 
   // Where the plume levels off and its smoke starts to drift away as ash, in screen heights.
   private plumeTop() {
-    return VENT_X * this.A + 0.08
+    return this.A - VENT_X + 0.08
   }
 
   // Smoke billows up from the crater and leans downwind, lit from below by the lava when it is fresh.
@@ -652,10 +653,10 @@ class Prehistoric extends Canvas {
     const { A, H, look } = this
     const [hot, cool, alpha] = look.smoke
     // A passing gust bends the plume further over.
-    const blown = 0.0025 * gust(VENT_X * A, this.time)
+    const blown = 0.0025 * gust(A - VENT_X, this.time)
     for (const s of this.smoke) {
       const t = s.age
-      const x = (VENT_X * A + (hash(s.seed) - 0.5) * 0.02 + 0.002 * t + 0.0009 * t * t + 0.006 * Math.sin(t * 0.7 + s.seed) + blown * t) * H
+      const x = (A - VENT_X + (hash(s.seed) - 0.5) * 0.02 + 0.002 * t + 0.0009 * t * t + 0.006 * Math.sin(t * 0.7 + s.seed) + blown * t) * H
       const y = (CRATER - 0.004 - 0.018 * t + 0.0004 * t * t) * H
       const r = (0.012 + 0.006 * t) * (0.8 + hash(s.seed + 1) * 0.4) * H
       const a = alpha * smoothstep(0, 1.5, t) * (1 - smoothstep(8, SMOKE_LIFE, t))
@@ -919,8 +920,7 @@ class Prehistoric extends Canvas {
     w.wanderT -= dt
     if (w.wanderT <= 0) {
       w.wanderT = rand(6, 14)
-      w.wx = rand(zone[0], zone[1])
-      w.wy = rand(zone[2], zone[3])
+      ;[w.wx, w.wy] = this.openSpot(...zone)
     }
     const dx = w.wx - w.x
     const dy = w.wy - w.y
@@ -1017,8 +1017,7 @@ class Prehistoric extends Canvas {
       if (n.wait > 0) return
       const [cx, cy, rx, ry] = this.lake()
       n.t = 0
-      n.x = cx + rand(-0.6, 0.6) * rx
-      n.y = cy + rand(-0.2, 0.4) * ry
+      ;[n.x, n.y] = this.openSpot(cx - 0.6 * rx, cx + 0.6 * rx, cy - 0.2 * ry, cy + 0.4 * ry)
       n.dir = Math.random() < 0.5 ? 1 : -1
       return
     }

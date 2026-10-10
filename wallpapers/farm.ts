@@ -150,8 +150,6 @@ const CROWN: Record<Season, [crown: RGB, specks: RGB[]]> = {
   autumn: [[0.85, 0.42, 0.1], [[0.95, 0.68, 0.15], [0.7, 0.16, 0.06], [0.55, 0.3, 0.08]]],
   winter: [[0, 0, 0], []],
 }
-// Where the two trees stand, as fractions of the width.
-const TREES = [0.42, 0.95]
 // Daytime crops on the far fields, as multipliers of the far hill color.
 const CROPS: RGB[] = [
   [1, 1, 1],
@@ -207,6 +205,9 @@ class Farm extends Canvas {
   private readonly weather: WeatherLayer
   private hills: [far: RGB, near: RGB]
   private treeTops: [number, number][] = []
+  // The barn and windmill stand toward the edges, in screen heights from the left, clear of the text in the middle.
+  private barnX = 0
+  private millX = 0.25
   // Blossom petals in spring and leaves in autumn, drifting down on the breeze.
   private leaves: { x: number; y: number; phase: number; color: RGB }[] = []
   // The back corn rows are painted once but still bend as gusts pass, and the open pasture lightens under them.
@@ -250,7 +251,7 @@ class Farm extends Canvas {
     driftClouds(this.storm, this.A, dt)
     this.stepGloom(dt)
     this.weather.step(dt)
-    this.fan += dt * (0.8 + 1.6 * gust(0.3 * this.A, this.time))
+    this.fan += dt * (0.8 + 1.6 * gust(this.millX, this.time))
     for (const l of this.leaves) {
       l.y += (0.02 + Math.sin(this.time * 1.3 + l.phase) * 0.012) * dt
       l.x += (0.025 + Math.sin(this.time * 0.7 + l.phase * 3) * 0.02 + gust(l.x, this.time) * 0.09) * dt
@@ -272,7 +273,7 @@ class Farm extends Canvas {
     this.stepTractor(dt)
     const A = this.A
     for (const c of this.cows) this.wander(c, cdt, [0.4 * A, 0.95 * A, 0.76, 0.87], 0.03, [6, 14], 0.055)
-    for (const c of this.chickens) this.wander(c, cdt, [0.62 * A, 0.84 * A, 0.672, 0.712], 0.025, [2, 5], 0.025)
+    for (const c of this.chickens) this.wander(c, cdt, [this.barnX - 0.21, this.barnX + 0.18, 0.672, 0.712], 0.025, [2, 5], 0.025)
     for (const p of this.pigs) this.wander(p, cdt, [0.44 * A, 0.6 * A, 0.88, 0.94], 0.02, [5, 10], 0.035)
     if (this.activity === "teeming") this.stepFarmer(cdt)
     this.stepEgg(dt, cdt)
@@ -308,7 +309,7 @@ class Farm extends Canvas {
     this.drawEgg()
     if (this.activity === "teeming") this.drawFarmer()
     // At night the open barn door spills warm light across the yard and whatever is in it.
-    if (this.look.windows === 1) lightPool(this.hdr, this.W, this.H, 0.74 * this.A * this.H, 0.67 * this.H, 0.24 * this.H, 0.07 * this.H, [1, 0.55, 0.15], 3, 0.02)
+    if (this.look.windows === 1) lightPool(this.hdr, this.W, this.H, this.barnX * this.H, 0.67 * this.H, 0.24 * this.H, 0.07 * this.H, [1, 0.55, 0.15], 3, 0.02)
     this.drawCornRow(3)
     this.drawFireflies()
     this.drawLeaves()
@@ -376,26 +377,28 @@ class Farm extends Canvas {
       }
     }
     if (season === "spring") this.drawWildflowers()
+    this.barnX = A - 0.24
+    const trees = [0.5, A - 0.04]
     const ground = (x: number, y: number, w: number, h: number, tip?: number) => groundShadow(this.hdr, W, H, this.shade, x * H, y * H, w * H, h * H, tip)
-    for (const t of TREES) ground(t * A, this.nearTop[clamp(Math.round(t * W), 0, W - 1)] / H + 0.012, 0.09, 0.17, 1.4)
-    ground(0.5 * A, this.nearTop[clamp(Math.round(0.5 * W), 0, W - 1)] / H + 0.006, 0.08, 0.066, 0.6)
-    ground(0.3 * A, 0.65, 0.07, 0.27, 0.4)
-    ground(0.74 * A, 0.655, 0.24, 0.19, 0.6)
-    for (const [bx, by] of [[0.58, 0.705], [0.625, 0.712]]) ground(bx * A, by + 0.02, 0.045, 0.04)
+    for (const x of trees) ground(x, this.nearTop[clamp(Math.round(x * H), 0, W - 1)] / H + 0.012, 0.09, 0.17, 1.4)
+    ground(0.08, this.nearTop[clamp(Math.round(0.08 * H), 0, W - 1)] / H + 0.006, 0.08, 0.066, 0.6)
+    ground(this.millX, 0.65, 0.07, 0.27, 0.4)
+    ground(this.barnX, 0.655, 0.24, 0.19, 0.6)
+    for (const [dx, by] of [[-0.28, 0.705], [-0.2, 0.712]]) ground(this.barnX + dx, by + 0.02, 0.045, 0.04)
     for (let x = 0.38 * A; x < A + 0.05; x += 0.07) ground(x, 0.725, 0.012, 0.045, 0.6)
-    this.treeTops = TREES.map((t) => {
-      const base = this.nearTop[clamp(Math.round(t * W), 0, W - 1)] / H + 0.012
-      this.drawTree(t * A, base)
-      return [t * A, base - 0.12]
+    this.treeTops = trees.map((x) => {
+      const base = this.nearTop[clamp(Math.round(x * H), 0, W - 1)] / H + 0.012
+      this.drawTree(x, base)
+      return [x, base - 0.12]
     })
-    this.drawFarmhouse(0.5 * A, this.nearTop[clamp(Math.round(0.5 * W), 0, W - 1)] / H + 0.006)
-    this.drawWindmillTower(0.3 * A, 0.65)
-    this.drawBarn(0.74 * A, 0.655)
-    for (const [bx, by] of [[0.58, 0.705], [0.625, 0.712]]) this.shape([ell(bx * A * H, by * H, 0.022 * H, 0.02 * H, 0, this.paint([0.78, 0.62, 0.3]), 3)], this.lighting, 0.8)
+    this.drawFarmhouse(0.08, this.nearTop[clamp(Math.round(0.08 * H), 0, W - 1)] / H + 0.006)
+    this.drawWindmillTower(this.millX, 0.65)
+    this.drawBarn(this.barnX, 0.655)
+    for (const [dx, by] of [[-0.28, 0.705], [-0.2, 0.712]]) this.shape([ell((this.barnX + dx) * H, by * H, 0.022 * H, 0.02 * H, 0, this.paint([0.78, 0.62, 0.3]), 3)], this.lighting, 0.8)
     // Pumpkins in front of the barn in autumn.
     if (season === "autumn")
       for (const [dx, r] of [[-0.062, 0.011], [-0.046, 0.008], [0.056, 0.01]]) {
-        const [px, py] = [(0.74 * A + dx) * H, 0.664 * H]
+        const [px, py] = [(this.barnX + dx) * H, 0.664 * H]
         this.shape([ell(px, py - r * H, r * 1.25 * H, r * H, 0, this.paint([0.92, 0.45, 0.06]), 3), cap(px, py - r * 1.9 * H, px + 0.003 * H, py - r * 2.4 * H, 0.0018 * H, 0.0012 * H, this.paint([0.3, 0.35, 0.1]))], this.lighting, 0.7)
       }
     // A fence along the front of the pasture.
@@ -561,7 +564,7 @@ class Farm extends Canvas {
 
   private drawFan() {
     const H = this.H
-    const x = 0.3 * this.A * H
+    const x = this.millX * H
     const y = (0.65 - 0.21) * H
     const metal = this.paint([0.75, 0.75, 0.72])
     const turn = this.fan
@@ -688,8 +691,7 @@ class Farm extends Canvas {
     w.wanderT -= dt
     if (w.wanderT <= 0) {
       w.wanderT = rand(6, 14)
-      w.wx = rand(zone[0], zone[1])
-      w.wy = rand(zone[2], zone[3])
+      ;[w.wx, w.wy] = this.openSpot(...zone)
     }
     const dx = w.wx - w.x
     const dy = w.wy - w.y
@@ -899,7 +901,7 @@ class Farm extends Canvas {
     for (let i = 0; i < 3; i++) {
       const a = this.creatureTime * (0.5 + i * 0.1) + i * 2.1
       const x = (0.17 * this.A + Math.cos(a) * (0.08 + i * 0.03)) * H
-      const y = (0.42 + Math.sin(a) * 0.03) * H
+      const y = (0.3 + Math.sin(a) * 0.03) * H
       const flap = Math.sin(this.time * 6 + i * 2)
       const s = 0.03 * H
       const c = this.paint(BLACK)

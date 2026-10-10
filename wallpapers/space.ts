@@ -12,8 +12,9 @@ const CREATURE_SPEED = 0.25
 const TW = 512
 const TH = 256
 
-// Where the planet sits and how big it is: center x as a fraction of the width, y and radius in screen heights.
-const PLANET = { x: 0.68, y: 1.1, r: 0.58 }
+// Where the planet sits and how big it is, in screen heights: its center x from the right edge, so it rises in the
+// lower right clear of the text in the middle, and its center y and radius.
+const PLANET = { x: 0.52, y: 1.1, r: 0.58 }
 const RING = { tilt: 0.42, flat: 0.24, inner: 1.25, outer: 2.1 }
 // How long a shooting star lasts, in scene seconds.
 const METEOR = 1.2
@@ -129,7 +130,7 @@ class Space extends Canvas {
   private stars = Array.from({ length: 320 }, (_, i) => ({ x: Math.random() * 3, y: Math.random(), layer: i % 3, b: 0.3 + Math.random() * 0.7, phase: Math.random() * TAU, tint: STAR_TINTS[i % STAR_TINTS.length] }))
   private comet = { x: -9, y: 0, vx: 0, vy: 0, next: 14 }
   private ufo = { x: -9, y: 0.2, dir: 1, next: 30 }
-  private station: Traveler = { x: 0.2, y: 0.3, dir: 1, wait: 0 }
+  private station: Traveler = { x: 0.2, y: 0.24, dir: 1, wait: 0 }
   private satellite: Traveler = { x: 1.4, y: 0.15, dir: -1, wait: 0 }
   private rocks: Rock[] = []
   private meteors: { x: number; y: number; vx: number; vy: number; age: number }[] = []
@@ -239,7 +240,7 @@ class Space extends Canvas {
   // The nebula, the Milky Way and the far half of the rings never move, so they are painted once per size.
   protected override layout() {
     const { W, H, A, look } = this
-    const cx = PLANET.x * W
+    const cx = W - PLANET.x * H
     const cy = PLANET.y * H
     const R = PLANET.r * H
     this.starPos = look.lighting === "front" ? [0.14 * W, 0.14 * H] : [cx + R * look.sun[0] / Math.hypot(look.sun[0], look.sun[1]), cy + R * look.sun[1] / Math.hypot(look.sun[0], look.sun[1])]
@@ -330,7 +331,7 @@ class Space extends Canvas {
   // the edge, and on the dark side city lights and aurora.
   private drawPlanet() {
     const { W, H, hdr, look } = this
-    const cx = PLANET.x * W
+    const cx = W - PLANET.x * H
     const cy = PLANET.y * H
     const R = PLANET.r * H
     const rot = this.time * 0.02
@@ -429,8 +430,8 @@ class Space extends Canvas {
   private drawMoon() {
     const { W, H, look } = this
     const a = this.creatureTime * 0.05
-    const cx = (0.24 * this.A + 0.06 * Math.cos(a)) * H
-    const cy = (0.36 + 0.025 * Math.sin(a)) * H
+    const cx = (0.3 + 0.06 * Math.cos(a)) * H
+    const cy = (0.24 + 0.025 * Math.sin(a)) * H
     const R = 0.035 * H
     // Cobalt rather than grey at night.
     const [mr, mg, mb] = look.lighting === "night" ? look.rockColor : [0.9, 0.9, 0.95]
@@ -610,7 +611,7 @@ class Space extends Canvas {
         const pits = 0.7 + 0.45 * fbm2(dx * 2.5 + Math.cos(r.angle) * 2 + r.seed, dy * 2.5 + Math.sin(r.angle) * 2, 4)
         const ambient = look.lighting === "night" ? 0.01 : 0.02
         // At night the planet's glow below rims the side of the rock facing it.
-        const rim = look.lighting === "night" ? Math.pow(1 - nz, 2) * Math.max(0, ((dx / edge) * (PLANET.x * W - cx) + (dy / edge) * (PLANET.y * H - cy)) / Math.hypot(PLANET.x * W - cx, PLANET.y * H - cy)) * 0.6 : 0
+        const rim = look.lighting === "night" ? Math.pow(1 - nz, 2) * Math.max(0, ((dx / edge) * (W - PLANET.x * H - cx) + (dy / edge) * (PLANET.y * H - cy)) / Math.hypot(W - PLANET.x * H - cx, PLANET.y * H - cy)) * 0.6 : 0
         const k = (ambient + lit * 0.7 + rim) * pits
         this.blend((y * W + x) * 3, k * look.rockColor[0], k * look.rockColor[1], k * look.rockColor[2], clamp((1.05 - rr) * R, 0, 1))
       }
@@ -620,7 +621,7 @@ class Space extends Canvas {
   private drawAstronaut() {
     const H = this.H
     const t = this.creatureTime
-    const x = (0.24 * this.A + 0.05 * Math.sin(t * 0.13)) * H
+    const x = (0.28 + 0.05 * Math.sin(t * 0.13)) * H
     const y = (0.6 + 0.03 * Math.sin(t * 0.21)) * H
     const a = t * 0.08
     const S = 0.09 * H

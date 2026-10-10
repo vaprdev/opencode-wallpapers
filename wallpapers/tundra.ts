@@ -114,12 +114,6 @@ const DAYLIGHT = (() => {
   return [0.5 / l, -0.55 / l, 0.65 / l] as const
 })()
 
-// Igloos: x as a fraction of the width, base and radius in screen heights.
-const IGLOOS = [
-  [0.86, 0.7, 0.055],
-  [0.2, 0.75, 0.075],
-] as const
-
 // Daytime colors.
 const PINE: RGB = [0.1, 0.25, 0.18]
 const FUR: RGB = [0.93, 0.91, 0.86]
@@ -179,7 +173,7 @@ class Tundra extends Canvas {
     this.flakes = Array.from({ length: settings.weather ? 0 : { calm: 70, lively: 100, teeming: 130 }[settings.activity] }, () => ({ x: Math.random() * 4, y: Math.random(), z: Math.random(), s: Math.random() }))
     const walker = (x: number, y: number): Walker => ({ x, y, wx: x, wy: y, wanderT: 0, face: 1, phase: Math.random() * TAU, rest: 0, moving: false, hop: Infinity, g: gait(1, hash(x * 7 + y)) })
     if (settings.activity !== "calm") {
-      this.penguins = Array.from({ length: settings.activity === "teeming" ? 5 : 3 }, (_, i) => walker(0.6 + i * 0.12, 0.78 + (i % 2) * 0.015))
+      this.penguins = Array.from({ length: settings.activity === "teeming" ? 5 : 3 }, (_, i) => walker(0.6 + i * 0.12, 0.81 + (i % 2) * 0.015))
       this.fox = walker(0.9, 0.88)
     }
     if (settings.activity === "teeming") this.bear = walker(0.7, 0.655)
@@ -206,7 +200,7 @@ class Tundra extends Canvas {
     }
     this.stepOwl(dt)
     const A = this.A
-    for (const p of this.penguins) this.wander(p, cdt, [0.34 * A, 0.58 * A, 0.77, 0.81], 0.025, 0.012)
+    for (const p of this.penguins) this.wander(p, cdt, [0.34 * A, 0.58 * A, 0.8, 0.84], 0.025, 0.012)
     if (this.fox) this.wander(this.fox, cdt, [0.3 * A, 0.95 * A, 0.84, 0.92], 0.04, 0.038)
     if (this.bear) this.wander(this.bear, cdt, [0.25 * A, 0.85 * A, 0.648, 0.662], 0.025, 0.08)
     const f = this.fisher
@@ -222,7 +216,7 @@ class Tundra extends Canvas {
       y.wait -= dt
       if (y.wait > 0) return
       y.t = 0
-      y.x = rand(0.56, 0.6) * this.A
+      y.x = this.openSpot(0.15 * this.A, 0.8 * this.A, 0.6, 0.6)[0]
       return
     }
     y.t += cdt
@@ -259,7 +253,7 @@ class Tundra extends Canvas {
     if (this.fox) this.drawFox(this.fox)
     // At night the igloo doors' warm light falls across the snow and anything passing them.
     if (this.look.glow === 1)
-      for (const [fx, base, R] of IGLOOS) lightPool(this.hdr, this.W, this.H, (fx * this.A - R * 0.35) * this.H, (base + 0.01) * this.H, R * 3.2 * this.H, R * 1.1 * this.H, [1, 0.42, 0.08], 1, 0.03)
+      for (const [x, base, R] of this.igloos()) lightPool(this.hdr, this.W, this.H, (x - R * 0.35) * this.H, (base + 0.01) * this.H, R * 3.2 * this.H, R * 1.1 * this.H, [1, 0.42, 0.08], 1, 0.03)
     this.drawFlakes()
     this.weather.draw(this.hdr, this.W, this.H)
     this.finish()
@@ -295,15 +289,16 @@ class Tundra extends Canvas {
       mottle(this.hdr, W, H, 0.6, 1, 0.7, [1.04, 1, 0.9], [0.5, 0.66, 1])
       haze(this.hdr, sky, W, H, 0.6, 0.8, 0.15, 0)
     }
-    this.drawLake(0.5 * A, 0.72, 0.3, 0.045)
+    this.drawLake(0.5 * A, 0.745, 0.3, 0.045)
+    // The pines and igloos keep to the sides, clear of the text in the middle.
+    const pines = [[0.3, 0.1], [0.37, 0.08], [A - 0.36, 0.09], [A - 0.29, 0.11]]
     const ground = (x: number, y: number, w: number, h: number, tip?: number) => groundShadow(this.hdr, W, H, this.shade, x * H, y * H, w * H, h * H, tip)
-    for (const [fx, h] of [[0.3, 0.1], [0.36, 0.08], [0.7, 0.09], [0.76, 0.11]] as const) ground(fx * A, 0.625, h * 0.45, h, 0.5)
-    ground(0.86 * A, 0.7, 0.11, 0.047, 0.8)
-    ground(0.2 * A, 0.75, 0.15, 0.064, 0.8)
+    for (const [x, h] of pines) ground(x, 0.625, h * 0.45, h, 0.5)
+    for (const [x, base, R] of this.igloos()) ground(x, base, R * 2, R * 0.85, 0.8)
     if (this.activity === "teeming") ground(0.3 * A, 0.85, 0.068, 0.15, 0.6)
     ground(0.62 * A, 0.87, 0.09, 0.195, 0.6)
-    for (const [fx, h] of [[0.3, 0.1], [0.36, 0.08], [0.7, 0.09], [0.76, 0.11]] as const) this.drawPine(fx * A, 0.625, h, 0.5)
-    for (const [fx, base, R] of IGLOOS) this.drawIgloo(fx * A, base, R)
+    for (const [x, h] of pines) this.drawPine(x, 0.625, h, 0.5)
+    for (const [x, base, R] of this.igloos()) this.drawIgloo(x, base, R)
     if (this.activity === "teeming") this.drawSnowman(0.3 * A, 0.85, 0.75, [0.2, 0.35, 0.8], false)
     this.drawSnowman(0.62 * A, 0.87, 1, [0.8, 0.12, 0.1], true)
     this.pines.begin(this.hdr)
@@ -321,7 +316,7 @@ class Tundra extends Canvas {
       const S = 0.16 * this.depthScale(this.bear.y)
       ground(this.bear.x + this.bear.face * 0.04 * S, this.bear.y, 0.85 * S, 0.5 * S, 0.8)
     }
-    if (this.activity === "teeming") ground(0.68 * this.A + 0.05, 0.718, 0.04, 0.11, 0.6)
+    if (this.activity === "teeming") ground(0.68 * this.A + 0.05, 0.758, 0.033, 0.09, 0.6)
     for (const p of this.penguins) {
       const S = 0.075 * this.depthScale(p.y)
       const hop = p.hop >= 0 && p.hop < HOP ? Math.abs(Math.sin((p.hop / HOP) * TAU)) * 0.025 * this.depthScale(p.y) : 0
@@ -331,6 +326,16 @@ class Tundra extends Canvas {
       const S = 0.064 * this.depthScale(this.fox.y)
       ground(this.fox.x - this.fox.face * 0.05 * S, this.fox.y, 1.1 * S, 0.7 * S, 0.7)
     }
+  }
+
+  // Igloos: x, base and radius in screen heights, kept to the sides clear of the text in the middle.
+  private igloos() {
+    const A = this.A
+    return [
+      [A - 0.2, 0.7, 0.055],
+      [A - 0.36, 0.77, 0.08],
+      [0.42, 0.79, 0.075],
+    ]
   }
 
   private paint(c: RGB): RGB {
@@ -536,8 +541,7 @@ class Tundra extends Canvas {
     w.wanderT -= dt
     if (w.wanderT <= 0) {
       w.wanderT = rand(6, 14)
-      w.wx = rand(zone[0], zone[1])
-      w.wy = rand(zone[2], zone[3])
+      ;[w.wx, w.wy] = this.openSpot(...zone)
     }
     const dx = w.wx - w.x
     const dy = w.wy - w.y
@@ -694,7 +698,7 @@ class Tundra extends Canvas {
     const H = this.H
     const S = 0.1 * H
     const hx = 0.68 * this.A * H
-    const hy = 0.718 * H
+    const hy = 0.758 * H
     const x = hx + 0.06 * H
     const y = hy
     const P = (u: number, v: number): [number, number] => [x + u * S, y + v * S]
@@ -727,7 +731,7 @@ class Tundra extends Canvas {
       if (o.next > 0) return
       o.dir = Math.random() < 0.5 ? 1 : -1
       o.x = o.dir > 0 ? -0.15 : this.A + 0.15
-      o.y = rand(0.2, 0.35)
+      o.y = this.openRow(0.18, 0.35)
       return
     }
     o.x += o.dir * 0.07 * dt

@@ -18,6 +18,8 @@ const CHORUS = 3
 const RAY_N = 1024
 // How long the sloth's visit lasts, in creature time.
 const SLOTH = 24
+// Where the monkey hangs from the high branch, in screen heights from the right edge.
+const MONKEY = 0.38
 
 // What changes with the time of day. Plants and animals have one daytime color each; tint darkens them into
 // silhouettes at sunset and night, while the mist, distant trees, water and light shafts get their own colors.
@@ -230,7 +232,7 @@ class Jungle extends Canvas {
     if (this.activity === "calm") return
     const m = this.monkey
     // Start the extra swing from rest so the push never makes it jump, swinging away from the click.
-    if (m.kick < 0.05) m.swing = x < this.rightBranch(0.71 * this.A)[0] / this.H ? Math.PI : 0
+    if (m.kick < 0.05) m.swing = x < this.A - MONKEY ? Math.PI : 0
     m.kick = 1
   }
 
@@ -245,8 +247,8 @@ class Jungle extends Canvas {
     if (this.sloth.t >= 0) this.drawSloth()
     if (this.activity !== "calm") this.drawMonkey()
     if (this.activity === "teeming") {
-      this.drawMacaw(0.795, -1, 0)
-      this.drawMacaw(0.765, 1, 1.7)
+      this.drawMacaw(this.A - 0.19, -1, 0)
+      this.drawMacaw(this.A - 0.24, 1, 1.7)
       this.drawJaguar()
       this.drawFrog()
     }
@@ -276,8 +278,8 @@ class Jungle extends Canvas {
     )
     // By day the distant trees melt further into the mist.
     if (look.style === "front") haze(this.hdr, mist, W, H, 1, 1.01, 0.3)
-    // A rocky cliff with the waterfall pouring over it.
-    const fx = 0.55 * A
+    // A rocky cliff with the waterfall pouring over it, on the left; the animals' tree stands on the right.
+    const fx = 0.32
     this.falls = { x: fx * H, top: 0.27 * H, bottom: 0.66 * H, half: (this.rainy ? 0.026 : 0.018) * H }
     const rock = mixRGB(this.paint(ROCK), look.far, 0.35)
     const boulders: [number, number, number, number][] = [
@@ -312,10 +314,10 @@ class Jungle extends Canvas {
     // Hanging from the top, they swing more toward their tips.
     this.vines.end(this.hdr, W, H, 0.014 * H, (_x, y) => clamp(y / (0.55 * H), 0, 1) ** 1.3)
     // Two big trunks with buttress roots, and the branches the animals use.
-    this.drawTrunk(0.2 * A * H, 0.045 * H)
-    this.drawTrunk(0.86 * A * H, 0.038 * H)
-    this.shape([cap(...this.leftBranch(0.2 * A + 0.03), ...this.leftBranch(0.48 * A), 0.022 * H, 0.012 * H, this.paint(TRUNK))], this.lighting)
-    this.shape([cap(...this.rightBranch(0.86 * A - 0.03), ...this.rightBranch(0.66 * A), 0.018 * H, 0.01 * H, this.paint(TRUNK))], this.lighting)
+    this.drawTrunk(0.04 * H, 0.045 * H)
+    this.drawTrunk((A - 0.12) * H, 0.038 * H)
+    this.shape([cap(...this.lowBranch(A - 0.15), ...this.lowBranch(A - 0.5), 0.022 * H, 0.012 * H, this.paint(TRUNK))], this.lighting)
+    this.shape([cap(...this.highBranch(A - 0.15), ...this.highBranch(A - 0.46), 0.018 * H, 0.01 * H, this.paint(TRUNK))], this.lighting)
     // The forest floor and its ferns.
     this.groundPx = new Float32Array(W)
     for (let x = 0; x < W; x++) this.groundPx[x] = (0.86 + 0.02 * Math.sin((x / H) * 3.3) + (fbm1(x * 0.02, 4) - 0.5) * 0.03) * H
@@ -327,7 +329,7 @@ class Jungle extends Canvas {
       }
     // Sun flecks and shade across the forest floor.
     if (look.style === "front") mottle(this.hdr, W, H, 0.8, 1, 0.3, [1.5, 1.35, 0.8], [0.7, 0.8, 0.8])
-    for (const [x, r] of [[0.2 * A, 0.045], [0.86 * A, 0.038]]) groundShadow(this.hdr, W, H, this.shade, x * H, this.groundPx[clamp(Math.round(x * H), 0, W - 1)] + 0.03 * H, r * 6 * H, H)
+    for (const [x, r] of [[0.04, 0.045], [A - 0.12, 0.038]]) groundShadow(this.hdr, W, H, this.shade, x * H, this.groundPx[clamp(Math.round(x * H), 0, W - 1)] + 0.03 * H, r * 6 * H, H)
     for (let i = 0; i < Math.round(A * 6); i++) {
       const x = (hash(i * 3.9) * A) * H
       groundShadow(this.hdr, W, H, this.shade, x, this.groundPx[clamp(Math.round(x), 0, W - 1)] + 2, (0.1 + hash(i * 1.1) * 0.07) * H, 0.1 * H)
@@ -349,15 +351,14 @@ class Jungle extends Canvas {
     return [c[0] * t[0], c[1] * t[1], c[2] * t[2]]
   }
 
-  // Points along the two animal branches, in pixels, at x in screen heights.
-  private leftBranch(x: number): [number, number] {
-    const t = (x - (0.2 * this.A + 0.03)) / (0.28 * this.A - 0.03)
-    return [x * this.H, lerp(0.47, 0.43, t) * this.H]
+  // Points along the two animal branches of the right-hand tree, in pixels, at x in screen heights. They rise a little
+  // toward their tips.
+  private lowBranch(x: number): [number, number] {
+    return [x * this.H, lerp(0.69, 0.65, (this.A - 0.15 - x) / 0.35) * this.H]
   }
 
-  private rightBranch(x: number): [number, number] {
-    const t = ((0.86 * this.A - 0.03) - x) / (0.2 * this.A - 0.03)
-    return [x * this.H, lerp(0.31, 0.29, t) * this.H]
+  private highBranch(x: number): [number, number] {
+    return [x * this.H, lerp(0.31, 0.29, (this.A - 0.15 - x) / 0.31) * this.H]
   }
 
   // Misty depth: bright and hazy above, dark at the forest floor.
@@ -481,7 +482,7 @@ class Jungle extends Canvas {
       if (b.next > 0) return
       b.dir = Math.random() < 0.5 ? 1 : -1
       b.x = b.dir > 0 ? -0.15 : this.A + 0.15
-      b.y = rand(0.18, 0.32)
+      b.y = this.openRow(0.16, 0.32)
       return
     }
     b.x += b.dir * 0.08 * dt
@@ -516,11 +517,11 @@ class Jungle extends Canvas {
     )
   }
 
-  // A spider monkey hanging by its tail from the right-hand branch, swinging slowly, its long arms and legs trailing
-  // each swing; at night it barely stirs.
+  // A spider monkey hanging by its tail from the high branch, swinging slowly, its long arms and legs trailing each
+  // swing; at night it barely stirs.
   private drawMonkey() {
     const H = this.H
-    const [ax, ay] = this.rightBranch(0.71 * this.A)
+    const [ax, ay] = this.highBranch(this.A - MONKEY)
     const m = this.monkey
     const night = this.look.night
     const swingAt = (t: number) => (night ? 0.05 : 0.35) * Math.sin(t * 1.2) + (night ? 0.2 : 0.4) * m.kick * Math.sin(m.swing - (this.creatureTime - t) * 6)
@@ -585,10 +586,10 @@ class Jungle extends Canvas {
     this.shape([ell(...F(-0.035, 0.215), 0.028 * S, 0.012 * S, tilt - 0.35, dark), ell(...F(0.035, 0.215), 0.028 * S, 0.012 * S, tilt + 0.35, dark), ell(...F(0, 0.245), 0.014 * S, 0.008 * S, tilt, dark)], this.lighting, 0)
   }
 
-  // A scarlet macaw perched upright on the right-hand branch, bobbing its head now and then.
+  // A scarlet macaw perched upright on the high branch, bobbing its head now and then.
   private drawMacaw(at: number, face: number, phase: number) {
     const H = this.H
-    const [x, y] = this.rightBranch(at * this.A)
+    const [x, y] = this.highBranch(at)
     const S = 0.11 * H
     const bob = this.look.night ? 0 : Math.sin(this.creatureTime * 2 + phase) * 0.012
     const P = (u: number, v: number): [number, number] => [x + u * face * S, y - 0.012 * H + v * S]
@@ -610,26 +611,27 @@ class Jungle extends Canvas {
     this.add(...P(0.07, -0.7 + bob), 0.01, 0.01, 0.01)
   }
 
-  // A jaguar draped along the left-hand branch, chin on one paw and the other legs dangling, breathing slowly as its
-  // tail sways. Now and then it lifts its head to look about, and lets it sink back to rest.
+  // A jaguar draped along the low branch facing the trunk, chin on one paw and the other legs dangling, breathing
+  // slowly as its tail sways. Now and then it lifts its head to look about, and lets it sink back to rest.
   private drawJaguar() {
-    const { A, H } = this
+    const H = this.H
+    // x runs along its back from the tail end, in screen heights.
     const top = (x: number): [number, number] => {
-      const [px, py] = this.leftBranch(x * A)
+      const [px, py] = this.lowBranch(this.A - 0.46 + x)
       return [px, py - 0.035 * H]
     }
     const breathe = 1 + 0.03 * Math.sin(this.creatureTime * 1.5)
     const coat = this.paint([0.85, 0.58, 0.22])
     const pale = this.paint([0.92, 0.82, 0.62])
     const lift = this.jaguarHead.p
-    const [rx, ry] = top(0.3)
-    const [fx, fy] = top(0.4)
-    const [hx, hy] = [top(0.445)[0] - lift * 0.004 * H, top(0.445)[1] - lift * 0.022 * H]
+    const [rx, ry] = top(0.015)
+    const [fx, fy] = top(0.167)
+    const [hx, hy] = [top(0.236)[0] - lift * 0.004 * H, top(0.236)[1] - lift * 0.022 * H]
     // Dangling legs swing gently, the paws a beat behind.
     const dangle = (t: number) => Math.sin(this.creatureTime * 0.6 - t) * 0.006 * H
     const parts: Part[] = [
       ell(rx, ry - 0.002 * H, 0.033 * H, 0.03 * H * breathe, -0.08, coat),
-      cap(...top(0.31), ...top(0.39), 0.025 * H * breathe, 0.027 * H * breathe, coat),
+      cap(...top(0.03), ...top(0.152), 0.025 * H * breathe, 0.027 * H * breathe, coat),
       ell(fx, fy, 0.03 * H, 0.03 * H * breathe, 0, coat),
       cap(fx + 0.012 * H, fy - 0.006 * H, hx - 0.012 * H, hy + 0.004 * H, 0.02 * H, 0.016 * H, coat),
       cap(fx + 0.008 * H, fy + 0.012 * H, fx + 0.036 * H, fy + 0.03 * H, 0.011 * H, 0.009 * H, coat),
@@ -657,17 +659,17 @@ class Jungle extends Canvas {
     this.shape(parts, this.lighting, 0.7)
     // Rosettes along the body.
     for (let i = 0; i < 14; i++) {
-      const [sx, sy] = top(lerp(0.295, 0.405, hash(i * 3.3)))
+      const [sx, sy] = top(lerp(0.008, 0.174, hash(i * 3.3)))
       this.shape([ell(sx, sy + (hash(i * 7.1) - 0.5) * 0.035 * H, 0.0045 * H, 0.0035 * H, 0, this.paint([0.12, 0.07, 0.03]))], this.lighting, 0)
     }
     const glow = this.look.night ? 1.5 : 0
     this.add(hx + 0.012 * H, hy - 0.008 * H, 0.8 * glow + 0.01, 1 * glow + 0.01, 0.3 * glow + 0.01)
   }
 
-  // A red-eyed tree frog on the left branch near the trunk, blinking now and then.
+  // A red-eyed tree frog on the high branch between the macaws and the monkey, blinking now and then.
   private drawFrog() {
     const H = this.H
-    const [x, y] = this.leftBranch(0.25 * this.A)
+    const [x, y] = this.highBranch(this.A - 0.3)
     const cy = y - 0.026 * H
     const green = this.paint([0.25, 0.7, 0.15])
     const blink = this.time % 7 < 0.15
@@ -690,8 +692,7 @@ class Jungle extends Canvas {
     b.wanderT -= dt
     if (b.wanderT <= 0 || Math.hypot(b.wx - b.x, b.wy - b.y) < 0.03) {
       b.wanderT = rand(4, 9)
-      b.wx = rand(0.1 * A, 0.9 * A)
-      b.wy = rand(0.3, 0.75)
+      ;[b.wx, b.wy] = this.openSpot(0.1 * A, 0.9 * A, 0.3, 0.75)
     }
     const dx = b.wx - b.x
     const dy = b.wy - b.y
