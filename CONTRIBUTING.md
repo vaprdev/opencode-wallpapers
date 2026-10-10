@@ -132,8 +132,13 @@ details), and values in between soften it.
   of height), `core` and `glow` colors, `near` and `wide` glow strengths, and `moon: true` for a cratered moon.
 - `makeStars(count, top)` and `paintStars(hdr, W, H, stars, time, top, brightness)` draw slowly twinkling stars that
   fade toward `top`. Stars are tinted from `STAR_TINTS`, never white.
-- `makeClouds(count, puffy, y0, y1)`, `driftClouds(clouds, A, dt)` and `paintClouds(hdr, W, H, clouds, top, bottom,
-  alpha, puffy)` give puffy cumulus or thin streaks, shaded from `top` to `bottom`.
+- `makeClouds(count, kind, y0, y1)`, `driftClouds(clouds, A, dt)` and `paintClouds(hdr, W, H, clouds, top, bottom,
+  alpha, orb)` give clouds of one kind: `cumulus`, `towering` (standing on y, for a horizon), `cirrus`, `wisp`,
+  `stratus` or `ash`. They are lit from the orb: the brighter of `top` and `bottom` faces it, and clouds near it are
+  backlit with glowing edges. Pass no orb under an overcast deck to light them evenly from above. Each cloud's shape
+  is built once per screen size, so drawing them each frame is cheap.
+- `makeShadows(count, y0, y1)` and `paintShadows(hdr, W, H, shadows, ground, orb)` drift soft cloud shadows across
+  the ground below `ground` under a high sun; `paintHaze(hdr, W, H, y0, y1, color, alpha)` paints a static haze band.
 
 `src/math.ts` has `TAU`, `lerp`, `clamp`, `smoothstep`, `rand`, stable hashes (`hash`, `hash2`, `hashString`), smooth
 noise (`noise1`, `noise2`, `fbm1`, `fbm2`), `hsv` and the `RGB` type.

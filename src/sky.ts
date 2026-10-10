@@ -122,8 +122,8 @@ const KINDS: Record<Cloud["kind"], { size: [number, number]; speed: [number, num
   cumulus: { size: [0.08, 0.13], speed: [0.003, 0.007], edge: [0.02, 0.28], alpha: 1, thin: 0 },
   towering: { size: [0.09, 0.14], speed: [0, 0], edge: [0.02, 0.28], alpha: 0.85, thin: 0 },
   ash: { size: [0.1, 0.16], speed: [0.004, 0.007], edge: [0, 0.6], alpha: 0.8, thin: 0 },
-  cirrus: { size: [0.14, 0.24], speed: [0.005, 0.009], edge: [0.06, 0.9], alpha: 0.65, thin: 0.65 },
-  wisp: { size: [0.12, 0.2], speed: [0.003, 0.006], edge: [0.05, 0.95], alpha: 0.55, thin: 0.55 },
+  cirrus: { size: [0.14, 0.24], speed: [0.005, 0.009], edge: [0.05, 0.8], alpha: 0.9, thin: 0.7 },
+  wisp: { size: [0.12, 0.2], speed: [0.003, 0.006], edge: [0.04, 0.85], alpha: 0.75, thin: 0.6 },
   stratus: { size: [0.25, 0.45], speed: [0.002, 0.004], edge: [0.12, 0.75], alpha: 0.75, thin: 0.5 },
   shadow: { size: [0.2, 0.45], speed: [0.004, 0.01], edge: [0, 0.8], alpha: 1, thin: 0 },
 }
