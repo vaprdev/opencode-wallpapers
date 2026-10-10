@@ -1,6 +1,7 @@
 import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
 import { eggWait } from "../src/egg"
 import { haze, mottle } from "../src/grade"
+import { lightPool } from "../src/light"
 import { TAU, clamp, fbm1, hash, lerp, rand, smoothstep, type RGB } from "../src/math"
 import { driftClouds, makeClouds, makeStars, makeStorm, paintClouds, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
 import type { Activity, Settings, Time, Wallpaper } from "../src/wallpaper"
@@ -81,11 +82,12 @@ const LOOKS: Record<Time, Look> = {
   },
   night: {
     style: "rim",
-    light: [0.2, 0.5, 1],
+    light: [0.3, 0.65, 1.5],
     sky: [
       [0, [0.004, 0.01, 0.035]],
-      [0.3, [0.01, 0.025, 0.07]],
-      [HORIZON, [0.03, 0.07, 0.16]],
+      [0.3, [0.012, 0.03, 0.08]],
+      [0.45, [0.025, 0.055, 0.14]],
+      [HORIZON, [0.05, 0.1, 0.24]],
     ],
     orb: { x: 0.2, y: 0.14, r: 0.03, core: [1, 0.72, 0.3], glow: [0.45, 0.3, 0.12], near: 0.2, wide: 0.08, moon: true },
     stars: 120,
@@ -96,7 +98,7 @@ const LOOKS: Record<Time, Look> = {
     peaks: [0.08, 0.16, 0.36],
     ice: [0.04, 0.12, 0.25],
     flakes: [0.25, 0.45, 0.9],
-    tint: [0.04, 0.08, 0.18],
+    tint: [0.03, 0.06, 0.14],
     aurora: 1,
     glow: 1,
   },
@@ -107,6 +109,12 @@ const DAYLIGHT = (() => {
   const l = Math.hypot(0.5, 0.55, 0.65)
   return [0.5 / l, -0.55 / l, 0.65 / l] as const
 })()
+
+// Igloos: x as a fraction of the width, base and radius in screen heights.
+const IGLOOS = [
+  [0.86, 0.7, 0.055],
+  [0.2, 0.75, 0.075],
+] as const
 
 // Daytime colors.
 const PINE: RGB = [0.1, 0.25, 0.18]
@@ -234,6 +242,9 @@ class Tundra extends Canvas {
     if (this.activity === "teeming") this.drawFisher()
     for (const p of [...this.penguins].sort((a, b) => a.y - b.y)) this.drawPenguin(p)
     if (this.fox) this.drawFox(this.fox)
+    // At night the igloo doors' warm light falls across the snow and anything passing them.
+    if (this.look.glow === 1)
+      for (const [fx, base, R] of IGLOOS) lightPool(this.hdr, this.W, this.H, (fx * this.A - R * 0.35) * this.H, (base + 0.01) * this.H, R * 3.2 * this.H, R * 1.1 * this.H, [1, 0.42, 0.08], 1, 0.03)
     this.drawFlakes()
     this.weather.draw(this.hdr, this.W, this.H)
     this.finish()
@@ -271,8 +282,7 @@ class Tundra extends Canvas {
     }
     this.drawLake(0.5 * A, 0.72, 0.3, 0.045)
     for (const [fx, h] of [[0.3, 0.1], [0.36, 0.08], [0.7, 0.09], [0.76, 0.11]] as const) this.drawPine(fx * A, 0.625, h, 0.5)
-    this.drawIgloo(0.86 * A, 0.7, 0.055)
-    this.drawIgloo(0.2 * A, 0.75, 0.075)
+    for (const [fx, base, R] of IGLOOS) this.drawIgloo(fx * A, base, R)
     if (this.activity === "teeming") this.drawSnowman(0.3 * A, 0.85, 0.75, [0.2, 0.35, 0.8], false)
     this.drawSnowman(0.62 * A, 0.87, 1, [0.8, 0.12, 0.1], true)
     for (const [fx, h] of [[0.04, 0.46], [0.11, 0.34], [0.955, 0.42], [0.995, 0.3]] as const) this.drawPine(fx * A, 1.02, h, 0)

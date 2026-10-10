@@ -1,6 +1,7 @@
 import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
 import { eggWait } from "../src/egg"
 import { haze, mottle } from "../src/grade"
+import { fireflyLight, lightPool } from "../src/light"
 import { TAU, clamp, fbm1, hash, hash2, lerp, rand, smoothstep, type RGB } from "../src/math"
 import { driftClouds, makeClouds, makeStars, makeStorm, paintClouds, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
 import type { Activity, Season, Settings, Time, Wallpaper } from "../src/wallpaper"
@@ -71,20 +72,21 @@ const LOOKS: Record<Time, Look> = {
   },
   night: {
     style: "rim",
-    light: [0.2, 0.45, 1],
+    light: [0.3, 0.62, 1.5],
     sky: [
       [0, [0.004, 0.008, 0.03]],
-      [0.3, [0.012, 0.02, 0.06]],
-      [HORIZON, [0.04, 0.06, 0.15]],
+      [0.3, [0.014, 0.024, 0.07]],
+      [0.45, [0.035, 0.055, 0.14]],
+      [HORIZON, [0.07, 0.1, 0.24]],
     ],
     orb: { x: 0.74, y: 0.15, r: 0.032, core: [1, 0.72, 0.3], glow: [0.45, 0.3, 0.12], near: 0.2, wide: 0.08, moon: true },
     stars: 140,
     clouds: { puffy: false, top: [0.015, 0.02, 0.05], bottom: [0.06, 0.1, 0.3], alpha: 0.45 },
     hills: [
-      [0.02, 0.035, 0.07],
-      [0.008, 0.016, 0.03],
+      [0.035, 0.06, 0.13],
+      [0.016, 0.03, 0.065],
     ],
-    tint: [0.025, 0.04, 0.08],
+    tint: [0.02, 0.032, 0.065],
     windows: 1,
     fireflies: true,
   },
@@ -285,6 +287,8 @@ class Farm extends Canvas {
     for (const { w, kind } of herd) kind === "cow" ? this.drawCow(w) : this.drawPig(w)
     this.drawEgg()
     if (this.activity === "teeming") this.drawFarmer()
+    // At night the open barn door spills warm light across the yard and whatever is in it.
+    if (this.look.windows === 1) lightPool(this.hdr, this.W, this.H, 0.74 * this.A * this.H, 0.67 * this.H, 0.24 * this.H, 0.07 * this.H, [1, 0.55, 0.15], 3, 0.02)
     this.drawCornRow(3)
     this.drawFireflies()
     this.drawLeaves()
@@ -438,7 +442,7 @@ class Farm extends Canvas {
       this.polygon(P([[c - 0.077, b - 0.157], [c, b - 0.188], [c + 0.077, b - 0.157], [c + 0.072, b - 0.148], [c, b - 0.176], [c - 0.072, b - 0.148]]), snow)
       this.shape([ell((c - 0.13) * H, (b - 0.175) * H, 0.023 * H, 0.013 * H, 0, snow)], this.lighting, 0.4)
     }
-    this.polygon(P([[c - 0.035, b - 0.065], [c + 0.035, b - 0.065], [c + 0.035, b], [c - 0.035, b]]), this.paint([0.42, 0.07, 0.05]))
+    this.polygon(P([[c - 0.035, b - 0.065], [c + 0.035, b - 0.065], [c + 0.035, b], [c - 0.035, b]]), this.look.windows === 1 ? [1.1, 0.6, 0.18] : this.paint([0.42, 0.07, 0.05]))
     const trim = this.paint([0.88, 0.86, 0.8])
     const t = 0.0025 * H
     this.shape(
@@ -895,6 +899,7 @@ class Farm extends Canvas {
     for (const f of this.fireflies) {
       const k = Math.pow(Math.max(0, Math.sin(this.time * 1.3 + f.phase * 7)), 6)
       if (k < 0.02) continue
+      fireflyLight(this.hdr, this.W, H, f.x * H, f.y * H, k)
       this.disc(f.x * H, f.y * H, 1.3, 1.8 * k, 2.4 * k, 0.6 * k, 0.6)
       this.add(f.x * H, f.y * H, 0.9 * k, 1.2 * k, 0.3 * k)
     }

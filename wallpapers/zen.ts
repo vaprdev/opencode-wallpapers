@@ -2,6 +2,7 @@ import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
 import { eggWait } from "../src/egg"
 import { haze, mottle } from "../src/grade"
 import { bird, flyAway, startle, type Flier } from "../src/flock"
+import { fireflyLight, lightPool } from "../src/light"
 import { TAU, clamp, fbm1, hash, hash2, lerp, rand, smoothstep, type RGB } from "../src/math"
 import { driftClouds, makeClouds, makeStars, makeStorm, paintClouds, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
 import type { Activity, Season, Settings, Time, Wallpaper } from "../src/wallpaper"
@@ -102,11 +103,12 @@ const LOOKS: Record<Time, Look> = {
   },
   night: {
     style: "rim",
-    light: [0.2, 0.45, 1],
+    light: [0.3, 0.62, 1.5],
     sky: [
       [0, [0.004, 0.008, 0.03]],
-      [0.3, [0.012, 0.02, 0.06]],
-      [HORIZON, [0.04, 0.06, 0.15]],
+      [0.3, [0.014, 0.024, 0.07]],
+      [0.42, [0.035, 0.055, 0.14]],
+      [HORIZON, [0.07, 0.1, 0.24]],
     ],
     orb: { x: 0.6, y: 0.16, r: 0.032, core: [1, 0.72, 0.3], glow: [0.45, 0.3, 0.12], near: 0.2, wide: 0.08, moon: true },
     stars: 130,
@@ -116,7 +118,7 @@ const LOOKS: Record<Time, Look> = {
       [0.008, 0.016, 0.035],
     ],
     snow: [0.07, 0.12, 0.3],
-    mist: [0.04, 0.07, 0.18],
+    mist: [0.05, 0.09, 0.22],
     moss: [0.01, 0.024, 0.035],
     gravel: [0.045, 0.07, 0.15],
     water: [0.014, 0.045, 0.12],
@@ -125,7 +127,7 @@ const LOOKS: Record<Time, Look> = {
     ripple: [0.06, 0.25, 0.55],
     petal: [0.45, 0.12, 0.35],
     lamps: 1,
-    tint: [0.025, 0.04, 0.09],
+    tint: [0.02, 0.032, 0.075],
     night: true,
   },
 }
@@ -321,6 +323,8 @@ class Zen extends Canvas {
     if (this.tanuki.t >= 0) this.drawTanuki()
     for (const p of this.petals) if (p.state !== 1) this.drawPetal(p)
     for (const b of this.sparrows) this.shape(bird(b, this.H, 0.02 * this.H, this.paint([0.45, 0.33, 0.22])), this.lighting, 0.4)
+    // At night the lanterns light the gravel, the bank and whatever stands near them.
+    if (this.look.night) for (const l of this.lanterns()) lightPool(this.hdr, this.W, this.H, l.x * this.H, l.base * this.H, l.scale * 1.6 * this.H, l.scale * 0.6 * this.H, [1, 0.5, 0.15], 2, 0.01)
     this.drawFireflies()
     this.weather.draw(this.hdr, this.W, this.H)
     this.finish()
@@ -1226,6 +1230,7 @@ class Zen extends Canvas {
     for (const f of this.fireflies) {
       const k = Math.pow(Math.max(0, Math.sin(this.time * 1.3 + f.phase * 7)), 6)
       if (k < 0.02) continue
+      fireflyLight(this.hdr, this.W, H, f.x * H, f.y * H, k)
       this.disc(f.x * H, f.y * H, 1.3, 1.8 * k, 2.4 * k, 0.6 * k, 0.6)
       this.add(f.x * H, f.y * H, 0.9 * k, 1.2 * k, 0.3 * k)
     }

@@ -1,6 +1,7 @@
 import { Canvas, cap, ell, type Lighting } from "../src/canvas"
 import { eggWait } from "../src/egg"
 import { TAU, clamp, fbm1, hash, hash2, hashString, hsv, lerp, noise1, rand, smoothstep, type RGB } from "../src/math"
+import { lightPool } from "../src/light"
 import type { Activity, Settings, Time, Wallpaper } from "../src/wallpaper"
 
 // Depth of the water surface as a fraction of the height.
@@ -129,6 +130,11 @@ class Ocean extends Canvas {
   private octopus: Octopus | undefined
   private kelp: Kelp[] = []
   private particles: Particle[] = []
+  // At night: the water alone, before anything swims over it; how much of each pixel is something in front of the
+  // water; and the night water color per row.
+  private water = new Float32Array(0)
+  private mask = new Float32Array(0)
+  private nightRow = new Float32Array(0)
   private snow: { x: number; y: number; z: number; s: number }[] = []
   private whale = { x: -9, dir: 1, next: 14, y: 0.4 }
   // The easter egg: a little yellow submarine putters across, propeller turning. x < -5 while it waits.
@@ -291,10 +297,13 @@ class Ocean extends Canvas {
   }
 
   render() {
+    const night = this.timeOfDay === "night"
     this.drawWater()
+    if (night) this.water.set(this.hdr)
     this.drawWhale()
     this.drawSub()
-    this.drawSnow(true)
+    // At night gradeNight turns the marine snow into glowing plankton.
+    if (!night) this.drawSnow(true)
     // Nearer creatures (lower z) draw later, over farther ones.
     const fish = this.fish.toSorted((a, b) => b.z - a.z)
     for (const f of fish) if (f.z >= 0.5) this.drawCreature(f)
@@ -304,11 +313,11 @@ class Ocean extends Canvas {
     if (this.turtle) this.drawTurtle(this.turtle)
     for (const f of fish) if (f.z < 0.5) this.drawCreature(f)
     this.drawParticles()
-    this.drawSnow(false)
+    if (!night) this.drawSnow(false)
     if (this.timeOfDay === "sunset") this.gradeSunset()
-    if (this.timeOfDay === "night") this.gradeNight()
+    if (night) this.gradeNight()
     // At night the portholes glow amber through the dark water.
-    if (this.timeOfDay === "night" && this.sub.x > -5)
+    if (night && this.sub.x > -5)
       for (const u of [-0.16, 0.02, 0.2]) {
         const [px, py] = this.subPoint(u, 0)
         this.disc(px, py, 0.0135 * this.H, 1.4, 0.75, 0.18, 0.85)
@@ -330,20 +339,28 @@ class Ocean extends Canvas {
     }
   }
 
-  // Moonlit water: the scene dims to deep blue, then light sources draw on top. The moon glows through the surface,
-  // marine snow becomes glowing plankton, and the diver's torch cuts through the dark.
+  // Moonlit water: lighter toward the surface, with everything in front of it dark and rimmed in teal on the side
+  // facing the moon. Light sources draw on top: marine snow becomes glowing plankton, which gathers in two glowing
+  // clouds low at the sides, and the diver's torch cuts through the dark.
   private gradeNight() {
     const { W, H, hdr } = this
     const mx = 0.3 * this.A * H
     const my = SURFACE * H
-    for (let y = 0; y < H; y++)
-      for (let x = 0; x < W; x++) {
-        const o = (y * W + x) * 3
-        const moon = Math.exp(-Math.hypot(x - mx, (y - my) * 1.6) / (0.16 * H))
-        hdr[o] = hdr[o] * 0.04 + moon * 0.05
-        hdr[o + 1] = hdr[o + 1] * 0.16 + moon * 0.28
-        hdr[o + 2] = hdr[o + 2] * 0.4 + moon * 0.6
+    gradeNightWater(hdr, this.water, this.mask, this.rowCol, this.nightRow, W, H, mx, my)
+    for (const [i, u, v] of [[0, 0.09, 0.74], [1, 0.9, 0.84]]) {
+      const cx = (u + Math.sin(this.time * 0.05 + i * 2) * 0.02) * this.A * H
+      const cy = (v + Math.sin(this.time * 0.07 + i) * 0.015) * H
+      const breathe = 0.85 + 0.15 * Math.sin(this.time * 0.4 + i * 3)
+      lightPool(hdr, W, H, cx, cy, 0.26 * H, 0.12 * H, [0.12, 1, 0.75], 1.4 * breathe, 0.11 * breathe)
+      for (let j = 0; j < 16; j++) {
+        const a = hash2(i, j) * TAU
+        const r = Math.sqrt(hash2(j, i + 7))
+        const px = cx + Math.cos(a + this.time * 0.03) * r * 0.24 * H
+        const py = cy + Math.sin(a + this.time * 0.03) * r * 0.12 * H
+        const k = 0.35 * Math.pow(0.5 + 0.5 * Math.sin(this.time * 1.2 + j * 2.3 + i), 2) * (1 - r * 0.6)
+        this.add(px, py, 0.1 * k, 0.95 * k, 0.65 * k)
       }
+    }
     for (const p of this.snow) {
       const pulse = Math.pow(0.5 + 0.5 * Math.sin(this.time * 1.5 + p.s * 50), 3)
       const k = (0.12 + p.s * 0.45) * pulse
@@ -369,6 +386,20 @@ class Ocean extends Canvas {
       const to = upper ? mid : deep
       for (let c = 0; c < 3; c++) this.rowCol[y * 3 + c] = lerp(from[c], to[c], k)
       this.rayFade[y] = Math.pow(1 - smoothstep(0.02, 0.92, v), 1.6) * 0.42
+    }
+    if (this.timeOfDay === "night") {
+      this.water = new Float32Array(W * H * 3)
+      this.mask = new Float32Array(W * H)
+      this.nightRow = new Float32Array(H * 3)
+      const surface: RGB = [0.01, 0.13, 0.32]
+      const mid: RGB = [0.004, 0.045, 0.13]
+      const deep: RGB = [0.003, 0.022, 0.075]
+      for (let y = 0; y < H; y++) {
+        const v = y / H
+        const upper = v < 0.45
+        const k = upper ? Math.pow(smoothstep(0.03, 0.45, v), 0.8) : smoothstep(0.45, 1, v)
+        for (let c = 0; c < 3; c++) this.nightRow[y * 3 + c] = lerp(upper ? surface[c] : mid[c], upper ? mid[c] : deep[c], k)
+      }
     }
     // An invisible seabed that keeps creatures off the bottom edge.
     this.floorPx = new Float32Array(W)
@@ -1415,6 +1446,50 @@ class Ocean extends Canvas {
 
 // Turning is a constant-rate sweep toward the side the creature wants to go, decided by intent rather than current
 // speed so it never stalls mid-turn. The drawn width follows a sine, so the edge-on moment is brief and smooth.
+// Night water: each pixel of the water keeps its daytime detail (ridges, rays, the bright surface) relative to its row,
+// rescaled to the night color of that row; whatever differs from the bare water is something in front of it, drawn as
+// a dark silhouette with a teal rim on the side facing the moon at (mx, my).
+function gradeNightWater(hdr: Float32Array, water: Float32Array, mask: Float32Array, rowCol: Float32Array, nightRow: Float32Array, W: number, H: number, mx: number, my: number) {
+  for (let i = 0; i < W * H; i++) {
+    const o = i * 3
+    mask[i] = clamp((Math.abs(hdr[o] - water[o]) + Math.abs(hdr[o + 1] - water[o + 1]) + Math.abs(hdr[o + 2] - water[o + 2])) * 10, 0, 1)
+  }
+  for (let y = 0; y < H; y++) {
+    const rowSum = rowCol[y * 3] + rowCol[y * 3 + 1] + rowCol[y * 3 + 2] || 1e-6
+    const nr = nightRow[y * 3]
+    const ng = nightRow[y * 3 + 1]
+    const nb = nightRow[y * 3 + 2]
+    const reach = 0.75 - 0.4 * (y / H)
+    for (let x = 0; x < W; x++) {
+      const i = y * W + x
+      const o = i * 3
+      const detail = clamp((water[o] + water[o + 1] + water[o + 2]) / rowSum, 0.3, 2.5)
+      const dx = mx - x
+      const dy = my - y
+      const dist = Math.hypot(dx, dy * 1.6) || 1
+      const moon = Math.exp(-dist / (0.16 * H))
+      const wr = nr * detail + moon * 0.02
+      const wg = ng * detail + moon * 0.13
+      const wb = nb * detail + moon * 0.3
+      const m = mask[i]
+      if (m <= 0) {
+        hdr[o] = wr
+        hdr[o + 1] = wg
+        hdr[o + 2] = wb
+        continue
+      }
+      const l = Math.hypot(dx, dy) || 1
+      const sx = clamp(Math.round(x + (dx / l) * 2), 0, W - 1)
+      const sy = clamp(Math.round(y + (dy / l) * 2), 0, H - 1)
+      const rim = m * (1 - mask[sy * W + sx]) * reach
+      const edge = m * (1 - Math.min(mask[Math.max(0, i - 1)], mask[Math.min(W * H - 1, i + 1)], mask[Math.max(0, i - W)], mask[Math.min(W * H - 1, i + W)])) * 0.12
+      hdr[o] = lerp(wr, hdr[o] * 0.05, m) + rim * 0.04 + edge * 0.02
+      hdr[o + 1] = lerp(wg, hdr[o + 1] * 0.11, m) + rim * 0.42 + edge * 0.24
+      hdr[o + 2] = lerp(wb, hdr[o + 2] * 0.22, m) + rim * 0.55 + edge * 0.3
+    }
+  }
+}
+
 function steerTurn(c: { turn: number; heading: number; face: number }, want: number, deadzone: number, rate: number, dt: number) {
   if (Math.abs(want) > deadzone) c.heading = Math.sign(want)
   const step = rate * dt

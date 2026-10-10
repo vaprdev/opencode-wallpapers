@@ -3,6 +3,7 @@ import { eggWait } from "../src/egg"
 import { haze, mottle } from "../src/grade"
 import { bird, flyAway, startle, type Flier } from "../src/flock"
 import { TAU, clamp, fbm1, fbm2, hash, lerp, rand, smoothstep, type RGB } from "../src/math"
+import { campfire, lightPool } from "../src/light"
 import { driftClouds, makeStorm, paintStorm } from "../src/sky"
 import type { Activity, Season, Settings, Time, Wallpaper } from "../src/wallpaper"
 import { WeatherLayer } from "../src/weather"
@@ -141,12 +142,12 @@ const LOOKS: Record<Time, Look> = {
   },
   night: {
     style: "rim",
-    light: [0.18, 0.42, 1],
+    light: [0.28, 0.6, 1.45],
     sky: [
       [0, [0.004, 0.006, 0.02]],
-      [0.3, [0.01, 0.018, 0.05]],
-      [0.5, [0.025, 0.04, 0.09]],
-      [HORIZON, [0.05, 0.07, 0.13]],
+      [0.3, [0.012, 0.02, 0.06]],
+      [0.5, [0.035, 0.055, 0.13]],
+      [HORIZON, [0.08, 0.11, 0.24]],
     ],
     orb: { x: 0.3, y: 0.16, r: 0.035, core: [1, 0.72, 0.3], glow: [0.45, 0.3, 0.12], near: 0.2, wide: 0.08, moon: true },
     stars: 160,
@@ -155,11 +156,11 @@ const LOOKS: Record<Time, Look> = {
     farMesa: [0.03, 0.04, 0.08],
     nearMesa: [0.012, 0.016, 0.035],
     floor: [
-      [0.05, 0.06, 0.1],
-      [0.015, 0.018, 0.035],
+      [0.07, 0.09, 0.17],
+      [0.025, 0.03, 0.06],
     ],
-    backDune: [0.025, 0.03, 0.055],
-    frontDune: [0.012, 0.014, 0.028],
+    backDune: [0.035, 0.045, 0.095],
+    frontDune: [0.02, 0.025, 0.055],
     cactus: [0.01, 0.02, 0.02],
     bone: [0.1, 0.2, 0.42],
     horn: [0.08, 0.13, 0.28],
@@ -177,7 +178,7 @@ const LOOKS: Record<Time, Look> = {
     ],
     twig: [0.06, 0.09, 0.2],
     night: true,
-    plumage: [0.08, 0.075, 0.08],
+    plumage: [0.05, 0.06, 0.12],
     plumageLight: [0.08, 0.1, 0.22],
     flock: [0.02, 0.02, 0.03],
     dust: [0, 0, 0],
@@ -352,6 +353,7 @@ class Desert extends Canvas {
     if (this.roadrunner.t >= 0) this.drawRoadrunner()
     for (const b of this.startled) this.silhouette(bird(b, this.H, 0.022 * this.H, this.look.flock), 0.4)
     this.drawTumbleweed()
+    if (this.look.night) this.drawCampfire()
     this.drawDust()
     this.weather.draw(this.hdr, this.W, this.H)
     this.finish()
@@ -663,6 +665,17 @@ class Desert extends Canvas {
   private silhouette(parts: Part[], light = 1) {
     const lighting: Lighting = this.look.style === "rim" ? { style: "rim", color: this.look.light, x: this.orbX, y: this.orbY } : { style: "front", dir: DAYLIGHT }
     this.shape(parts, lighting, light)
+  }
+
+  // A small campfire on the dunes at night, its warm light falling on the sand and the saguaro beside it.
+  private drawCampfire() {
+    const H = this.H
+    const x = 0.21 * this.A * H
+    const gy = this.ground(0.21) + 0.01 * H
+    const fire = campfire(x, gy, H, this.time)
+    lightPool(this.hdr, this.W, H, x, gy - 0.03 * H, 0.32 * H, 0.14 * H, [1, 0.4, 0.07], 2.6 * fire.flicker, 0.04 * fire.flicker)
+    this.shape(fire.logs, { style: "rim", color: [1.4, 0.5, 0.1], x, y: gy - 0.03 * H })
+    for (const flame of fire.flames) this.shape(flame, { style: "front", dir: [0, 0, 1] }, 0)
   }
 
   // A saguaro: a ribbed trunk with two upturned arms. haze fades distant ones toward the dunes behind them.

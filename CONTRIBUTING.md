@@ -163,6 +163,12 @@ sunset scenes by about a fifth and night scenes barely, so night keeps its color
 Night must not use white or gray highlights, because OpenCode's text is white. Use saturated, tinted colors instead:
 cobalt and teal moonlight, a gold moon, amber lamps and windows, tinted stars, glowing plankton or fireflies.
 
+Give night clear light structure so things stay readable: a lighter band at the horizon (or, underwater, toward the
+surface) for silhouettes to stand against, a strong rim `light` from the moon's side, and a few local pools of warm or
+glowing light. `lightPool()` in `src/light.ts` lights an ellipse in the light's own color, so ground and creatures
+passing through it pick it up; draw it each frame after the creatures it should light. `campfire()` and
+`fireflyLight()` there are ready-made pools. Keep the area behind text no brighter or busier than before.
+
 ## Seasons and weather
 
 `settings.season` is spring, summer, autumn or winter, or missing for the classic look. Change what the season would

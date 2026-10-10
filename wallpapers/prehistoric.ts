@@ -2,6 +2,7 @@ import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
 import { eggWait } from "../src/egg"
 import { haze, mottle } from "../src/grade"
 import { bird, flyAway, startle, type Flier } from "../src/flock"
+import { lightPool } from "../src/light"
 import { TAU, clamp, fbm1, hash, hash2, lerp, rand, smoothstep, type RGB } from "../src/math"
 import { driftClouds, makeClouds, makeStars, makeStorm, paintClouds, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
 import type { Activity, Settings, Time, Wallpaper } from "../src/wallpaper"
@@ -104,11 +105,12 @@ const LOOKS: Record<Time, Look> = {
   },
   night: {
     style: "rim",
-    light: [0.2, 0.45, 1],
+    light: [0.3, 0.62, 1.5],
     sky: [
       [0, [0.004, 0.008, 0.03]],
-      [0.3, [0.012, 0.02, 0.06]],
-      [HORIZON, [0.04, 0.06, 0.15]],
+      [0.3, [0.014, 0.024, 0.07]],
+      [0.5, [0.035, 0.055, 0.14]],
+      [HORIZON, [0.07, 0.1, 0.24]],
     ],
     orb: { x: 0.18, y: 0.15, r: 0.03, core: [1, 0.72, 0.3], glow: [0.45, 0.3, 0.12], near: 0.2, wide: 0.08, moon: true },
     stars: 140,
@@ -116,8 +118,8 @@ const LOOKS: Record<Time, Look> = {
     ridge: [0.02, 0.03, 0.08],
     forest: [0.006, 0.012, 0.028],
     ground: [
-      [0.02, 0.035, 0.07],
-      [0.008, 0.016, 0.03],
+      [0.035, 0.06, 0.13],
+      [0.012, 0.022, 0.05],
     ],
     rock: [0.02, 0.018, 0.045],
     lava: [
@@ -128,7 +130,7 @@ const LOOKS: Record<Time, Look> = {
     smoke: [[0.8, 0.12, 0.03], [0.1, 0.025, 0.07], 0.6],
     water: [0.02, 0.04, 0.1],
     ripple: [0.1, 0.35, 0.9],
-    tint: [0.025, 0.04, 0.09],
+    tint: [0.02, 0.032, 0.075],
   },
 }
 
@@ -168,6 +170,7 @@ class Prehistoric extends Canvas {
   private creatureTime = 0
   private readonly activity: Activity
   private readonly look: Look
+  private readonly night: boolean
   private lighting: Lighting = { style: "front", dir: DAYLIGHT }
   private background = new Float32Array(0)
   private allStars: Star[]
@@ -195,6 +198,7 @@ class Prehistoric extends Canvas {
     this.activity = settings.activity
     this.look = LOOKS[settings.time]
     if (settings.time === "day") this.frame = 0.4
+    this.night = settings.time === "night"
     this.weather = new WeatherLayer(settings.weather ?? "clear", settings.time, HORIZON)
     this.allStars = makeStars(this.look.stars, 0.5)
     this.clouds = makeClouds(this.look.clouds.puffy ? 4 : 5, this.look.clouds.puffy, 0.06, 0.3)
@@ -256,6 +260,8 @@ class Prehistoric extends Canvas {
     this.drawDust()
     this.drawRex()
     const A = this.A
+    // At night the lava lights the ground, the lake and anything walking near the volcano's foot.
+    if (this.night) lightPool(this.hdr, this.W, this.H, (VENT_X * A + 0.08) * this.H, 0.63 * this.H, 0.45 * this.H, 0.13 * this.H, [1, 0.36, 0.06], 2.4 + 0.4 * Math.sin(this.time * 0.6), 0.03)
     for (const [i, x] of [0.01, 0.2, 0.76, 0.99].entries()) this.drawFern(x * A, 1.03, 0.17 + hash(i) * 0.04, i, true)
     if (this.activity === "teeming") for (const d of this.dragonflies) this.drawDragonfly(d)
     if (this.delorean.t >= 0) this.drawDelorean()

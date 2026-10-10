@@ -1,6 +1,7 @@
 import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
 import { eggWait } from "../src/egg"
 import { haze, mottle } from "../src/grade"
+import { fireflyLight } from "../src/light"
 import { TAU, clamp, fbm1, hash, lerp, rand, smoothstep, type RGB } from "../src/math"
 import type { Activity, Settings, Time, Wallpaper } from "../src/wallpaper"
 import { WeatherLayer } from "../src/weather"
@@ -59,11 +60,11 @@ const LOOKS: Record<Time, Look> = {
   },
   night: {
     style: "rim",
-    light: [0.1, 0.7, 0.62],
+    light: [0.14, 0.95, 0.85],
     mist: [
-      [0.02, 0.08, 0.12],
-      [0.008, 0.035, 0.05],
-      [0.002, 0.008, 0.01],
+      [0.02, 0.085, 0.13],
+      [0.014, 0.065, 0.09],
+      [0.003, 0.012, 0.016],
     ],
     far: [0.015, 0.05, 0.06],
     water: [0.04, 0.38, 0.5],
@@ -679,6 +680,7 @@ class Jungle extends Canvas {
       for (const f of this.glowers) {
         const k = Math.max(together, Math.pow(Math.max(0, Math.sin(this.time * 1.3 + f.phase * 7)), 6))
         if (k < 0.02) continue
+        fireflyLight(this.hdr, this.W, H, f.x * H, f.y * H, k)
         this.disc(f.x * H, f.y * H, 1.3, 0.9 * k * 2, 1.2 * k * 2, 0.3 * k * 2, 0.6)
         this.add(f.x * H, f.y * H, 0.9 * k, 1.2 * k, 0.3 * k)
       }
