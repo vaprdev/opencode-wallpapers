@@ -4,6 +4,7 @@ import { haze, mottle } from "../src/grade"
 import { bird, flyAway, startle, type Flier } from "../src/flock"
 import { lightPool } from "../src/light"
 import { TAU, clamp, fbm1, hash, hash2, lerp, rand, smoothstep, type RGB } from "../src/math"
+import { groundShadow, sunShade, type Shade } from "../src/shadow"
 import { driftClouds, makeClouds, makeShadows, makeStars, makeStorm, paintClouds, paintShadows, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
 import type { Activity, Settings, Time, Wallpaper } from "../src/wallpaper"
 import { reflect } from "../src/water"
@@ -178,6 +179,7 @@ class Prehistoric extends Canvas {
   private readonly look: Look
   private readonly night: boolean
   private lighting: Lighting = { style: "front", dir: DAYLIGHT }
+  private readonly shade: Shade
   private background = new Float32Array(0)
   private allStars: Star[]
   private stars: Star[] = []
@@ -212,6 +214,7 @@ class Prehistoric extends Canvas {
     if (settings.time === "day") this.frame = 0.4
     this.night = settings.time === "night"
     this.weather = new WeatherLayer(settings.weather ?? "clear", settings.time, HORIZON)
+    this.shade = sunShade(settings.time, this.look.orb, this.weather.covered)
     this.allStars = makeStars(this.look.stars, 0.5)
     this.clouds = makeClouds(3, "cumulus", 0.06, 0.28)
     if (settings.activity !== "teeming") return
@@ -271,6 +274,7 @@ class Prehistoric extends Canvas {
     const [hot, cool, alpha] = this.look.smoke
     const start = this.plumeTop()
     for (const c of this.ash) paintClouds(this.hdr, this.W, this.H, [c], [cool[0] * 1.15, cool[1] * 1.15, cool[2] * 1.15], [lerp(cool[0], hot[0], 0.3) * 0.7, lerp(cool[1], hot[1], 0.3) * 0.7, lerp(cool[2], hot[2], 0.3) * 0.7], alpha * 1.3 * smoothstep(start, start + 0.25, c.x), orb)
+    this.drawShadows()
     this.drawSmoke()
     const p = this.pool
     if (p.y1 > p.y0) reflect(this.hdr, this.W, this.H, p.y0, p.y1, p.rows, p.amp, p.gloss, this.look.mirror, this.time)
@@ -369,6 +373,10 @@ class Prehistoric extends Canvas {
     if (this.activity === "teeming") this.paintLake()
     const water = this.hdr.slice(this.pool.y0 * W * 3, this.pool.y1 * W * 3)
     this.trees = [0.08 * A, Math.max(0.4 * A, 0.08 * A + 0.45)]
+    const ground = (x: number, y: number, w: number, h: number, tip?: number) => groundShadow(this.hdr, W, H, this.shade, x * H, y * H, w * H, h * H, tip)
+    for (const [x, base, top] of [[this.trees[0], 0.665, 0.29], [this.trees[1], 0.662, 0.31], [0.93 * A, 0.64, 0.45]]) ground(x, base, 0.08, base - top, 1.5)
+    for (const [x, y, s] of [[0.32, 0.78, 0.07], [0.88, 0.74, 0.08], [0.48, 0.9, 0.08]]) ground(x * A, y, s * 1.4, s * 0.8, 1.2)
+    for (const [x, y, s] of [[0.04, 0.86, 0.09], [0.47, 0.835, 0.07], [0.9, 0.84, 0.1]]) ground(x * A, y, s * 1.4, s * 1.1, 1.5)
     this.drawTree(this.trees[0], 0.665, 0.29)
     this.drawTree(this.trees[1], 0.662, 0.31)
     this.drawTree(0.93 * A, 0.64, 0.45)
@@ -386,6 +394,25 @@ class Prehistoric extends Canvas {
     const o = p.y0 * W * 3
     for (let i = 0; i < p.gloss.length; i++) if (this.hdr[o + i * 3] !== water[i * 3] || this.hdr[o + i * 3 + 1] !== water[i * 3 + 1] || this.hdr[o + i * 3 + 2] !== water[i * 3 + 2]) p.gloss[i] = 0
     this.background = this.hdr.slice()
+  }
+
+  // Shadows under everything that walks or drives, drawn before any of it so none falls across another animal.
+  private drawShadows() {
+    const H = this.H
+    const ground = (x: number, y: number, w: number, h: number, tip?: number) => groundShadow(this.hdr, this.W, H, this.shade, x * H, y * H, w * H, h * H, tip)
+    if (this.activity !== "calm") {
+      const s = this.sauropod
+      const [from, to] = this.sauropodSpots()
+      ground(lerp(from, to, s.p) - s.face * 0.06, 0.668, 0.28, 0.13, 0.8)
+    }
+    for (const w of this.herd) {
+      const S = 0.2 * (0.6 + (w.y - 0.7) * 2.5) * w.size
+      ground(w.x + w.face * 0.04 * S, w.y, 1.0 * S, 0.55 * S, 0.8)
+    }
+    const r = this.rex
+    if (r.x > -5) ground(r.x - r.dir * 0.03, 0.935, 0.24, 0.24, 0.8)
+    const d = this.delorean
+    if (d.t >= 0 && d.t <= DELOREAN) ground(d.x0 + 0.05 * Math.min(d.t, DELOREAN), 0.958, 0.18, 0.065, 0.9)
   }
 
   private paint(c: RGB): RGB {

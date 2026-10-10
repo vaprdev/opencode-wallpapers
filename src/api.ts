@@ -5,6 +5,7 @@ export { bird, flyAway, startle, type Flier } from "./flock"
 export { haze, mottle } from "./grade"
 export { campfire, fireflyLight, lightPool } from "./light"
 export { TAU, clamp, fbm1, fbm2, hash, hash2, hashString, hsv, lerp, noise1, noise2, rand, smoothstep, type RGB } from "./math"
+export { fillShadow, groundShadow, sunShade, type Shade } from "./shadow"
 export { STAR_TINTS, driftClouds, makeClouds, makeShadows, makeStars, makeStorm, paintClouds, paintHaze, paintShadows, paintSky, paintStars, paintStorm, type Cloud, type CloudKind, type Orb, type Star } from "./sky"
 export {
   ACTIVITIES,

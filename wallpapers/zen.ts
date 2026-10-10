@@ -4,6 +4,7 @@ import { haze, mottle } from "../src/grade"
 import { bird, flyAway, startle, type Flier } from "../src/flock"
 import { fireflyLight, lightPool } from "../src/light"
 import { TAU, clamp, fbm1, hash, hash2, lerp, rand, smoothstep, type RGB } from "../src/math"
+import { groundShadow, sunShade, type Shade } from "../src/shadow"
 import { driftClouds, makeClouds, makeStars, makeStorm, paintClouds, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
 import type { Activity, Season, Settings, Time, Wallpaper } from "../src/wallpaper"
 import { WeatherLayer } from "../src/weather"
@@ -200,6 +201,7 @@ class Zen extends Canvas {
   private readonly activity: Activity
   private readonly look: Look
   private lighting: Lighting = { style: "front", dir: DAYLIGHT }
+  private readonly shade: Shade
   private background = new Float32Array(0)
   private stars: Star[]
   private clouds: Cloud[]
@@ -241,6 +243,7 @@ class Zen extends Canvas {
     if (settings.time === "day") this.frame = 0.4
     this.season = settings.season ?? "spring"
     this.weather = new WeatherLayer(settings.weather ?? (this.season === "winter" ? "snow" : "clear"), settings.time, HORIZON, !settings.weather)
+    this.shade = sunShade(settings.time, this.look.orb, this.weather.covered)
     this.stars = makeStars(this.look.stars, 0.45)
     this.clouds = makeClouds(4, "wisp", 0.06, 0.24)
     const count = { calm: 0, lively: 3, teeming: 6 }[settings.activity]
@@ -357,6 +360,12 @@ class Zen extends Canvas {
     this.drawGround()
     // By day, broad warm and cool patches of sun and shade lie over the raked gravel.
     if (look === LOOKS.day) mottle(this.hdr, W, H, GROUND, 1, 0.5, [1.08, 1, 0.84], [0.76, 0.84, 0.96])
+    // Shadows of the trees, rocks and lanterns on the gravel; the pond's water is redrawn over any that reach it.
+    const ground = (x: number, y: number, w: number, h: number, tip?: number) => groundShadow(this.hdr, W, H, this.shade, x * H, y * H, w * H, h * H, tip)
+    ground(0.07 * A, 0.66, 0.1, 0.4, 1.6)
+    ground(this.cherry.x + 0.08, 0.66, 0.12, 0.38, 2)
+    for (const r of this.rocks()) ground(r.x + r.r * 0.2, r.y + r.r * 0.15, r.r * 2.2, r.r * 1.4, 0.8)
+    for (const [i, l] of this.lanterns().entries()) ground(l.x, l.base, l.scale * (i === 0 ? 0.45 : 1), l.scale * (i === 0 ? 1 : 0.8), i === 0 ? 0.9 : 0.8)
     this.drawBackGarden()
     // Find the water, note what lies under its edges, and work out its still color with the sky mirrored in it.
     const p = this.pond
@@ -1071,6 +1080,7 @@ class Zen extends Canvas {
     const sitting = t >= TANUKI.arrive && t < TANUKI.leave
     const u0 = t < TANUKI.arrive ? lerp(-0.12, seat, t / TANUKI.arrive) : sitting ? seat : lerp(seat, A + 0.12, (t - TANUKI.leave) / (TANUKI.gone - TANUKI.leave))
     const S = 0.12 * H
+    groundShadow(this.hdr, this.W, H, this.shade, u0 * H, 0.965 * H, (sitting ? 0.4 : 0.65) * S, (sitting ? 0.6 : 0.4) * S)
     const P = (u: number, v: number): [number, number] => [u0 * H + u * S, 0.965 * H + v * S]
     const fur = this.paint([0.5, 0.4, 0.28])
     const dark = this.paint([0.14, 0.11, 0.09])
@@ -1171,6 +1181,7 @@ class Zen extends Canvas {
     const S = 0.04 * H
     const x = pad.x * H
     const y = (pad.y + 0.003) * H
+    groundShadow(this.hdr, this.W, H, this.shade, x, y, 0.6 * S, 0.6 * S)
     const P = (u: number, v: number): [number, number] => [x + u * S, y + v * S]
     const green = this.paint([0.3, 0.58, 0.15])
     const sac = this.frog.croak >= 0 ? Math.max(0, Math.sin(this.frog.croak * Math.PI * 2)) : 0

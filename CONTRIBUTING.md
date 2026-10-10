@@ -147,6 +147,15 @@ painted toward a copy of the sky taken right after `paintSky` (call it after eac
 `mottle(hdr, W, H, horizon, bottom, size, warm, cool)` lays broad warm and cool patches over the ground in perspective.
 Setting `this.frame` (0 to 1) in the constructor darkens the bottom corners to frame a bright foreground.
 
+### Shadows
+
+`src/shadow.ts` grounds things standing on the ground. Make one `Shade` with `sunShade(time, look.orb,
+weather.covered)`, then call `groundShadow(hdr, W, H, shade, x, y, w, h, tip?, lift?)` with the ground point under a
+thing, its width and height in pixels, before drawing it: static things in `layout()`, moving ones each frame. It draws a
+soft contact shadow and a cast shadow away from the light: short by day, long and spreading from the low sun at sunset,
+faint at night, contact only under cloud. `lift` (pixels off the ground) fades the contact shadow and slides the cast one
+away, for hops and lifts. Shadows multiply the ground toward a sky-tinted color, so they never gray it.
+
 `src/math.ts` has `TAU`, `lerp`, `clamp`, `smoothstep`, `rand`, stable hashes (`hash`, `hash2`, `hashString`), smooth
 noise (`noise1`, `noise2`, `fbm1`, `fbm2`), `hsv` and the `RGB` type.
 

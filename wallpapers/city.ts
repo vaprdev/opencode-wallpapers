@@ -4,6 +4,7 @@ import { bird, flyAway, startle, type Flier } from "../src/flock"
 import { haze } from "../src/grade"
 import { lightPool } from "../src/light"
 import { TAU, clamp, fbm1, hash, hash2, lerp, rand, smoothstep, type RGB } from "../src/math"
+import { groundShadow, sunShade, type Shade } from "../src/shadow"
 import { driftClouds, makeClouds, makeStars, makeStorm, paintClouds, paintHaze, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
 import type { Activity, Settings, Time, Wallpaper } from "../src/wallpaper"
 import { WeatherLayer } from "../src/weather"
@@ -219,6 +220,7 @@ class City extends Canvas {
   private readonly activity: Activity
   private readonly look: Look
   private lighting: Lighting = { style: "front", dir: DAYLIGHT }
+  private readonly shade: Shade
   private background = new Float32Array(0)
   // The river with the skyline reflected in it, which each frame ripples sideways where `water` is set.
   private river = new Float32Array(0)
@@ -256,6 +258,7 @@ class City extends Canvas {
     this.stars = makeStars(this.look.stars, 0.45)
     this.clouds = makeClouds(2, "stratus", 0.05, 0.12)
     this.weather = new WeatherLayer(settings.weather ?? "clear", settings.time, BANK)
+    this.shade = sunShade(settings.time, this.look.orb, this.weather.covered)
     this.wet = settings.weather ? settings.weather === "rain" || settings.weather === "snow" : this.look.night && settings.activity === "teeming"
     if (settings.activity !== "teeming") return
     const umbrellas: RGB[] = [[0.1, 0.55, 0.6], [0.6, 0.1, 0.4], [0.65, 0.35, 0.05], [0.3, 0.15, 0.6], [0.6, 0.1, 0.08]]
@@ -309,11 +312,13 @@ class City extends Canvas {
     this.drawLights()
     if (this.activity !== "calm") this.drawTrain()
     if (this.activity === "teeming") for (const b of this.boats) this.drawBoat(b)
+    for (const c of this.cars) this.ground(c.x, LANES[c.lane].y, (c.bus ? 0.08 : 0.04) * LANES[c.lane].scale, (c.bus ? 0.023 : 0.015) * LANES[c.lane].scale, 1)
     for (const c of this.cars) if (c.lane === 0) this.drawCar(c)
     for (const c of this.cars) if (c.lane === 1) this.drawCar(c)
     // The barrier sits in front of the near lane, so it is copied back over the cars.
     const a = Math.floor((ROAD + 0.012) * H) * W * 3
     this.hdr.set(this.background.subarray(a, Math.ceil((ROAD + 0.026) * H) * W * 3), a)
+    for (const w of this.walkers) this.ground(w.x, 0.996, 0.02, 0.1, 0.8)
     for (const w of this.walkers) this.drawWalker(w)
     // At night the lamps under the highway light the sidewalk and the people passing beneath them.
     if (look.night) for (let i = 0; this.pillarX(i) - 0.21 < this.A + 0.1; i++) lightPool(this.hdr, W, H, (this.pillarX(i) - 0.21) * H, 0.96 * H, 0.14 * H, 0.08 * H, [1, 0.5, 0.12], 3, 0)
@@ -388,6 +393,11 @@ class City extends Canvas {
     if (this.warm) return
     this.warm = true
     for (let i = 0; i < 400; i++) this.stepTraffic(0.25)
+  }
+
+  private ground(x: number, y: number, w: number, h: number, tip?: number) {
+    const H = this.H
+    groundShadow(this.hdr, this.W, H, this.shade, x * H, y * H, w * H, h * H, tip)
   }
 
   private paint(c: RGB): RGB {
@@ -645,6 +655,7 @@ class City extends Canvas {
     const leaves = this.paint([0.22, 0.42, 0.18])
     for (let x = 0.29; x < A + 0.05; x += 0.34) {
       const base = QUAY + 0.014
+      this.ground(x, base, 0.03, 0.05, 1.3)
       this.shape([cap(x * H, base * H, x * H, (base - 0.022) * H, 0.002 * H, 0.0015 * H, this.paint([0.35, 0.25, 0.16]))], this.lighting, 0.4)
       this.shape([ell(x * H, (base - 0.036) * H, 0.014 * H, 0.013 * H, 0, leaves), ell((x - 0.011) * H, (base - 0.026) * H, 0.011 * H, 0.009 * H, 0, leaves), ell((x + 0.011) * H, (base - 0.027) * H, 0.011 * H, 0.009 * H, 0, leaves)], this.lighting, 0.7)
     }
@@ -656,6 +667,7 @@ class City extends Canvas {
     this.polygon(this.rect(-0.01, 0.965, A + 0.01, 0.969), this.paint([0.62, 0.6, 0.56]))
     for (let i = 0; this.pillarX(i) - 0.04 < A; i++) {
       const x = this.pillarX(i)
+      this.ground(x, STREET, 0.045, STREET - UNDER, 1)
       this.polygon([[(x - 0.028) * H, UNDER * H], [(x + 0.028) * H, UNDER * H], [(x + 0.02) * H, STREET * H], [(x - 0.02) * H, STREET * H]], this.paint(CONCRETE))
       this.polygon([[(x + 0.012) * H, UNDER * H], [(x + 0.028) * H, UNDER * H], [(x + 0.02) * H, STREET * H], [(x + 0.008) * H, STREET * H]], this.paint([0.42, 0.41, 0.4]))
     }

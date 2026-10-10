@@ -3,6 +3,7 @@ import { eggWait } from "../src/egg"
 import { haze, mottle } from "../src/grade"
 import { fireflyLight, lightPool } from "../src/light"
 import { TAU, clamp, fbm1, hash, hash2, lerp, rand, smoothstep, type RGB } from "../src/math"
+import { groundShadow, sunShade, type Shade } from "../src/shadow"
 import { driftClouds, makeClouds, makeShadows, makeStars, makeStorm, paintClouds, paintShadows, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
 import type { Activity, Season, Settings, Time, Wallpaper } from "../src/wallpaper"
 import { WeatherLayer } from "../src/weather"
@@ -182,6 +183,7 @@ class Farm extends Canvas {
   private readonly activity: Activity
   private readonly look: Look
   private lighting: Lighting = { style: "front", dir: DAYLIGHT }
+  private readonly shade: Shade
   private background = new Float32Array(0)
   private stars: Star[]
   private clouds: Cloud[]
@@ -214,6 +216,7 @@ class Farm extends Canvas {
     this.hills = GROUND[this.season]?.[settings.time] ?? this.look.hills
     // Without a weather setting, winter brings a light flurry.
     this.weather = new WeatherLayer(settings.weather ?? (this.season === "winter" ? "snow" : "clear"), settings.time, HORIZON, !settings.weather)
+    this.shade = sunShade(settings.time, this.look.orb, this.weather.covered)
     const drifting = { spring: 10, autumn: 22, summer: 0, winter: 0 }[this.season] * { calm: 1, lively: 1.3, teeming: 1.6 }[settings.activity]
     const colors: RGB[] = this.season === "spring" ? [[1, 0.78, 0.86], [0.95, 0.6, 0.72]] : [[0.9, 0.45, 0.1], [0.75, 0.2, 0.07], [0.95, 0.7, 0.18]]
     this.leaves = Array.from({ length: Math.round(drifting) }, (_, i) => ({ x: Math.random() * 2, y: 0.4 + Math.random() * 0.55, phase: Math.random() * TAU, color: colors[i % colors.length] }))
@@ -283,6 +286,7 @@ class Farm extends Canvas {
     paintClouds(this.hdr, this.W, this.H, this.clouds, top, bottom, this.look.clouds.alpha, orb)
     paintShadows(this.hdr, this.W, this.H, this.shadows, HORIZON + 0.01, orb)
     paintStorm(this.hdr, this.W, this.H, this.storm, this.look.clouds.top, this.look.clouds.bottom, this.gloom)
+    this.drawShadows()
     this.drawFan()
     this.drawTractor()
     for (const c of this.chickens) this.drawChicken(c)
@@ -358,6 +362,13 @@ class Farm extends Canvas {
       }
     }
     if (season === "spring") this.drawWildflowers()
+    const ground = (x: number, y: number, w: number, h: number, tip?: number) => groundShadow(this.hdr, W, H, this.shade, x * H, y * H, w * H, h * H, tip)
+    for (const t of TREES) ground(t * A, this.nearTop[clamp(Math.round(t * W), 0, W - 1)] / H + 0.012, 0.09, 0.17, 1.4)
+    ground(0.5 * A, this.nearTop[clamp(Math.round(0.5 * W), 0, W - 1)] / H + 0.006, 0.08, 0.066, 0.6)
+    ground(0.3 * A, 0.65, 0.07, 0.27, 0.4)
+    ground(0.74 * A, 0.655, 0.24, 0.19, 0.6)
+    for (const [bx, by] of [[0.58, 0.705], [0.625, 0.712]]) ground(bx * A, by + 0.02, 0.045, 0.04)
+    for (let x = 0.38 * A; x < A + 0.05; x += 0.07) ground(x, 0.725, 0.012, 0.045, 0.6)
     this.treeTops = TREES.map((t) => {
       const base = this.nearTop[clamp(Math.round(t * W), 0, W - 1)] / H + 0.012
       this.drawTree(t * A, base)
@@ -383,6 +394,35 @@ class Farm extends Canvas {
     if (this.activity === "teeming") this.shape([ell(0.52 * A * H, 0.91 * H, 0.08 * H, 0.025 * H, 0, this.paint([0.32, 0.22, 0.12]))], this.lighting, 0.3)
     for (let row = 0; row < 3; row++) this.drawCornRow(row)
     this.background = this.hdr.slice()
+  }
+
+  // Shadows under everything that walks or drives, drawn before any of it so none falls across another animal.
+  private drawShadows() {
+    const H = this.H
+    const ground = (x: number, y: number, w: number, h: number, tip?: number, lift?: number) => groundShadow(this.hdr, this.W, H, this.shade, x * H, y * H, w * H, h * H, tip, lift)
+    const t = this.tractor
+    if (t.x > -5) ground(t.x + t.dir * 0.04, this.roadY(t.x) + 0.004, 0.11, 0.094)
+    for (const c of this.chickens) {
+      const S = 0.05 * this.depthScale(c.y)
+      ground(c.x, c.y, 0.7 * S, 0.9 * S)
+    }
+    for (const p of this.pigs) {
+      const S = 0.08 * this.depthScale(p.y)
+      ground(p.x, p.y, 0.9 * S, 0.6 * S)
+    }
+    for (const c of this.cows) {
+      const S = 0.11 * this.depthScale(c.y)
+      ground(c.x + c.face * 0.1 * S, c.y, 1.1 * S, 0.7 * S, 0.8)
+    }
+    const e = this.egg
+    if (e.cow && e.t < 24) {
+      const rise = e.t < 0 ? 0 : smoothstep(13, 24, e.t)
+      const size = lerp(1, 0.35, rise)
+      const uy = lerp(0.1, e.cow.y - 0.4, smoothstep(0, 10, e.t))
+      const S = 0.11 * this.depthScale(e.cow.y) * size
+      ground(e.cow.x + e.cow.face * 0.1 * S, e.cow.y, 1.1 * S, 0.7 * S, 0.8, rise * (e.cow.y - uy - 0.025) * H)
+    }
+    if (this.activity === "teeming") ground(this.farmer.x, 0.738, 0.04, 0.15, 0.6)
   }
 
   private paint(c: RGB): RGB {
