@@ -74,23 +74,25 @@ menu to keep it fixed.
 
 - **Ocean:** sunlit water by day, golden light at sunset, and at night dark moonlit water with glowing plankton
   and, in teeming, a diver's torch.
-- **Desert:** a high sun with sunlit rock and shadows by day, backlit silhouettes at sunset, and a moonlit night with
-  stars and the Milky Way, where an owl and bats take over the sky.
+- **Desert:** a high sun with sunlit rock and shadows by day, silhouettes in a hot ochre dust haze at sunset, and a
+  moonlit night with stars and the Milky Way, where an owl and bats take over the sky.
 - **Jungle:** sunlit greens by day, warm backlit mist at sunset, and a moonlit night lit by fireflies, where the
   jaguar's eyes glow.
 - **Space:** the planet's sunlit side by day, an orbital sunrise with the star flaring at its edge at sunset, and its
   night side with city lights and aurora under a bright Milky Way.
-- **Farm:** sunny fields by day, a backlit barn at sunset, and a moonlit night with glowing windows and fireflies.
+- **Farm:** sunny fields by day, golden-hour light over warm grass at sunset, and a moonlit night with glowing
+  windows and fireflies.
 - **Tundra:** crisp blue-white snow by day, pink alpenglow at sunset, and deep blue snow under a green and violet
   aurora at night, with warm light from the igloos.
-- **Beach:** turquoise water by day, a glittering path under the setting sun, and a moon path at night with glowing
-  bioluminescent waves.
-- **City:** glass towers in the sun by day, backlit towers with the first lit windows at sunset, and at night windows,
-  lamps and neon in saturated colors mirrored in the river, with rain and a wet street in teeming.
-- **Zen garden:** a sunlit pond mirroring the sky by day, the setting sun glittering in it at sunset, and at night
-  amber lanterns, fireflies and the gold moon reflected in dark blue water.
-- **Prehistoric:** a hazy blue sky over glowing lava by day, backlit dinosaurs at sunset, and a moonlit night where
-  red and orange lava runs down the volcano, lights its smoke and shimmers on the lake.
+- **Beach:** turquoise water by day, a pastel pink and teal sunset over a pink-lit sea, and a moon path at night with
+  glowing bioluminescent waves.
+- **City:** glass towers in the sun by day, a smoggy amber and magenta sunset dropping between the towers, and at
+  night windows, lamps and neon in saturated colors mirrored in the river, with rain and a wet street in teeming.
+- **Zen garden:** a sunlit pond mirroring the sky by day, a soft peach and lavender sunset glittering in it, and at
+  night amber lanterns, fireflies and the gold moon reflected in dark blue water.
+- **Prehistoric:** a hazy blue sky over glowing lava by day, dinosaurs under an ashy red sky with the sun dimmed by
+  smoke at sunset, and a moonlit night where red and orange lava runs down the volcano, lights its smoke and shimmers
+  on the lake.
 
 ## Seasons and weather
 
