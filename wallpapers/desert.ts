@@ -2,7 +2,7 @@ import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
 import { eggWait } from "../src/egg"
 import { bird, flyAway, startle, type Flier } from "../src/flock"
 import { TAU, clamp, fbm1, fbm2, hash, lerp, rand, smoothstep, type RGB } from "../src/math"
-import { driftClouds, makeStorm, paintStorm } from "../src/sky"
+import { driftClouds, makeClouds, makeStorm, paintClouds, paintStorm, type Cloud } from "../src/sky"
 import type { Activity, Season, Settings, Time, Wallpaper } from "../src/wallpaper"
 import { WeatherLayer } from "../src/weather"
 
@@ -23,7 +23,7 @@ interface Look {
   orb: { x: number; y: number; r: number; core: RGB; glow: RGB; near: number; wide: number; moon: boolean }
   stars: number
   milkyWay: boolean
-  clouds: { puffy: boolean; top: RGB; bottom: RGB; alpha: number }
+  clouds: { top: RGB; bottom: RGB; alpha: number }
   farMesa: RGB
   nearMesa: RGB
   floor: [RGB, RGB]
@@ -62,7 +62,7 @@ const LOOKS: Record<Time, Look> = {
     orb: { x: 0.78, y: 0.13, r: 0.035, core: [5, 4.6, 3.8], glow: [1, 0.95, 0.8], near: 0.45, wide: 0.15, moon: false },
     stars: 0,
     milkyWay: false,
-    clouds: { puffy: true, top: [1.1, 1.1, 1.1], bottom: [0.55, 0.62, 0.75], alpha: 0.9 },
+    clouds: { top: [1.1, 1.1, 1.1], bottom: [0.55, 0.62, 0.75], alpha: 0.9 },
     farMesa: [0.62, 0.36, 0.26],
     nearMesa: [0.62, 0.27, 0.13],
     floor: [
@@ -106,7 +106,7 @@ const LOOKS: Record<Time, Look> = {
     orb: { x: 0.6, y: 0.53, r: 0.065, core: [3.2, 1.7, 0.6], glow: [1, 0.42, 0.14], near: 0.5, wide: 0.25, moon: false },
     stars: 45,
     milkyWay: false,
-    clouds: { puffy: false, top: [0.1, 0.035, 0.09], bottom: [0.75, 0.24, 0.2], alpha: 0.55 },
+    clouds: { top: [0.1, 0.035, 0.09], bottom: [0.75, 0.24, 0.2], alpha: 0.55 },
     farMesa: [0.07, 0.03, 0.06],
     nearMesa: [0.07, 0.025, 0.04],
     floor: [
@@ -149,7 +149,7 @@ const LOOKS: Record<Time, Look> = {
     orb: { x: 0.3, y: 0.16, r: 0.035, core: [1, 0.72, 0.3], glow: [0.45, 0.3, 0.12], near: 0.2, wide: 0.08, moon: true },
     stars: 160,
     milkyWay: true,
-    clouds: { puffy: false, top: [0.015, 0.02, 0.05], bottom: [0.06, 0.1, 0.3], alpha: 0.5 },
+    clouds: { top: [0.015, 0.02, 0.05], bottom: [0.06, 0.1, 0.3], alpha: 0.5 },
     farMesa: [0.03, 0.04, 0.08],
     nearMesa: [0.012, 0.016, 0.035],
     floor: [
@@ -212,13 +212,6 @@ interface Mesa {
   w: number
   h: number
   slope: number
-}
-
-interface Cloud {
-  x: number
-  y: number
-  speed: number
-  puffs: { dx: number; dy: number; rx: number; ry: number }[]
 }
 
 interface Bird {
@@ -290,14 +283,7 @@ class Desert extends Canvas {
     const look = this.look
     const top = look.milkyWay ? 0.5 : 0.3
     this.stars = Array.from({ length: look.stars }, () => ({ x: Math.random(), y: Math.random() * top, b: 0.4 + Math.random() * 0.6, phase: Math.random() * TAU, tint: STAR_TINTS[Math.floor(Math.random() * STAR_TINTS.length)] }))
-    this.clouds = Array.from({ length: look.clouds.puffy ? 4 : 5 }, () => ({
-      x: Math.random() * 2,
-      y: look.clouds.puffy ? 0.1 + Math.random() * 0.2 : 0.12 + Math.random() * 0.24,
-      speed: 0.003 + Math.random() * 0.004,
-      puffs: look.clouds.puffy
-        ? Array.from({ length: 6 }, (_, i) => ({ dx: (i / 5 - 0.5) * 0.16 + (Math.random() - 0.5) * 0.03, dy: -Math.sin((i / 5) * Math.PI) * 0.02 + (Math.random() - 0.5) * 0.01, rx: 0.03 + Math.random() * 0.025, ry: 0.022 + Math.random() * 0.014 }))
-        : Array.from({ length: 5 }, () => ({ dx: (Math.random() - 0.5) * 0.22, dy: (Math.random() - 0.5) * 0.015, rx: 0.06 + Math.random() * 0.08, ry: 0.008 + Math.random() * 0.01 })),
-    }))
+    this.clouds = makeClouds(5, "cirrus", 0.08, 0.32)
     if (settings.activity !== "calm") {
       this.bigBird = { angle: 0, speed: 0.5, cx: 0.55, cy: 0.2, rx: 0.3, ry: 0.05, phase: 0 }
       this.snake = { x: 0.5, y: 0.9, vx: 0, vy: 0, wx: 0.5, wy: 0.9, wanderT: 0, phase: 0, trail: [] }
@@ -318,10 +304,7 @@ class Desert extends Canvas {
       d.y += Math.sin(this.time * 0.5 + d.s * 30) * 0.002 * dt
       if (d.x > this.A) d.x -= this.A
     }
-    for (const c of this.clouds) {
-      c.x += c.speed * dt
-      if (c.x > this.A + 0.4) c.x = -0.4
-    }
+    driftClouds(this.clouds, this.A, dt)
     driftClouds(this.storm, this.A, dt)
     this.stepGloom(dt)
     this.stepTumbleweed(dt)
@@ -340,7 +323,8 @@ class Desert extends Canvas {
   render() {
     this.hdr.set(this.background)
     if (!this.weather.covered) this.drawStars()
-    this.drawClouds()
+    const [top, bottom] = this.weather.scud ?? [this.look.clouds.top, this.look.clouds.bottom]
+    paintClouds(this.hdr, this.W, this.H, this.clouds, top, bottom, this.look.clouds.alpha, this.weather.covered ? undefined : this.look.orb)
     paintStorm(this.hdr, this.W, this.H, this.storm, this.look.clouds.top, this.look.clouds.bottom, this.gloom)
     for (const b of this.flock) this.look.night ? this.drawBat(b) : this.drawBird(b, 0.3, "vulture")
     if (this.bigBird) this.drawBird(this.bigBird, 0.8, this.look.night ? "owl" : "eagle")
@@ -730,34 +714,6 @@ class Desert extends Canvas {
       const k = s.b * (1 - s.y / top) * (0.7 + 0.3 * Math.sin(this.time * 0.8 + s.phase)) * bright
       this.add(s.x * this.W, s.y * this.H, k * s.tint[0], k * s.tint[1], k * s.tint[2])
     }
-  }
-
-  // Clouds drifting slowly across: puffy and sunlit from above by day, thin streaks lit from below otherwise.
-  private drawClouds() {
-    const { H, W, hdr, look } = this
-    const { alpha, puffy } = look.clouds
-    const [top, bottom] = this.weather.scud ?? [look.clouds.top, look.clouds.bottom]
-    for (const c of this.clouds)
-      for (const p of c.puffs) {
-        const cx = (c.x + p.dx) * H
-        const cy = (c.y + p.dy) * H
-        const rx = p.rx * H
-        const ry = p.ry * H
-        const warm = puffy ? 1 : 0.6 + 0.6 * Math.exp(-Math.abs(cx - this.orbX) / (0.5 * H))
-        for (let y = Math.max(0, Math.floor(cy - ry)); y <= Math.min(H - 1, Math.ceil(cy + ry)); y++)
-          for (let x = Math.max(0, Math.floor(cx - rx)); x <= Math.min(W - 1, Math.ceil(cx + rx)); x++) {
-            const dx = (x + 0.5 - cx) / rx
-            const dy = (y + 0.5 - cy) / ry
-            const q = dx * dx + dy * dy
-            if (q >= 1) continue
-            const under = smoothstep(-1, 1, dy)
-            const o = (y * W + x) * 3
-            const a = (puffy ? Math.min(1, (1 - q) * 3) : (1 - q) ** 1.5) * alpha
-            hdr[o] += (lerp(top[0], bottom[0], under) * warm - hdr[o]) * a
-            hdr[o + 1] += (lerp(top[1], bottom[1], under) * warm - hdr[o + 1]) * a
-            hdr[o + 2] += (lerp(top[2], bottom[2], under) * warm - hdr[o + 2]) * a
-          }
-      }
   }
 
   // A soaring bird seen from the front, wings spread and banking as it circles. A bald eagle has a white head and

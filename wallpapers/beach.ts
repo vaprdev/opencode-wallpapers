@@ -2,7 +2,7 @@ import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
 import { eggWait } from "../src/egg"
 import { bird, flyAway, startle, type Flier } from "../src/flock"
 import { TAU, clamp, fbm1, hash, hash2, lerp, rand, smoothstep, type RGB } from "../src/math"
-import { driftClouds, makeClouds, makeStars, makeStorm, paintClouds, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
+import { driftClouds, makeClouds, makeShadows, makeStars, makeStorm, paintClouds, paintShadows, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
 import type { Activity, Season, Settings, Time, Wallpaper } from "../src/wallpaper"
 import { WeatherLayer } from "../src/weather"
 
@@ -22,7 +22,7 @@ interface Look {
   sky: [number, RGB][]
   orb: Orb
   stars: number
-  clouds: { puffy: boolean; top: RGB; bottom: RGB; alpha: number }
+  clouds: { top: RGB; bottom: RGB; alpha: number }
   sea: [far: RGB, near: RGB]
   sand: [dry: RGB, wet: RGB]
   foam: RGB
@@ -42,7 +42,7 @@ const LOOKS: Record<Time, Look> = {
     ],
     orb: { x: 0.18, y: 0.14, r: 0.035, core: [5, 4.6, 3.8], glow: [1, 0.95, 0.8], near: 0.45, wide: 0.12 },
     stars: 0,
-    clouds: { puffy: true, top: [1.1, 1.1, 1.1], bottom: [0.6, 0.68, 0.8], alpha: 0.9 },
+    clouds: { top: [1.1, 1.1, 1.1], bottom: [0.6, 0.68, 0.8], alpha: 0.9 },
     sea: [
       [0.12, 0.42, 0.62],
       [0.08, 0.6, 0.62],
@@ -67,7 +67,7 @@ const LOOKS: Record<Time, Look> = {
     ],
     orb: { x: 0.55, y: 0.475, r: 0.055, core: [3.2, 1.7, 0.6], glow: [1, 0.42, 0.14], near: 0.5, wide: 0.25 },
     stars: 25,
-    clouds: { puffy: false, top: [0.1, 0.035, 0.09], bottom: [0.8, 0.3, 0.2], alpha: 0.55 },
+    clouds: { top: [0.1, 0.035, 0.09], bottom: [0.8, 0.3, 0.2], alpha: 0.8 },
     sea: [
       [0.55, 0.25, 0.18],
       [0.12, 0.07, 0.12],
@@ -91,7 +91,7 @@ const LOOKS: Record<Time, Look> = {
     ],
     orb: { x: 0.7, y: 0.16, r: 0.03, core: [1, 0.72, 0.3], glow: [0.45, 0.3, 0.12], near: 0.2, wide: 0.08, moon: true },
     stars: 140,
-    clouds: { puffy: false, top: [0.015, 0.02, 0.05], bottom: [0.06, 0.1, 0.3], alpha: 0.4 },
+    clouds: { top: [0.015, 0.02, 0.05], bottom: [0.06, 0.1, 0.3], alpha: 0.7 },
     sea: [
       [0.03, 0.06, 0.15],
       [0.01, 0.03, 0.07],
@@ -166,6 +166,9 @@ class Beach extends Canvas {
   private background = new Float32Array(0)
   private stars: Star[]
   private clouds: Cloud[]
+  // Towering cumulus far out on the sea horizon, painted into the background, and shadows of the near clouds.
+  private towers = makeClouds(3, "towering", HORIZON, HORIZON)
+  private shadows = makeShadows(3, HORIZON + 0.06, 0.95)
   private storm = makeStorm()
   private palms: Palm[] = []
   private boat = { x: -9, dir: 1, next: 14 }
@@ -192,7 +195,7 @@ class Beach extends Canvas {
     this.look = this.weather.covered ? { ...look, glitter: look.glitter * 0.15 } : look
     if (this.season === "summer" && !this.look.night) this.swimmers = Array.from({ length: { calm: 1, lively: 3, teeming: 5 }[settings.activity] }, (_, i) => ({ x: 0.25 + i * 0.13 + hash(i) * 0.05, y: 0.69 + hash(i * 3.3) * 0.03, phase: i * 1.9 }))
     this.stars = makeStars(this.look.stars, 0.45)
-    this.clouds = makeClouds(this.look.clouds.puffy ? 4 : 5, this.look.clouds.puffy, 0.08, 0.3)
+    this.clouds = makeClouds(4, "cumulus", 0.07, 0.24)
     if (settings.activity !== "calm") this.dolphins = [0, 1].map((i) => ({ t: -1, x: 0, y: 0, dir: 1, wait: 4 + i * 9 }))
   }
 
@@ -202,6 +205,7 @@ class Beach extends Canvas {
     const cdt = dt * CREATURE_SPEED
     this.creatureTime += cdt
     driftClouds(this.clouds, this.A, dt)
+    driftClouds(this.shadows, this.A, dt)
     driftClouds(this.storm, this.A, dt)
     this.stepGloom(dt)
     this.weather.step(dt)
@@ -250,9 +254,11 @@ class Beach extends Canvas {
     this.hdr.set(this.background)
     if (!this.weather.covered) paintStars(this.hdr, this.W, this.H, this.stars, this.time, 0.45, this.look.stars > 50 ? 0.5 : 0.3)
     const [top, bottom] = this.weather.scud ?? [this.look.clouds.top, this.look.clouds.bottom]
-    paintClouds(this.hdr, this.W, this.H, this.clouds, top, bottom, this.look.clouds.alpha, this.look.clouds.puffy)
+    const orb = this.weather.covered ? undefined : this.look.orb
+    paintClouds(this.hdr, this.W, this.H, this.clouds, top, bottom, this.look.clouds.alpha, orb)
     paintStorm(this.hdr, this.W, this.H, this.storm, this.look.clouds.top, this.look.clouds.bottom, this.gloom)
     this.drawSea()
+    paintShadows(this.hdr, this.W, this.H, this.shadows, HORIZON + 0.01, orb)
     for (const s of this.swimmers) this.drawSwimmer(s)
     this.drawBoat()
     for (const d of this.dolphins) this.drawDolphin(d)
@@ -282,6 +288,7 @@ class Beach extends Canvas {
     this.lighting = look.style === "front" ? { style: "front", dir: DAYLIGHT } : { style: "rim", color: look.light, x: look.orb.x * W, y: look.orb.y * H }
     paintSky(this.hdr, W, H, look.sky, look.orb)
     this.weather.cover(this.hdr, W, H)
+    if (!this.weather.covered) paintClouds(this.hdr, W, H, this.towers, look.clouds.top, look.clouds.bottom, look.clouds.alpha, look.orb)
     // A small island on the horizon.
     const ix = 0.16 * A
     this.polygon(Array.from({ length: 21 }, (_, i) => [(ix + Math.cos((i / 20) * Math.PI) * 0.08) * H, (HORIZON - Math.sin((i / 20) * Math.PI) * 0.025) * H] as const), this.paint([0.2, 0.35, 0.22]))

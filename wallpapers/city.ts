@@ -2,7 +2,7 @@ import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
 import { eggWait } from "../src/egg"
 import { bird, flyAway, startle, type Flier } from "../src/flock"
 import { TAU, clamp, fbm1, hash, hash2, lerp, rand, smoothstep, type RGB } from "../src/math"
-import { driftClouds, makeClouds, makeStars, makeStorm, paintClouds, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
+import { driftClouds, makeClouds, makeStars, makeStorm, paintClouds, paintHaze, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
 import type { Activity, Settings, Time, Wallpaper } from "../src/wallpaper"
 import { WeatherLayer } from "../src/weather"
 
@@ -27,7 +27,7 @@ interface Look {
   sky: [number, RGB][]
   orb: Orb
   stars: number
-  clouds: { puffy: boolean; top: RGB; bottom: RGB; alpha: number }
+  clouds: { top: RGB; bottom: RGB; alpha: number }
   // The far skyline's hazy color and the river from far to near.
   haze: RGB
   river: [far: RGB, near: RGB]
@@ -54,7 +54,7 @@ const LOOKS: Record<Time, Look> = {
     ],
     orb: { x: 0.14, y: 0.11, r: 0.035, core: [5, 4.6, 3.8], glow: [1, 0.95, 0.8], near: 0.45, wide: 0.12 },
     stars: 0,
-    clouds: { puffy: true, top: [1.1, 1.1, 1.1], bottom: [0.6, 0.66, 0.78], alpha: 0.85 },
+    clouds: { top: [1.1, 1.1, 1.1], bottom: [0.6, 0.66, 0.78], alpha: 0.85 },
     haze: [0.55, 0.65, 0.78],
     river: [
       [0.2, 0.36, 0.48],
@@ -78,7 +78,7 @@ const LOOKS: Record<Time, Look> = {
     ],
     orb: { x: 0.7, y: 0.5, r: 0.055, core: [3.2, 1.7, 0.6], glow: [1, 0.42, 0.14], near: 0.5, wide: 0.25 },
     stars: 20,
-    clouds: { puffy: false, top: [0.1, 0.035, 0.09], bottom: [0.8, 0.3, 0.2], alpha: 0.55 },
+    clouds: { top: [0.1, 0.035, 0.09], bottom: [0.8, 0.3, 0.2], alpha: 0.55 },
     haze: [0.36, 0.14, 0.16],
     river: [
       [0.4, 0.16, 0.14],
@@ -101,7 +101,7 @@ const LOOKS: Record<Time, Look> = {
     ],
     orb: { x: 0.82, y: 0.12, r: 0.03, core: [1, 0.72, 0.3], glow: [0.45, 0.3, 0.12], near: 0.2, wide: 0.08, moon: true },
     stars: 50,
-    clouds: { puffy: false, top: [0.015, 0.02, 0.05], bottom: [0.08, 0.05, 0.2], alpha: 0.4 },
+    clouds: { top: [0.015, 0.02, 0.05], bottom: [0.08, 0.05, 0.2], alpha: 0.4 },
     haze: [0.035, 0.03, 0.08],
     river: [
       [0.03, 0.025, 0.08],
@@ -249,7 +249,7 @@ class City extends Canvas {
     this.activity = settings.activity
     this.look = LOOKS[settings.time]
     this.stars = makeStars(this.look.stars, 0.45)
-    this.clouds = makeClouds(this.look.clouds.puffy ? 3 : 4, this.look.clouds.puffy, 0.04, 0.1)
+    this.clouds = makeClouds(2, "stratus", 0.05, 0.12)
     this.weather = new WeatherLayer(settings.weather ?? "clear", settings.time, BANK)
     this.wet = settings.weather ? settings.weather === "rain" || settings.weather === "snow" : this.look.night && settings.activity === "teeming"
     if (settings.activity !== "teeming") return
@@ -296,7 +296,7 @@ class City extends Canvas {
     this.hdr.set(this.background)
     if (!this.weather.covered) paintStars(this.hdr, W, H, this.visibleStars, this.time, BANK, 0.4)
     const [top, bottom] = this.weather.scud ?? [look.clouds.top, look.clouds.bottom]
-    paintClouds(this.hdr, W, H, this.clouds, top, bottom, look.clouds.alpha, look.clouds.puffy)
+    paintClouds(this.hdr, W, H, this.clouds, top, bottom, look.clouds.alpha, this.weather.covered ? undefined : look.orb)
     paintStorm(this.hdr, W, H, this.storm, look.clouds.top, look.clouds.bottom, this.gloom)
     if (this.hero.t >= 0) this.drawHero()
     this.drawBlimp()
@@ -341,6 +341,9 @@ class City extends Canvas {
       this.paintTower(this.tower(x, w, 0.06 + hash(i * 3.1 + 0.7) ** 1.5 * 0.17, i + 500, true))
       x += w * (0.7 + hash(i * 5.3) * 0.4)
     }
+    // City haze glowing with the horizon's light over the far towers, which the downtown skyline stands in front of.
+    const horizon = look.sky[look.sky.length - 1][1]
+    paintHaze(this.hdr, W, H, BANK - 0.3, BANK, horizon, 0.7)
     const near: Tower[] = []
     for (let x = -0.02, i = 0; x < A + 0.02; i++) {
       const w = 0.05 + hash(i * 2.3 + 0.1) * 0.055
@@ -353,6 +356,7 @@ class City extends Canvas {
     tallest[0].crown = 3
     tallest[1].crown = 2
     for (const t of near) this.paintTower(t)
+    paintHaze(this.hdr, W, H, BANK - 0.1, BANK, horizon, 0.25)
     this.visibleStars = this.stars.filter((s) => {
       const o = (Math.floor(s.y * H) * W + Math.floor(s.x * W)) * 3
       return this.hdr[o] === sky[o] && this.hdr[o + 1] === sky[o + 1] && this.hdr[o + 2] === sky[o + 2]

@@ -1,7 +1,7 @@
 import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
 import { eggWait } from "../src/egg"
 import { TAU, clamp, fbm1, hash, lerp, rand, smoothstep, type RGB } from "../src/math"
-import { driftClouds, makeClouds, makeStars, makeStorm, paintClouds, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
+import { driftClouds, makeClouds, makeShadows, makeStars, makeStorm, paintClouds, paintShadows, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
 import type { Activity, Settings, Time, Wallpaper } from "../src/wallpaper"
 import { WeatherLayer } from "../src/weather"
 
@@ -22,7 +22,7 @@ interface Look {
   sky: [number, RGB][]
   orb: Orb
   stars: number
-  clouds: { puffy: boolean; top: RGB; bottom: RGB; alpha: number }
+  clouds: { top: RGB; bottom: RGB; alpha: number }
   snow: RGB
   shade: RGB
   rock: RGB
@@ -45,7 +45,7 @@ const LOOKS: Record<Time, Look> = {
     ],
     orb: { x: 0.78, y: 0.22, r: 0.032, core: [4.5, 4.3, 3.8], glow: [1, 0.95, 0.85], near: 0.4, wide: 0.12 },
     stars: 0,
-    clouds: { puffy: true, top: [1.05, 1.08, 1.12], bottom: [0.62, 0.7, 0.82], alpha: 0.85 },
+    clouds: { top: [1.05, 1.08, 1.12], bottom: [0.62, 0.7, 0.82], alpha: 0.85 },
     snow: [0.8, 0.87, 0.95],
     shade: [0.55, 0.66, 0.85],
     rock: [0.35, 0.4, 0.5],
@@ -67,7 +67,7 @@ const LOOKS: Record<Time, Look> = {
     ],
     orb: { x: 0.62, y: 0.53, r: 0.055, core: [3, 1.6, 0.9], glow: [1, 0.45, 0.3], near: 0.5, wide: 0.22 },
     stars: 25,
-    clouds: { puffy: false, top: [0.12, 0.05, 0.12], bottom: [0.85, 0.35, 0.3], alpha: 0.55 },
+    clouds: { top: [0.12, 0.05, 0.12], bottom: [0.85, 0.35, 0.3], alpha: 0.55 },
     snow: [0.72, 0.42, 0.48],
     shade: [0.3, 0.18, 0.38],
     rock: [0.25, 0.12, 0.2],
@@ -88,7 +88,7 @@ const LOOKS: Record<Time, Look> = {
     ],
     orb: { x: 0.2, y: 0.14, r: 0.03, core: [1, 0.72, 0.3], glow: [0.45, 0.3, 0.12], near: 0.2, wide: 0.08, moon: true },
     stars: 120,
-    clouds: { puffy: false, top: [0.015, 0.02, 0.05], bottom: [0.06, 0.1, 0.3], alpha: 0.35 },
+    clouds: { top: [0.015, 0.02, 0.05], bottom: [0.06, 0.1, 0.3], alpha: 0.35 },
     snow: [0.05, 0.12, 0.3],
     shade: [0.02, 0.05, 0.14],
     rock: [0.02, 0.04, 0.09],
@@ -136,6 +136,7 @@ class Tundra extends Canvas {
   private background = new Float32Array(0)
   private stars: Star[]
   private clouds: Cloud[]
+  private shadows = makeShadows(3, HORIZON + 0.08, 0.95)
   private storm = makeStorm()
   private flakes: { x: number; y: number; z: number; s: number }[]
   private owl = { x: -9, y: 0.25, dir: 1, next: 14, phase: 0 }
@@ -153,7 +154,7 @@ class Tundra extends Canvas {
     this.activity = settings.activity
     this.look = LOOKS[settings.time]
     this.stars = makeStars(this.look.stars, 0.45)
-    this.clouds = makeClouds(this.look.clouds.puffy ? 3 : 4, this.look.clouds.puffy, 0.06, 0.28)
+    this.clouds = makeClouds(3, "stratus", 0.26, 0.4)
     // Its own gentle snowfall under a clear sky, unless weather is chosen.
     this.weather = new WeatherLayer(settings.weather ?? "clear", settings.time, HORIZON)
     this.flakes = Array.from({ length: settings.weather ? 0 : { calm: 70, lively: 100, teeming: 130 }[settings.activity] }, () => ({ x: Math.random() * 4, y: Math.random(), z: Math.random(), s: Math.random() }))
@@ -171,6 +172,7 @@ class Tundra extends Canvas {
     const cdt = dt * CREATURE_SPEED
     this.creatureTime += cdt
     driftClouds(this.clouds, this.A, dt)
+    driftClouds(this.shadows, this.A, dt)
     driftClouds(this.storm, this.A, dt)
     this.stepGloom(dt)
     this.weather.step(dt)
@@ -224,7 +226,9 @@ class Tundra extends Canvas {
     if (!this.weather.covered) paintStars(this.hdr, this.W, this.H, this.stars, this.time, 0.5, this.look.stars > 50 ? 0.5 : 0.3)
     if (this.look.aurora > 0 && !this.weather.covered) this.drawAurora()
     const [top, bottom] = this.weather.scud ?? [this.look.clouds.top, this.look.clouds.bottom]
-    paintClouds(this.hdr, this.W, this.H, this.clouds, top, bottom, this.look.clouds.alpha, this.look.clouds.puffy)
+    const orb = this.weather.covered ? undefined : this.look.orb
+    paintClouds(this.hdr, this.W, this.H, this.clouds, top, bottom, this.look.clouds.alpha, orb)
+    paintShadows(this.hdr, this.W, this.H, this.shadows, 0.61, orb)
     paintStorm(this.hdr, this.W, this.H, this.storm, this.look.clouds.top, this.look.clouds.bottom, this.gloom)
     if (this.owl.x > -5) this.drawOwl()
     if (this.yeti.t >= 0) this.drawYeti()

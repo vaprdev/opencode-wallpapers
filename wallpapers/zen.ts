@@ -24,7 +24,7 @@ interface Look {
   sky: [number, RGB][]
   orb: Orb
   stars: number
-  clouds: { puffy: boolean; top: RGB; bottom: RGB; alpha: number }
+  clouds: { top: RGB; bottom: RGB; alpha: number }
   hills: [far: RGB, near: RGB]
   snow: RGB
   mist: RGB
@@ -51,7 +51,7 @@ const LOOKS: Record<Time, Look> = {
     ],
     orb: { x: 0.4, y: 0.12, r: 0.035, core: [5, 4.6, 3.8], glow: [1, 0.95, 0.8], near: 0.45, wide: 0.12 },
     stars: 0,
-    clouds: { puffy: true, top: [1.1, 1.1, 1.1], bottom: [0.6, 0.66, 0.78], alpha: 0.85 },
+    clouds: { top: [1.1, 1.1, 1.1], bottom: [0.6, 0.66, 0.78], alpha: 0.85 },
     hills: [
       [0.42, 0.55, 0.72],
       [0.18, 0.36, 0.22],
@@ -80,7 +80,7 @@ const LOOKS: Record<Time, Look> = {
     ],
     orb: { x: 0.52, y: 0.375, r: 0.05, core: [3.2, 1.7, 0.6], glow: [1, 0.42, 0.14], near: 0.5, wide: 0.25 },
     stars: 25,
-    clouds: { puffy: false, top: [0.1, 0.035, 0.09], bottom: [0.8, 0.3, 0.2], alpha: 0.55 },
+    clouds: { top: [0.1, 0.035, 0.09], bottom: [0.8, 0.3, 0.2], alpha: 0.55 },
     hills: [
       [0.38, 0.13, 0.16],
       [0.1, 0.04, 0.05],
@@ -108,7 +108,7 @@ const LOOKS: Record<Time, Look> = {
     ],
     orb: { x: 0.6, y: 0.16, r: 0.032, core: [1, 0.72, 0.3], glow: [0.45, 0.3, 0.12], near: 0.2, wide: 0.08, moon: true },
     stars: 130,
-    clouds: { puffy: false, top: [0.015, 0.02, 0.05], bottom: [0.06, 0.1, 0.3], alpha: 0.4 },
+    clouds: { top: [0.015, 0.02, 0.05], bottom: [0.06, 0.1, 0.3], alpha: 0.4 },
     hills: [
       [0.025, 0.04, 0.1],
       [0.008, 0.016, 0.035],
@@ -237,7 +237,7 @@ class Zen extends Canvas {
     this.season = settings.season ?? "spring"
     this.weather = new WeatherLayer(settings.weather ?? (this.season === "winter" ? "snow" : "clear"), settings.time, HORIZON, !settings.weather)
     this.stars = makeStars(this.look.stars, 0.45)
-    this.clouds = makeClouds(this.look.clouds.puffy ? 3 : 5, this.look.clouds.puffy, 0.06, 0.26)
+    this.clouds = makeClouds(4, "wisp", 0.06, 0.24)
     const count = { calm: 0, lively: 3, teeming: 6 }[settings.activity]
     this.koi = Array.from({ length: count }, (_, i) => ({ a: rand(0, TAU), r: 0.32 + (i % 3) * 0.16, dir: i === 4 ? -1 : 1, phase: rand(0, TAU), size: rand(0.85, 1.1), colors: KOI[i] }))
     const falling = this.season === "spring" || this.season === "autumn"
@@ -297,7 +297,7 @@ class Zen extends Canvas {
     this.hdr.set(this.background)
     if (!this.weather.covered) paintStars(this.hdr, this.W, this.H, this.stars, this.time, 0.45, this.look.stars > 50 ? 0.5 : 0.3)
     const [top, bottom] = this.weather.scud ?? [this.look.clouds.top, this.look.clouds.bottom]
-    paintClouds(this.hdr, this.W, this.H, this.clouds, top, bottom, this.look.clouds.alpha, this.look.clouds.puffy)
+    paintClouds(this.hdr, this.W, this.H, this.clouds, top, bottom, this.look.clouds.alpha, this.weather.covered ? undefined : this.look.orb)
     paintStorm(this.hdr, this.W, this.H, this.storm, this.look.clouds.top, this.look.clouds.bottom, this.gloom)
     this.drawWater()
     for (const r of this.rings) this.drawRing(r)
