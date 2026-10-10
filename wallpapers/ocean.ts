@@ -727,13 +727,18 @@ class Ocean extends Canvas {
     }
   }
 
-  // Marine snow: faint specks behind the whale's depth, a few brighter flakes in front.
+  // Marine snow: faint specks behind the whale's depth, a few brighter flakes in front, lit up like dust motes as they
+  // drift through a shaft of light.
   private drawSnow(back: boolean) {
-    const H = this.H
+    const { H, rayFade } = this
+    const t = this.time
     for (const s of this.snow) {
       if (back !== s.z > 0.35) continue
-      const tw = 0.6 + 0.4 * Math.sin(this.time * 2 + s.s * 40)
-      const k = (back ? 0.08 + (1 - s.z) * 0.1 : 0.25) * tw
+      const tw = 0.6 + 0.4 * Math.sin(t * 2 + s.s * 40)
+      const x = s.x * H
+      const y = clamp(Math.floor(s.y * H), 0, H - 1)
+      const ray = RAYS_A[((x + y * 0.42 + t * 7) | 0) & 1023] * (0.45 + 0.55 * RAYS_B[((x * 0.7 + y * 0.6 - t * 4.3) | 0) & 1023]) * rayFade[y]
+      const k = (back ? 0.08 + (1 - s.z) * 0.1 : 0.25) * tw + ray * 0.9
       if (!back && s.s > 0.7) this.disc(s.x * H, s.y * H, 1.1, 0.6 + k, 0.75 + k, 0.8 + k, 0.35)
       else this.add(s.x * H, s.y * H, k * 0.8, k, k)
     }

@@ -4,6 +4,7 @@ import { TAU, clamp, fbm1, hash, hash2, lerp, rand, smoothstep, type RGB } from 
 import { driftClouds, makeClouds, makeStars, makeStorm, paintClouds, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
 import type { Activity, Season, Settings, Time, Wallpaper } from "../src/wallpaper"
 import { WeatherLayer } from "../src/weather"
+import { SwayLayer, gust, sway } from "../src/wind"
 
 // The scene runs slower than real time, which keeps it calm behind text.
 const TIME_SCALE = 0.35
@@ -190,6 +191,11 @@ class Farm extends Canvas {
   private treeTops: [number, number][] = []
   // Blossom petals in spring and leaves in autumn, drifting down on the breeze.
   private leaves: { x: number; y: number; phase: number; color: RGB }[] = []
+  // The back corn rows are painted once but still bend as gusts pass, and the open pasture lightens under them.
+  private corn = new SwayLayer()
+  private pasture = new Int32Array(0)
+  private gusts = new Float32Array(0)
+  private fan = 0
 
   constructor(settings: Settings) {
     super()
@@ -223,9 +229,10 @@ class Farm extends Canvas {
     driftClouds(this.storm, this.A, dt)
     this.stepGloom(dt)
     this.weather.step(dt)
+    this.fan += dt * (0.8 + 1.6 * gust(0.3 * this.A, this.time))
     for (const l of this.leaves) {
       l.y += (0.02 + Math.sin(this.time * 1.3 + l.phase) * 0.012) * dt
-      l.x += (0.025 + Math.sin(this.time * 0.7 + l.phase * 3) * 0.02) * dt
+      l.x += (0.025 + Math.sin(this.time * 0.7 + l.phase * 3) * 0.02 + gust(l.x, this.time) * 0.09) * dt
       if (l.y < 0.99 && l.x < this.A + 0.05) continue
       // Most come loose from one of the trees; some blow in from off to the left.
       const tree = this.treeTops[Math.floor(Math.random() * this.treeTops.length)]
@@ -261,6 +268,9 @@ class Farm extends Canvas {
 
   render() {
     this.hdr.set(this.background)
+    for (let x = 0; x < this.W; x++) this.gusts[x] = gust(x / this.H, this.time)
+    lightenGrass(this.hdr, this.W, this.H, this.pasture, this.gusts)
+    this.corn.draw(this.hdr, this.W, this.H, this.time)
     if (!this.weather.covered) paintStars(this.hdr, this.W, this.H, this.stars, this.time, 0.5, this.look.stars > 50 ? 0.5 : 0.3)
     const [top, bottom] = this.weather.scud ?? [this.look.clouds.top, this.look.clouds.bottom]
     paintClouds(this.hdr, this.W, this.H, this.clouds, top, bottom, this.look.clouds.alpha, this.look.clouds.puffy)
@@ -315,6 +325,7 @@ class Farm extends Canvas {
       const depth = 1 - clamp((y / H - 0.6) * 0.6, 0, 0.25)
       return this.rim([near[0] * blades * depth, near[1] * blades * depth, near[2] * blades * depth], x, d, 2)
     })
+    const field = this.hdr.slice()
     // A dirt road winding across the middle distance.
     for (let x = 0; x < W; x++) {
       const cy = this.roadY(x / H) * H
@@ -349,8 +360,20 @@ class Farm extends Canvas {
     posts.push(cap(0.38 * A * H, fy - 0.014 * H, W + 5, fy - 0.014 * H, 0.0025 * H, 0.0025 * H, this.paint(WOOD)))
     this.shape(posts, this.lighting, 0.6)
     if (this.activity === "teeming") this.shape([ell(0.52 * A * H, 0.91 * H, 0.08 * H, 0.025 * H, 0, this.paint([0.32, 0.22, 0.12]))], this.lighting, 0.3)
+    this.corn.begin(this.hdr)
     for (let row = 0; row < 3; row++) this.drawCornRow(row)
+    // Weighted by height on screen: the farther rows' tops sit higher, so each stalk bends from near its foot.
+    this.corn.end(this.hdr, W, H, 0.012 * H, (_x, y) => clamp((0.96 * H - y) / (0.26 * H), 0, 1))
     this.background = this.hdr.slice()
+    // Open grass on the pasture hill: the pixels nothing was painted over.
+    const pasture: number[] = []
+    for (let x = 0; x < W; x++)
+      for (let y = Math.ceil(this.nearTop[x]) + 1; y < H; y++) {
+        const o = (y * W + x) * 3
+        if (this.hdr[o] === field[o] && this.hdr[o + 1] === field[o + 1] && this.hdr[o + 2] === field[o + 2]) pasture.push(y * W + x)
+      }
+    this.pasture = Int32Array.from(pasture)
+    this.gusts = new Float32Array(W)
   }
 
   private paint(c: RGB): RGB {
@@ -464,7 +487,7 @@ class Farm extends Canvas {
     const x = 0.3 * this.A * H
     const y = (0.65 - 0.21) * H
     const metal = this.paint([0.75, 0.75, 0.72])
-    const turn = this.time * 0.8
+    const turn = this.fan
     this.polygon([[x - 0.01 * H, y], [x - 0.075 * H, y - 0.018 * H], [x - 0.075 * H, y + 0.012 * H]], this.paint([0.6, 0.15, 0.1]))
     const parts: Part[] = [ell(x, y, 0.009 * H, 0.009 * H, 0, this.paint([0.35, 0.33, 0.3]))]
     for (let i = 0; i < 14; i++) {
@@ -484,8 +507,8 @@ class Farm extends Canvas {
     for (let i = 0; i * spacing < 0.36 * A; i++) {
       const x = (i * spacing + (row % 2) * spacing * 0.5 + hash(i * 3.1 + row) * 0.008) * H
       const h = height * (0.85 + hash(i * 7.3 + row) * 0.3)
-      const sway = row === 3 ? Math.sin(this.time * 0.7 + i * 0.9) * 0.05 : (hash(i + row * 5) - 0.5) * 0.06
-      const top: [number, number] = [x + Math.sin(sway) * h, base - Math.cos(sway) * h]
+      const bend = row === 3 ? sway(x / H, this.time, i * 0.9) * 0.05 : (hash(i + row * 5) - 0.5) * 0.06
+      const top: [number, number] = [x + Math.sin(bend) * h, base - Math.cos(bend) * h]
       const at = (t: number): [number, number] => [lerp(x, top[0], t), lerp(base, top[1], t)]
       const stalk = this.paint(corn.stalk)
       const parts: Part[] = [cap(x, base, ...top, 0.006 * H * (1 + row * 0.3), 0.003 * H, stalk)]
@@ -494,10 +517,11 @@ class Farm extends Canvas {
         const side = l % 2 ? 1 : -1
         const reach = h * 0.28
         const mid: [number, number] = [lx + side * reach * 0.6, ly - reach * 0.25]
-        parts.push(cap(lx, ly, ...mid, 0.006 * H, 0.004 * H, stalk), cap(...mid, lx + side * reach, ly + reach * 0.15 + sway * reach, 0.004 * H, 0.0015 * H, stalk))
+        // Leaves stream downwind as the stalk bends.
+        parts.push(cap(lx, ly, ...mid, 0.006 * H, 0.004 * H, stalk), cap(...mid, lx + side * reach + bend * reach * 1.5, ly + reach * 0.15 + bend * reach, 0.004 * H, 0.0015 * H, stalk))
       }
       const [ex, ey] = at(0.55)
-      if (corn.ear) parts.push(ell(ex + 0.008 * H, ey, 0.007 * H, 0.016 * H, 0.25 + sway, this.paint(corn.ear)))
+      if (corn.ear) parts.push(ell(ex + 0.008 * H, ey, 0.007 * H, 0.016 * H, 0.25 + bend, this.paint(corn.ear)))
       if (corn.tassel) parts.push(cap(...top, top[0] + 0.012 * H, top[1] - 0.012 * H, 0.002 * H, 0.001 * H, this.paint(corn.tassel)), cap(...top, top[0] - 0.01 * H, top[1] - 0.014 * H, 0.002 * H, 0.001 * H, this.paint(corn.tassel)))
       // Rim light on every thin leaf would turn the field into a wireframe, so the corn only catches a little of it.
       this.shape(parts, this.lighting, this.look.style === "rim" ? 0.2 : 0.6)
@@ -879,6 +903,21 @@ class Farm extends Canvas {
 
 function lerpRGB(a: RGB, b: RGB, t: number): RGB {
   return [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)]
+}
+
+// A gust flattens the grass as it passes, turning up the paler side of the blades in soft streaks.
+function lightenGrass(hdr: Float32Array, W: number, H: number, pasture: Int32Array, gusts: Float32Array) {
+  for (let k = 0; k < pasture.length; k++) {
+    const p = pasture[k]
+    const x = p % W
+    const g = gusts[x]
+    if (g < 0.01) continue
+    const y = (p - x) / W
+    const m = 1 + 0.1 * g * (0.4 + 0.6 * Math.sin(((x - y * 1.4) / H) * 55) ** 2)
+    hdr[p * 3] *= m
+    hdr[p * 3 + 1] *= m
+    hdr[p * 3 + 2] *= m
+  }
 }
 
 export const farm: Wallpaper = {

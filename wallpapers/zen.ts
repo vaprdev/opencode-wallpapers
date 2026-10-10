@@ -5,6 +5,7 @@ import { TAU, clamp, fbm1, hash, hash2, lerp, rand, smoothstep, type RGB } from 
 import { driftClouds, makeClouds, makeStars, makeStorm, paintClouds, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
 import type { Activity, Season, Settings, Time, Wallpaper } from "../src/wallpaper"
 import { WeatherLayer } from "../src/weather"
+import { SwayLayer, gust } from "../src/wind"
 
 // The scene runs slower than real time, which keeps it calm behind text.
 const TIME_SCALE = 0.35
@@ -229,6 +230,9 @@ class Zen extends Canvas {
   private sparrows: Flier[] = []
   // The easter egg: a tanuki with a leaf on its head. t counts scene seconds since it appeared.
   private tanuki = { wait: eggWait() * TIME_SCALE, t: -1 }
+  // The maple and cherry crowns, painted once, bend in the gusts, which here blow from the right like the breeze that
+  // carries the petals.
+  private trees = new SwayLayer(-1)
 
   constructor(settings: Settings) {
     super()
@@ -295,6 +299,7 @@ class Zen extends Canvas {
 
   render() {
     this.hdr.set(this.background)
+    this.trees.draw(this.hdr, this.W, this.H, this.time)
     if (!this.weather.covered) paintStars(this.hdr, this.W, this.H, this.stars, this.time, 0.45, this.look.stars > 50 ? 0.5 : 0.3)
     const [top, bottom] = this.weather.scud ?? [this.look.clouds.top, this.look.clouds.bottom]
     paintClouds(this.hdr, this.W, this.H, this.clouds, top, bottom, this.look.clouds.alpha, this.look.clouds.puffy)
@@ -413,6 +418,7 @@ class Zen extends Canvas {
       this.front.set([black[i], black[i + 1], black[i + 2]], k * 3)
       this.keep[k] = white[i] - black[i]
     }
+    this.trees.seal(this.hdr, W)
     this.background = this.hdr.slice()
   }
 
@@ -574,8 +580,10 @@ class Zen extends Canvas {
       const c = this.paint(ROCK)
       this.shape([ell(r.x * H, (r.y - r.r * 0.55) * H, r.r * H, r.r * 0.75 * H, -0.15, c), ell((r.x + r.r * 0.75) * H, (r.y - r.r * 0.25) * H, r.r * 0.55 * H, r.r * 0.45 * H, 0.2, this.paint([0.4, 0.38, 0.35]))], this.lighting, 0.8)
     }
+    this.trees.begin(this.hdr)
     this.drawMaple()
     this.drawCherry()
+    this.trees.end(this.hdr, this.W, H, 0.012 * H, (_x, y) => clamp((0.56 * H - y) / (0.3 * H), 0, 1))
   }
 
   // A Japanese maple with red leaves in layered tiers, leaning in from the left.
@@ -872,7 +880,7 @@ class Zen extends Canvas {
     if (p.age < 0) return
     if (p.state === 0) {
       p.spin += dt * 2
-      p.x += (p.vx + 0.012 * Math.sin(this.time * 0.8 + p.spin * 0.3)) * dt
+      p.x += (p.vx + 0.012 * Math.sin(this.time * 0.8 + p.spin * 0.3) - 0.09 * gust(this.A - p.x, this.time)) * dt
       p.y += p.vy * dt
       if (p.x < -0.05) Object.assign(p, this.newPetal(false))
       if (p.y < p.land) return

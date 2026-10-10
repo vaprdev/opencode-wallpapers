@@ -4,6 +4,7 @@ import { TAU, clamp, fbm1, hash, lerp, rand, smoothstep, type RGB } from "../src
 import { driftClouds, makeClouds, makeStars, makeStorm, paintClouds, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
 import type { Activity, Settings, Time, Wallpaper } from "../src/wallpaper"
 import { WeatherLayer } from "../src/weather"
+import { SwayLayer, gust } from "../src/wind"
 
 // The scene runs slower than real time, which keeps it calm behind text.
 const TIME_SCALE = 0.35
@@ -147,6 +148,8 @@ class Tundra extends Canvas {
   // time since it began.
   private yeti = { wait: eggWait() * TIME_SCALE, t: -1, x: 0 }
   private readonly weather: WeatherLayer
+  // The big pines framing the edges, painted once, bend a little as gusts pass.
+  private pines = new SwayLayer()
 
   constructor(settings: Settings) {
     super()
@@ -176,7 +179,7 @@ class Tundra extends Canvas {
     this.weather.step(dt)
     for (const f of this.flakes) {
       f.y += (0.02 + f.z * 0.035) * dt
-      f.x += (Math.sin(this.time * 0.6 + f.s * 20) * 0.006 + 0.004) * dt
+      f.x += (Math.sin(this.time * 0.6 + f.s * 20) * 0.006 + 0.004 + gust(f.x, this.time) * (0.06 + f.z * 0.06)) * dt
       if (f.y > 1) {
         f.y -= 1
         f.x = Math.random() * this.A
@@ -221,6 +224,7 @@ class Tundra extends Canvas {
 
   render() {
     this.hdr.set(this.background)
+    this.pines.draw(this.hdr, this.W, this.H, this.time)
     if (!this.weather.covered) paintStars(this.hdr, this.W, this.H, this.stars, this.time, 0.5, this.look.stars > 50 ? 0.5 : 0.3)
     if (this.look.aurora > 0 && !this.weather.covered) this.drawAurora()
     const [top, bottom] = this.weather.scud ?? [this.look.clouds.top, this.look.clouds.bottom]
@@ -266,7 +270,9 @@ class Tundra extends Canvas {
     this.drawIgloo(0.2 * A, 0.75, 0.075)
     if (this.activity === "teeming") this.drawSnowman(0.3 * A, 0.85, 0.75, [0.2, 0.35, 0.8], false)
     this.drawSnowman(0.62 * A, 0.87, 1, [0.8, 0.12, 0.1], true)
+    this.pines.begin(this.hdr)
     for (const [fx, h] of [[0.04, 0.46], [0.11, 0.34], [0.955, 0.42], [0.995, 0.3]] as const) this.drawPine(fx * A, 1.02, h, 0)
+    this.pines.end(this.hdr, W, H, 0.01 * H, (_x, y) => clamp((0.95 * H - y) / (0.4 * H), 0, 1) ** 1.5)
     this.background = this.hdr.slice()
   }
 

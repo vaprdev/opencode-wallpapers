@@ -5,6 +5,7 @@ import { TAU, clamp, fbm1, fbm2, hash, lerp, rand, smoothstep, type RGB } from "
 import { driftClouds, makeStorm, paintStorm } from "../src/sky"
 import type { Activity, Season, Settings, Time, Wallpaper } from "../src/wallpaper"
 import { WeatherLayer } from "../src/weather"
+import { gust } from "../src/wind"
 
 // The scene runs slower than real time, which keeps it calm behind text.
 const TIME_SCALE = 0.35
@@ -263,7 +264,7 @@ class Desert extends Canvas {
   private dust = Array.from({ length: 60 }, () => ({ x: Math.random() * 4, y: 0.3 + Math.random() * 0.7, s: Math.random() }))
   private clouds: Cloud[]
   private storm = makeStorm()
-  private tumbleweed = { x: -9, dir: 1, next: 14, spin: 0, hop: 0 }
+  private tumbleweed = { x: -9, next: 14, spin: 0, hop: 0 }
   private twigs = buildTwigs()
   private bigBird: Bird | undefined
   private flock: Bird[] = []
@@ -314,7 +315,7 @@ class Desert extends Canvas {
     dt = clamp(dt, 0, 0.1) * TIME_SCALE
     this.time += dt
     for (const d of this.dust) {
-      d.x += (0.01 + d.s * 0.012) * dt
+      d.x += (0.01 + d.s * 0.012 + gust(d.x, this.time) * 0.06) * dt
       d.y += Math.sin(this.time * 0.5 + d.s * 30) * 0.002 * dt
       if (d.x > this.A) d.x -= this.A
     }
@@ -339,6 +340,8 @@ class Desert extends Canvas {
 
   render() {
     this.hdr.set(this.background)
+    // Heat haze over the sunlit floor, but not in winter or under cloud.
+    if (this.look.style === "front" && this.season !== "winter" && !this.weather.covered) shimmer(this.hdr, this.background, this.W, this.H, this.time)
     if (!this.weather.covered) this.drawStars()
     this.drawClouds()
     paintStorm(this.hdr, this.W, this.H, this.storm, this.look.clouds.top, this.look.clouds.bottom, this.gloom)
@@ -562,18 +565,18 @@ class Desert extends Canvas {
       }
   }
 
+  // The tumbleweed rolls with the wind, ambling in calm air and bowling along when a gust catches it.
   private stepTumbleweed(dt: number) {
     const t = this.tumbleweed
     if (t.x < -5) {
       t.next -= dt
       if (t.next > 0) return
-      t.dir = Math.random() < 0.5 ? 1 : -1
-      t.x = t.dir > 0 ? -0.1 : this.A + 0.1
+      t.x = -0.1
       return
     }
-    const move = 0.06 * dt
-    t.x += t.dir * move
-    t.spin += (t.dir * move) / 0.035
+    const move = (0.045 + 0.1 * gust(t.x, this.time)) * dt
+    t.x += move
+    t.spin += move / 0.035
     t.hop += move / 0.05
     if (t.x < -0.2 || t.x > this.A + 0.2) {
       t.x = -9
@@ -974,6 +977,27 @@ class Desert extends Canvas {
       const y = d.y * H
       const k = (0.4 + d.s * 0.6) * (1 + glint * Math.exp(-Math.hypot(x - this.orbX, y - this.orbY) / (0.15 * H)))
       this.add(x, y, look.dust[0] * k, look.dust[1] * k, look.dust[2] * k)
+    }
+  }
+}
+
+// Heat haze: rows just above the hot floor at the horizon waver sideways by a fraction of a pixel, so the feet of the
+// distant mesas swim.
+function shimmer(hdr: Float32Array, background: Float32Array, W: number, H: number, t: number) {
+  for (let y = Math.floor((HORIZON - 0.05) * H); y < Math.ceil((HORIZON + 0.02) * H); y++) {
+    const v = y / H
+    const d = 0.0025 * H * Math.exp(-(((v - HORIZON + 0.008) / 0.02) ** 2)) * Math.sin(v * 520 + t * 5) * (0.6 + 0.4 * Math.sin(v * 90 - t * 1.7))
+    if (d < 0.02 && d > -0.02) continue
+    const shift = Math.floor(d)
+    const f = d - shift
+    const row = y * W
+    for (let x = 0; x < W; x++) {
+      const a = (row + clamp(x - shift, 0, W - 1)) * 3
+      const b = (row + clamp(x - shift - 1, 0, W - 1)) * 3
+      const o = (row + x) * 3
+      hdr[o] = background[a] * (1 - f) + background[b] * f
+      hdr[o + 1] = background[a + 1] * (1 - f) + background[b + 1] * f
+      hdr[o + 2] = background[a + 2] * (1 - f) + background[b + 2] * f
     }
   }
 }
