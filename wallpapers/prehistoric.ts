@@ -6,6 +6,7 @@ import { lightPool } from "../src/light"
 import { TAU, clamp, fbm1, hash, hash2, lerp, rand, smoothstep, type RGB } from "../src/math"
 import { driftClouds, makeClouds, makeShadows, makeStars, makeStorm, paintClouds, paintShadows, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
 import type { Activity, Settings, Time, Wallpaper } from "../src/wallpaper"
+import { reflect } from "../src/water"
 import { WeatherLayer } from "../src/weather"
 
 // The scene runs slower than real time, which keeps it calm behind text.
@@ -40,6 +41,8 @@ interface Look {
   glow: number
   smoke: [hot: RGB, cool: RGB, alpha: number]
   water: RGB
+  // The tint of what the lake mirrors.
+  mirror: RGB
   ripple: RGB
   tint: RGB
 }
@@ -70,6 +73,7 @@ const LOOKS: Record<Time, Look> = {
     glow: 0.05,
     smoke: [[0.3, 0.25, 0.22], [0.66, 0.64, 0.64], 0.5],
     water: [0.22, 0.44, 0.52],
+    mirror: [0.78, 0.88, 0.92],
     ripple: [0.55, 0.7, 0.75],
     tint: [1, 1, 1],
   },
@@ -100,6 +104,7 @@ const LOOKS: Record<Time, Look> = {
     glow: 0.35,
     smoke: [[0.8, 0.2, 0.06], [0.1, 0.07, 0.07], 0.65],
     water: [0.42, 0.12, 0.06],
+    mirror: [0.9, 0.78, 0.72],
     ripple: [1, 0.3, 0.1],
     tint: [0.2, 0.1, 0.08],
   },
@@ -129,6 +134,7 @@ const LOOKS: Record<Time, Look> = {
     glow: 0.5,
     smoke: [[0.8, 0.12, 0.03], [0.1, 0.025, 0.07], 0.6],
     water: [0.02, 0.04, 0.1],
+    mirror: [0.8, 0.88, 1],
     ripple: [0.1, 0.35, 0.9],
     tint: [0.02, 0.032, 0.075],
   },
@@ -190,6 +196,9 @@ class Prehistoric extends Canvas {
   private herd: Walker[] = []
   private dragonflies: { x: number; y: number; tx: number; ty: number; rest: number; face: number; phase: number }[] = []
   private nessie = { t: -1, x: 0, y: 0, dir: 1, wait: 1 }
+  // The lake's rows: which row each mirrors, how far its ripples wobble the reflection, and how much of it each pixel
+  // shows (none outside the water or under the plants in front of it).
+  private pool = { y0: 0, y1: 0, rows: new Float32Array(0), amp: new Float32Array(0), gloss: new Float32Array(0) }
   private readonly weather: WeatherLayer
   private storm = makeStorm()
   private birds: Flier[] = []
@@ -263,6 +272,8 @@ class Prehistoric extends Canvas {
     const start = this.plumeTop()
     for (const c of this.ash) paintClouds(this.hdr, this.W, this.H, [c], [cool[0] * 1.15, cool[1] * 1.15, cool[2] * 1.15], [lerp(cool[0], hot[0], 0.3) * 0.7, lerp(cool[1], hot[1], 0.3) * 0.7, lerp(cool[2], hot[2], 0.3) * 0.7], alpha * 1.3 * smoothstep(start, start + 0.25, c.x), orb)
     this.drawSmoke()
+    const p = this.pool
+    if (p.y1 > p.y0) reflect(this.hdr, this.W, this.H, p.y0, p.y1, p.rows, p.amp, p.gloss, this.look.mirror, this.time)
     if (this.activity !== "calm") {
       this.drawPterosaurs()
       this.drawSauropod()
@@ -354,7 +365,9 @@ class Prehistoric extends Canvas {
       mottle(this.hdr, W, H, 0.62, 1, 0.55, [1.16, 1.04, 0.66], [0.68, 0.84, 0.72])
       haze(this.hdr, sky, W, H, 0.62, 0.8, 0.14, 0, 0.56)
     }
+    this.pool = { y0: 0, y1: 0, rows: new Float32Array(0), amp: new Float32Array(0), gloss: new Float32Array(0) }
     if (this.activity === "teeming") this.paintLake()
+    const water = this.hdr.slice(this.pool.y0 * W * 3, this.pool.y1 * W * 3)
     this.trees = [0.08 * A, Math.max(0.4 * A, 0.08 * A + 0.45)]
     this.drawTree(this.trees[0], 0.665, 0.29)
     this.drawTree(this.trees[1], 0.662, 0.31)
@@ -368,6 +381,10 @@ class Prehistoric extends Canvas {
     this.drawCycad(0.04 * A, 0.86, 0.09)
     this.drawCycad(0.47 * A, 0.835, 0.07)
     this.drawCycad(0.9 * A, 0.84, 0.1)
+    // Plants painted over the water stay in front of its reflection.
+    const p = this.pool
+    const o = p.y0 * W * 3
+    for (let i = 0; i < p.gloss.length; i++) if (this.hdr[o + i * 3] !== water[i * 3] || this.hdr[o + i * 3 + 1] !== water[i * 3 + 1] || this.hdr[o + i * 3 + 2] !== water[i * 3 + 2]) p.gloss[i] = 0
     this.background = this.hdr.slice()
   }
 
@@ -452,15 +469,18 @@ class Prehistoric extends Canvas {
     this.lava = { index: Int32Array.from(index), k: Float32Array.from(index, (i) => core[i] * (0.4 + heat[i])), along: Float32Array.from(index, (i) => along[i]) }
   }
 
-  // A still lake in front of the volcano, mirroring it and the sky, with a muddy shore.
+  // A lake in front of the volcano with a muddy shore. Its water mirrors the forest, the volcano and the sky above it,
+  // squeezed into the lake's depth, and render() puts the reflection in each frame so the lava and smoke move in it.
   private paintLake() {
     const { W, H, A, look } = this
     const [lx, ly, lrx, lry] = this.lake()
     const [cx, cy, rx, ry] = [lx * H, ly * H, lrx * H, lry * H]
-    const mirror = HORIZON * H
     const red = look.lava[0]
     const mud = this.paint([0.3, 0.24, 0.15])
-    for (let y = Math.max(0, Math.floor(cy - ry - 2)); y < Math.min(H, cy + ry + 3); y++)
+    const y0 = Math.max(0, Math.floor(cy - ry - 2))
+    const y1 = Math.min(H, Math.ceil(cy + ry + 3))
+    const gloss = new Float32Array((y1 - y0) * W)
+    for (let y = y0; y < y1; y++)
       for (let x = Math.max(0, Math.floor(cx - rx - 3)); x < Math.min(W, cx + rx + 3); x++) {
         const q = Math.hypot((x + 0.5 - cx) / rx, (y + 0.5 - cy) / ry)
         const shore = clamp((1.12 - q) * 6, 0, 1)
@@ -469,17 +489,25 @@ class Prehistoric extends Canvas {
         this.blend(o, mud[0], mud[1], mud[2], shore * 0.8)
         const wet = clamp((1 - q) * Math.min(rx, ry) * 0.5 + 0.5, 0, 1)
         if (wet <= 0) continue
-        const my = clamp(Math.round(2 * mirror - y), 0, H - 1)
-        const mx = clamp(Math.round(x + Math.sin(y * 1.3) * 0.8), 0, W - 1)
-        const m = (my * W + mx) * 3
-        const k = 0.55 + 0.1 * Math.sin(y * 2.1 + x * 0.05)
-        this.blend(o, lerp(look.water[0], this.hdr[m], k), lerp(look.water[1], this.hdr[m + 1], k), lerp(look.water[2], this.hdr[m + 2], k), wet)
+        this.blend(o, look.water[0], look.water[1], look.water[2], wet)
+        gloss[(y - y0) * W + x] = wet * (0.72 + 0.06 * Math.sin(y * 2.1 + x * 0.05))
         // The volcano's glow shimmers on the water below it.
         const sheen = look.glow * 0.25 * Math.exp(-Math.abs(x / H - VENT_X * A) / 0.1) * wet * (0.7 + 0.3 * Math.sin(y * 2.7))
         this.hdr[o] += red[0] * sheen
         this.hdr[o + 1] += red[1] * sheen
         this.hdr[o + 2] += red[2] * sheen
       }
+    // The far shore mirrors the forest's edge, and the near one the volcano's crater, squeezed more toward it.
+    const far = cy - ry
+    const n = y1 - y0
+    const below = (r: number) => Math.max(0, y0 + r - far)
+    this.pool = {
+      y0,
+      y1,
+      rows: Float32Array.from({ length: n }, (_, r) => (HORIZON - 0.004) * H - below(r) * (1.5 + (3.2 * below(r)) / (2 * ry))),
+      amp: new Float32Array(n).fill(0.8 * (H / 180)),
+      gloss,
+    }
   }
 
   // The lake's center and radii, in screen heights.
