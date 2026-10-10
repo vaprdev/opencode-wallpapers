@@ -26,7 +26,7 @@ export interface Shade {
 // Short, soft shadows by day; long ones at sunset, spreading away from the low sun; at night faint contact shadows and
 // a hint of moon shadow. Under cloud the light is diffuse, so only contact shadows remain. orb is the sun or moon, in
 // fractions of the width and height.
-export function sunShade(time: Time, orb: { x: number; y: number }, covered = false, tint?: RGB): Shade {
+export function sunShade(time: Time, orb: { x: number; y: number }, covered = false): Shade {
   const away = orb.x < 0.5 ? 1 : -1
   const looks: Record<Time, Shade> = {
     day: { tint: [0.36, 0.44, 0.64], contact: 0.75, cast: 0.6, length: 0.6, x: away, y: 0.45, radiate: false },
@@ -34,7 +34,7 @@ export function sunShade(time: Time, orb: { x: number; y: number }, covered = fa
     night: { tint: [0.35, 0.45, 0.85], contact: 0.45, cast: 0.2, length: 0.6, x: away, y: 0.45, radiate: false },
   }
   const shade = looks[time]
-  return { ...shade, tint: tint ?? shade.tint, contact: covered ? shade.contact * 0.8 : shade.contact, cast: covered ? 0 : shade.cast }
+  return { ...shade, contact: covered ? shade.contact * 0.8 : shade.contact, cast: covered ? 0 : shade.cast }
 }
 
 // The shadows of a thing w pixels wide and h tall standing at (x, y), the ground under its middle. tip is the width
