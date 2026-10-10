@@ -1,6 +1,7 @@
 import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
 import { eggWait } from "../src/egg"
 import { bird, flyAway, startle, type Flier } from "../src/flock"
+import { lightPool } from "../src/light"
 import { TAU, clamp, fbm1, hash, hash2, lerp, rand, smoothstep, type RGB } from "../src/math"
 import { driftClouds, makeClouds, makeStars, makeStorm, paintClouds, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
 import type { Activity, Settings, Time, Wallpaper } from "../src/wallpaper"
@@ -93,11 +94,12 @@ const LOOKS: Record<Time, Look> = {
   },
   night: {
     style: "rim",
-    light: [0.25, 0.3, 1],
+    light: [0.35, 0.42, 1.4],
     sky: [
       [0, [0.004, 0.006, 0.03]],
-      [0.32, [0.014, 0.016, 0.06]],
-      [BANK, [0.1, 0.035, 0.14]],
+      [0.32, [0.016, 0.018, 0.07]],
+      [0.45, [0.05, 0.025, 0.12]],
+      [BANK, [0.15, 0.05, 0.2]],
     ],
     orb: { x: 0.82, y: 0.12, r: 0.03, core: [1, 0.72, 0.3], glow: [0.45, 0.3, 0.12], near: 0.2, wide: 0.08, moon: true },
     stars: 50,
@@ -310,6 +312,8 @@ class City extends Canvas {
     const a = Math.floor((ROAD + 0.012) * H) * W * 3
     this.hdr.set(this.background.subarray(a, Math.ceil((ROAD + 0.026) * H) * W * 3), a)
     for (const w of this.walkers) this.drawWalker(w)
+    // At night the lamps under the highway light the sidewalk and the people passing beneath them.
+    if (look.night) for (let i = 0; this.pillarX(i) - 0.21 < this.A + 0.1; i++) lightPool(this.hdr, W, H, (this.pillarX(i) - 0.21) * H, 0.96 * H, 0.14 * H, 0.08 * H, [1, 0.5, 0.12], 3, 0)
     for (const b of this.pigeons) this.shape(bird(b, H, 0.022 * H, this.paint([0.42, 0.44, 0.5])), this.lighting, 0.4)
     this.drawRain()
     this.weather.draw(this.hdr, W, H)
