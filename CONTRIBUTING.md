@@ -228,6 +228,9 @@ a lot with machine load, so compare against an existing wallpaper measured back 
 - Bound per-pixel loops to the area you're drawing, not the whole screen. The `Canvas` helpers already do.
 - Precompute noise and textures into typed arrays in the constructor or `layout()` instead of calling `fbm` per pixel
   per frame.
+- Every cell that changes is sent to the terminal. The engine holds back a cell's color change until it reaches 3
+  levels of 255 in some channel (a new glyph always sends), so slow light such as an aurora or twinkling stars costs
+  little output; flickering glyphs still cost a lot.
 - `shape()` costs about the area of the shape's bounding box times its parts. Draw a sprawling thing (a tree, a
   palm's fronds) as several smaller calls, and skip things that are off screen.
 

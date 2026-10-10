@@ -340,6 +340,33 @@ function evalQuad(q: Float32Array, mask: number) {
   split.err = err
 }
 
+// The terminal is sent every cell whose character or colors differ from the last frame, and slow light (aurora, twinkle,
+// bloom around moving things) nudges hundreds of cells by a level or two of 255 each frame. A color the engine drew
+// that is within QUIET levels in every channel of what the cell showed last frame keeps last frame's value, so drift
+// builds up unseen and is sent once it adds up; a new glyph always sends its true colors.
+const QUIET = 3
+
+function quieten(char: Uint32Array, fg: Uint16Array, bg: Uint16Array, inputFg: Uint16Array, inputBg: Uint16Array, shownChar: Uint32Array, shownFg: Uint16Array, shownBg: Uint16Array, cells: number) {
+  for (let i = 0; i < cells; i++) {
+    if (char[i] !== shownChar[i]) {
+      shownChar[i] = char[i]
+      continue
+    }
+    const o = i * 4
+    settle(fg, inputFg, shownFg, o)
+    settle(bg, inputBg, shownBg, o)
+  }
+  shownFg.set(fg)
+  shownBg.set(bg)
+}
+
+// Colors OpenCode drew (unchanged from its input) are left exactly as they are.
+function settle(colors: Uint16Array, input: Uint16Array, shown: Uint16Array, o: number) {
+  if (colors[o] === input[o] && colors[o + 1] === input[o + 1] && colors[o + 2] === input[o + 2] && colors[o + 3] === input[o + 3]) return
+  for (let c = o; c < o + 4; c++) if (Math.abs(colors[c] - shown[c]) >= QUIET) return
+  for (let c = o; c < o + 4; c++) colors[c] = shown[c]
+}
+
 function isBlock(char: number) {
   return char >= BLOCKS_START && char <= BLOCKS_END
 }
@@ -465,6 +492,12 @@ export function createEngine(
   let cellTint = new Int32Array(0)
   let previousMask = new Int16Array(0)
   let history = new Float32Array(0)
+  // What each cell showed last frame, and the colors OpenCode drew this frame before the scene went in, for quieten.
+  let shownChar = new Uint32Array(0)
+  let shownFg = new Uint16Array(0)
+  let shownBg = new Uint16Array(0)
+  let inputFg = new Uint16Array(0)
+  let inputBg = new Uint16Array(0)
   let lastStep = 0
   let lastTarget = ""
   let imageCell = new Uint8Array(0)
@@ -843,6 +876,15 @@ export function createEngine(
     }
     layerPlaced = false
 
+    if (shownChar.length !== cells) {
+      shownChar = new Uint32Array(cells)
+      shownFg = new Uint16Array(cells * 4)
+      shownBg = new Uint16Array(cells * 4)
+      inputFg = new Uint16Array(cells * 4)
+      inputBg = new Uint16Array(cells * 4)
+    }
+    inputFg.set(fg)
+    inputBg.set(bg)
     const q = quad
     const cover = look.scrim
     const reach = look.reach
@@ -899,6 +941,7 @@ export function createEngine(
         applyTint(bg, o, cellTint[i])
       }
     }
+    quieten(char, fg, bg, inputFg, inputBg, shownChar, shownFg, shownBg, cells)
 
     // Build next frame's image now; the back layer places it before OpenCode draws, so text lands on top.
     if (pixels && (advanced || !nextImage)) {
@@ -977,6 +1020,7 @@ export function createEngine(
       lastTarget = ""
       history = new Float32Array(0)
       previousMask = new Int16Array(0)
+      shownChar = new Uint32Array(0)
       lastActivity = Date.now()
       focused = true
       schedule()
