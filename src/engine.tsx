@@ -4,7 +4,7 @@ import { appendFileSync } from "node:fs"
 import { watchEgg } from "./egg"
 import { lerp, smoothstep, type RGB } from "./math"
 import { OCTANTS } from "./octants"
-import { AGENT_EVENTS, type AgentEvent, type Brightness, type Power, type Scene, type Scrim, type Settings, type Wallpaper } from "./wallpaper"
+import { AGENT_EVENTS, type AgentEvent, type Brightness, type Power, type Scene, type Scrim, type Settings, type TextMap, type Wallpaper } from "./wallpaper"
 
 export {
   ACTIVITIES,
@@ -22,6 +22,7 @@ export {
   type Scrim,
   type Season,
   type Settings,
+  type TextMap,
   type Time,
   type Wallpaper,
   type Weather,
@@ -73,6 +74,10 @@ const LEVELS: Record<Brightness, ReturnType<typeof level>> = {
 const DESATURATE = { day: 0.22, sunset: 0.22, night: 0.04 }
 // Seconds a change of wallpaper, activity or time of day crossfades over by default.
 export const FADE = 1.2
+// The map of where text sits that scenes get (see Scene.textMap): its grid, and how many frames apart it is rebuilt.
+const MAP_COLS = 16
+const MAP_ROWS = 9
+const MAP_EVERY = 15
 
 // Crossfades two equally sized RGBA frames into out.
 function mix(a: Uint8Array, b: Uint8Array, out: Uint8Array, t: number) {
@@ -466,6 +471,10 @@ export function createEngine(
   let grid = new Float32Array(0)
   let gridBlur = new Float32Array(0)
   let light = false
+  const textMap: TextMap = { cols: MAP_COLS, rows: MAP_ROWS, cover: new Float32Array(MAP_COLS * MAP_ROWS) }
+  const mapCount = new Float32Array(MAP_COLS * MAP_ROWS)
+  let mapped = false
+  let mapFresh = false
 
   // Box-filters the scene down to the 2x4-per-cell octant grid, then applies an unsharp mask.
   const buildGrid = (px: Uint8Array, PW: number, PH: number, GW: number, GH: number) => {
@@ -727,6 +736,11 @@ export function createEngine(
     // Blending in the previous frame fades at the same speed per second whatever the frame rate.
     const persistence = interval > 1000 / FPS ? PERSISTENCE ** (interval / (1000 / FPS)) : PERSISTENCE
     paint(buf, from ? mixed : scene.pixels, scene.W, scene.H, advanced, pixels, desaturate, shade, persistence, scrim)
+    if (mapFresh) {
+      mapFresh = false
+      scene.textMap?.(textMap)
+      from?.scene.textMap?.(textMap)
+    }
     if (options.dump && !dumped && frames > 120) {
       dumped = true
       write(buf, options.dump)
@@ -816,6 +830,19 @@ export function createEngine(
     if (open.length !== cells) open = new Uint8Array(cells)
     openW = W
     for (let i = 0; i < cells; i++) open[i] = surface[i] && char[i] === SPACE && mask[((i / W) | 0) * 2 * W + (i % W)] < OPEN ? 1 : 0
+    if (frames % MAP_EVERY === 1) {
+      const cover = textMap.cover
+      cover.fill(0)
+      mapCount.fill(0)
+      for (let i = 0; i < cells; i++) {
+        const g = Math.floor((((i / W) | 0) * MAP_ROWS) / H) * MAP_COLS + Math.floor(((i % W) * MAP_COLS) / W)
+        cover[g] += surface[i] ? Math.min(1, mask[((i / W) | 0) * 2 * W + (i % W)] * look.reach) : 1
+        mapCount[g]++
+      }
+      for (let g = 0; g < cover.length; g++) cover[g] /= Math.max(1, mapCount[g])
+      mapped = true
+      mapFresh = true
+    }
 
     const cursor = renderer.getCursorState()
     const cursorX = cursor.visible ? cursor.x - 1 : -1
@@ -909,6 +936,7 @@ export function createEngine(
     const created = next.create(chosen)
     if (busy) created.react?.("busy")
     if (failed) created.react?.("error")
+    if (mapped) created.textMap?.(textMap)
     return created
   }
 
