@@ -3,6 +3,7 @@ import { eggWait } from "../src/egg"
 import { TAU, clamp, fbm1, hash, lerp, rand, smoothstep, type RGB } from "../src/math"
 import { driftClouds, makeClouds, makeStars, makeStorm, paintClouds, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
 import type { Activity, Settings, Time, Wallpaper } from "../src/wallpaper"
+import { reflect } from "../src/water"
 import { WeatherLayer } from "../src/weather"
 
 // The scene runs slower than real time, which keeps it calm behind text.
@@ -300,11 +301,26 @@ class Tundra extends Canvas {
     }
   }
 
-  // A frozen lake with a few cracks in the ice.
+  // A frozen lake with a few cracks in the ice, its glossy surface dimly mirroring the peaks and the sky.
   private drawLake(cx: number, cy: number, rx: number, ry: number) {
-    const H = this.H
+    const { W, H } = this
     const ice = this.look.ice
     this.shape([ell(cx * H, cy * H, rx * H, ry * H, 0, ice)], this.lighting, 0.3)
+    const y0 = Math.max(0, Math.floor((cy - ry) * H))
+    const y1 = Math.min(H, Math.ceil((cy + ry) * H) + 1)
+    const gloss = new Float32Array((y1 - y0) * W)
+    for (let y = y0; y < y1; y++) {
+      const dy = (y + 0.5 - cy * H) / (ry * H)
+      for (let x = Math.max(0, Math.floor((cx - rx) * H)); x < Math.min(W, (cx + rx) * H + 1); x++) {
+        const cover = clamp((1 - Math.hypot((x + 0.5 - cx * H) / (rx * H), dy)) * ry * H + 0.5, 0, 1)
+        gloss[(y - y0) * W + x] = cover * (0.5 - 0.2 * (dy * 0.5 + 0.5))
+      }
+    }
+    // The far shore mirrors the foot of the mountains, and the near one the sky above the peaks.
+    const below = (r: number) => Math.max(0, y0 + r - (cy - ry) * H)
+    const rows = Float32Array.from({ length: y1 - y0 }, (_, r) => 0.598 * H - below(r) * (1.6 + (2.2 * below(r)) / (2 * ry * H)))
+    const top = Math.max(...ice)
+    reflect(this.hdr, W, H, y0, y1, rows, new Float32Array(y1 - y0).fill(0.4 * (H / 180)), gloss, [(ice[0] / top) * 0.9, (ice[1] / top) * 0.9, (ice[2] / top) * 0.9], 0)
     const crack = scaleRGB(ice, 0.7)
     for (let i = 0; i < 5; i++) {
       const x0 = cx + (hash(i * 3.7) - 0.5) * rx * 1.4
