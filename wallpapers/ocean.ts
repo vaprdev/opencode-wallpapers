@@ -146,9 +146,9 @@ class Ocean extends Canvas {
     if (activity === "teeming") this.fish.push(this.makeFish("ambient:shark", "shark", [0.3, 1, 0.17, 0.33], { len: 0.64, z: 0.55 }))
     if (activity !== "calm") {
       this.fish.push(this.makeFish("ambient:fish", "fish", [0, 0.36, 0.5, 0.76], { len: 0.26, z: 0.35, hue: 0.07, sat: 0.85 }))
-      const zone: Zone = [0.68, 1, 0.5, 0.74]
+      const zone: Zone = [0.74, 1, 0.54, 0.76]
       const ox = ((zone[0] + zone[1]) / 2) * this.A
-      this.octopus = { x: ox, y: 0.58, z: 0.4, vx: 0, vy: 0, size: 0.1, hue: 0.02, phase: 0, pulse: 0, next: 2, dir: -Math.PI / 2, wx: ox, wy: 0.58, zone }
+      this.octopus = { x: ox, y: 0.64, z: 0.4, vx: 0, vy: 0, size: 0.1, hue: 0.02, phase: 0, pulse: 0, next: 2, dir: -Math.PI / 2, wx: ox, wy: 0.64, zone }
     }
     if (activity === "teeming") {
       this.turtle = { x: 0.5 * this.A, y: 0.84, z: 0.4, vx: 0, vy: 0, face: -1, turn: -1, heading: -1, phase: 0, wx: 0.5 * this.A, wy: 0.84, wanderT: 0, zone: [0.22, 0.8, 0.78, 0.9] }

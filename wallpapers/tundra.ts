@@ -159,7 +159,7 @@ class Tundra extends Canvas {
     this.flakes = Array.from({ length: settings.weather ? 0 : { calm: 70, lively: 100, teeming: 130 }[settings.activity] }, () => ({ x: Math.random() * 4, y: Math.random(), z: Math.random(), s: Math.random() }))
     const walker = (x: number, y: number): Walker => ({ x, y, wx: x, wy: y, wanderT: 0, face: 1, phase: Math.random() * TAU, rest: 0, moving: false, hop: Infinity })
     if (settings.activity !== "calm") {
-      this.penguins = Array.from({ length: settings.activity === "teeming" ? 5 : 3 }, (_, i) => walker(0.6 + i * 0.12, 0.78 + (i % 2) * 0.015))
+      this.penguins = Array.from({ length: settings.activity === "teeming" ? 5 : 3 }, (_, i) => walker(0.6 + i * 0.12, 0.81 + (i % 2) * 0.015))
       this.fox = walker(0.9, 0.88)
     }
     if (settings.activity === "teeming") this.bear = walker(0.7, 0.655)
@@ -185,7 +185,7 @@ class Tundra extends Canvas {
     }
     this.stepOwl(dt)
     const A = this.A
-    for (const p of this.penguins) this.wander(p, cdt, [0.34 * A, 0.58 * A, 0.77, 0.81], 0.025)
+    for (const p of this.penguins) this.wander(p, cdt, [0.34 * A, 0.58 * A, 0.8, 0.84], 0.025)
     if (this.fox) this.wander(this.fox, cdt, [0.3 * A, 0.95 * A, 0.84, 0.92], 0.04)
     if (this.bear) this.wander(this.bear, cdt, [0.25 * A, 0.85 * A, 0.648, 0.662], 0.025)
     const f = this.fisher
@@ -260,7 +260,7 @@ class Tundra extends Canvas {
         const edge = look.style === "rim" ? Math.exp(-(y + 0.5 - drift[x]) / 2) * 0.3 : 0
         this.blend((y * W + x) * 3, c[0] + look.light[0] * edge, c[1] + look.light[1] * edge, c[2] + look.light[2] * edge, clamp(y + 1 - drift[x], 0, 1))
       }
-    this.drawLake(0.5 * A, 0.72, 0.3, 0.045)
+    this.drawLake(0.5 * A, 0.745, 0.3, 0.045)
     // The pines and igloos keep to the sides, clear of the text in the middle.
     for (const [x, h] of [[0.3, 0.1], [0.37, 0.08], [A - 0.36, 0.09], [A - 0.29, 0.11]]) this.drawPine(x, 0.625, h, 0.5)
     this.drawIgloo(A - 0.2, 0.7, 0.055)
@@ -589,7 +589,7 @@ class Tundra extends Canvas {
     const H = this.H
     const S = 0.12 * H
     const hx = 0.68 * this.A * H
-    const hy = 0.718 * H
+    const hy = 0.758 * H
     const x = hx + 0.06 * H
     const y = hy
     const P = (u: number, v: number): [number, number] => [x + u * S, y + v * S]
