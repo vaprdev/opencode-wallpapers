@@ -2,12 +2,13 @@ import type { RGB } from "./math"
 
 // A wallpaper's animation. Each frame the engine resizes the scene to the sub-pixel grid it needs, steps it by the
 // elapsed seconds, renders it, and reads `pixels` (RGBA, W x H; only resize may replace the array). Extending Canvas
-// provides everything but step and render.
+// provides everything but step and render. resize's cells is set when each pixel becomes one sub-pixel of a terminal
+// character cell, fitted to two colors per cell, so the scene can draw bolder.
 export interface Scene {
   readonly W: number
   readonly H: number
   readonly pixels: Uint8Array
-  resize(W: number, H: number): void
+  resize(W: number, H: number, cells?: boolean): void
   step(dt: number): void
   render(): void
   // Optional: what the OpenCode agent is doing. Scenes bring on a rare visitor when a task is done and turn overcast

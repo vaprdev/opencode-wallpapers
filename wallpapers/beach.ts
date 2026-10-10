@@ -1,4 +1,4 @@
-import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
+import { Canvas, blade, cap, ell, type Lighting, type Part } from "../src/canvas"
 import { eggWait } from "../src/egg"
 import { bird, flyAway, startle, type Flier } from "../src/flock"
 import { TAU, clamp, fbm1, hash, hash2, lerp, rand, smoothstep, type RGB } from "../src/math"
@@ -422,6 +422,8 @@ class Beach extends Canvas {
       const length = (0.17 + hash(i * 3.1 + p.lean) * 0.05) * H
       const parts: Part[] = []
       let [x, y] = [cx, cy]
+      const spine: [number, number][] = [[x, y]]
+      const widths = [this.thick(0.005)]
       let angle = base + sway
       for (let s = 0; s < 8; s++) {
         const q = s / 8
@@ -429,14 +431,18 @@ class Beach extends Canvas {
         angle += (Math.cos(base) > 0 ? 1 : -1) * 0.06 * (0.3 + Math.abs(Math.cos(base))) + 0.02
         const nx = x + Math.cos(angle) * (length / 8)
         const ny = y + Math.sin(angle) * (length / 8) + q * q * 0.006 * H
-        parts.push(cap(x, y, nx, ny, lerp(0.005, 0.0015, q) * H, lerp(0.005, 0.0015, q + 0.125) * H, frond))
+        parts.push(cap(x, y, nx, ny, this.thick(lerp(0.005, 0.0015, q)), this.thick(lerp(0.005, 0.0015, q + 0.125), 0.7), frond))
         const leaf = (1 - q * 0.6) * 0.03 * H
-        for (const side of [-1, 1]) {
-          const la = angle + side * 1.1 + 0.4
-          parts.push(cap(nx, ny, nx + Math.cos(la) * leaf, ny + Math.sin(la) * leaf, 0.0028 * H, 0.0008 * H, frond))
-        }
+        spine.push([nx, ny])
+        widths.push(leaf * 0.5)
+        if (!this.cells)
+          for (const side of [-1, 1]) {
+            const la = angle + side * 1.1 + 0.4
+            parts.push(cap(nx, ny, nx + Math.cos(la) * leaf, ny + Math.sin(la) * leaf, 0.0028 * H, 0.0008 * H, frond))
+          }
         ;[x, y] = [nx, ny]
       }
+      if (this.cells) parts.push(...blade(spine, widths, frond))
       this.shape(parts, this.lighting, this.look.style === "rim" ? 0.3 : 0.7)
     }
   }

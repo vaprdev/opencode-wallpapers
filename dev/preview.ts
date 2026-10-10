@@ -14,7 +14,7 @@ const weather = WEATHERS.find((w) => rest.includes(w))
 const seconds = rest.find((arg) => /^[\d.]+$/.test(arg)) ?? "20"
 const wallpaper = wallpapers.find((w) => w.id === id)
 if (!wallpaper) throw new Error(`usage: bun dev/preview.ts <${wallpapers.map((w) => w.id).join("|")}> [seconds]`)
-process.env.WALLPAPER_OCTANTS = "1"
+process.env.WALLPAPER_OCTANTS ??= "1"
 mkdirSync("dev/out", { recursive: true })
 const screen = mockScreen()
 screen.engine.start(wallpaper, { activity, time, season, weather })

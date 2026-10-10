@@ -20,6 +20,17 @@ export function ell(cx: number, cy: number, rx: number, ry: number, angle: numbe
   return { kind: "ellipse", cx, cy, rx, ry, angle, color, ribs }
 }
 
+// A leafy blade along spine (points in pixels), widths[i] wide either side at each point: overlapping ellipses whose
+// scalloped edges suggest leaflets. Fronds draw this on terminal cells (see Canvas.cells) instead of single leaflets,
+// which would turn into speckle there.
+export function blade(spine: readonly (readonly [number, number])[], widths: readonly number[], color: RGB): Part[] {
+  return spine.slice(1).map(([bx, by], i) => {
+    const [ax, ay] = spine[i]
+    const half = Math.hypot(bx - ax, by - ay) * 0.75
+    return ell((ax + bx) / 2, (ay + by) / 2, Math.max(half, 0.5), Math.max(0.5, (widths[i] + widths[i + 1]) / 2), Math.atan2(by - ay, bx - ax), color)
+  })
+}
+
 // How shape() lights a shape. rim: backlit from a point (pixels), so only the outline facing it glows. front: lit from
 // a direction (x right, y down, z toward the viewer), shading each part as a rounded form.
 export type Lighting = { style: "rim"; color: RGB; x: number; y: number } | { style: "front"; dir: readonly [number, number, number] }
@@ -31,6 +42,10 @@ export abstract class Canvas {
   W = 0
   H = 0
   A = 1
+  // Set when each pixel is a sub-pixel of a terminal character cell (2 across, 4 down) and each cell shows only two
+  // colors. Strokes under about two pixels across and texture finer than a cell turn into noise there, so scenes draw
+  // bolder when it's set: thicker strokes (see thick()), solid blades for leaflets, coarser texture.
+  protected cells = false
   hdr = new Float32Array(0)
   pixels = new Uint8Array(0)
 
@@ -75,12 +90,13 @@ export abstract class Canvas {
   // Called after every size change, once the buffers match the new size.
   protected layout() {}
 
-  resize(W: number, H: number) {
+  resize(W: number, H: number, cells = false) {
     W = Math.max(64, Math.round(W))
     H = Math.max(36, Math.round(H))
-    if (W === this.W && H === this.H) return
+    if (W === this.W && H === this.H && cells === this.cells) return
     this.W = W
     this.H = H
+    this.cells = cells
     this.A = W / H
     this.hdr = new Float32Array(W * H * 3)
     this.pixels = new Uint8Array(W * H * 4)
@@ -123,6 +139,12 @@ export abstract class Canvas {
       this.colF[x] = clamp(bx - i, 0, 1)
     }
     this.layout()
+  }
+
+  // A stroke radius in screen heights, in pixels; on terminal cells never under min, since thinner strokes break up
+  // into noise there and shimmer as they move.
+  protected thick(radius: number, min = 1) {
+    return this.cells ? Math.max(radius * this.H, min) : radius * this.H
   }
 
   // Adds light to one pixel.

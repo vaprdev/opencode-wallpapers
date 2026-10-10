@@ -296,7 +296,8 @@ class Farm extends Canvas {
     const season = this.season
     const golden = season === "autumn" ? 0.45 : 0.85
     const patchwork = season === "winter" ? 0.3 : 1
-    const grass = season === "winter" ? 0.03 : 0.1
+    // Blades are a pixel-fine texture, which terminal cells would turn into diagonal hatching.
+    const grass = this.cells ? 0 : season === "winter" ? 0.03 : 0.1
     const farTop = new Float32Array(W)
     this.nearTop = new Float32Array(W)
     for (let x = 0; x < W; x++) {
@@ -448,13 +449,15 @@ class Farm extends Canvas {
     const H = this.H
     const c = this.paint([0.5, 0.48, 0.45])
     const parts: Part[] = []
-    for (const s of [-1, 1]) parts.push(cap((x + s * 0.035) * H, base * H, (x + s * 0.007) * H, (base - 0.2) * H, 0.0028 * H, 0.0022 * H, c))
-    for (let i = 0; i < 4; i++) {
-      const y0 = base - i * 0.05
-      const y1 = base - (i + 1) * 0.05
-      const w0 = 0.035 - i * 0.007
-      const w1 = 0.035 - (i + 1) * 0.007
-      parts.push(cap((x - w0) * H, y0 * H, (x + w1) * H, y1 * H, 0.0015 * H, 0.0015 * H, c), cap((x + w0) * H, y0 * H, (x - w1) * H, y1 * H, 0.0015 * H, 0.0015 * H, c))
+    for (const s of [-1, 1]) parts.push(cap((x + s * 0.035) * H, base * H, (x + s * 0.007) * H, (base - 0.2) * H, this.thick(0.0028, 1.1), this.thick(0.0022, 1), c))
+    // Fewer, sturdier braces where the terminal's cells would turn a fine lattice into a scribble.
+    const levels = this.cells ? 2 : 4
+    for (let i = 0; i < levels; i++) {
+      const y0 = base - (i * 0.2) / levels
+      const y1 = base - ((i + 1) * 0.2) / levels
+      const w0 = 0.035 - (i * 0.028) / levels
+      const w1 = 0.035 - ((i + 1) * 0.028) / levels
+      parts.push(cap((x - w0) * H, y0 * H, (x + w1) * H, y1 * H, this.thick(0.0015, 0.7), this.thick(0.0015, 0.7), c), cap((x + w0) * H, y0 * H, (x - w1) * H, y1 * H, this.thick(0.0015, 0.7), this.thick(0.0015, 0.7), c))
     }
     this.shape(parts, this.lighting, 0.5)
   }
@@ -467,9 +470,11 @@ class Farm extends Canvas {
     const turn = this.time * 0.8
     this.polygon([[x - 0.01 * H, y], [x - 0.075 * H, y - 0.018 * H], [x - 0.075 * H, y + 0.012 * H]], this.paint([0.6, 0.15, 0.1]))
     const parts: Part[] = [ell(x, y, 0.009 * H, 0.009 * H, 0, this.paint([0.35, 0.33, 0.3]))]
-    for (let i = 0; i < 14; i++) {
-      const a = turn + (i / 14) * TAU
-      parts.push(cap(x + Math.cos(a) * 0.012 * H, y + Math.sin(a) * 0.012 * H, x + Math.cos(a) * 0.06 * H, y + Math.sin(a) * 0.06 * H, 0.004 * H, 0.008 * H, metal))
+    // Blade tips stay several pixels apart, so the turning wheel doesn't shimmer in the terminal's cells.
+    const blades = this.cells ? 8 : 14
+    for (let i = 0; i < blades; i++) {
+      const a = turn + (i / blades) * TAU
+      parts.push(cap(x + Math.cos(a) * 0.012 * H, y + Math.sin(a) * 0.012 * H, x + Math.cos(a) * 0.06 * H, y + Math.sin(a) * 0.06 * H, this.thick(0.004, 1), this.thick(0.008, 2), metal))
     }
     this.shape(parts, this.lighting, 0.6)
   }
@@ -480,25 +485,32 @@ class Farm extends Canvas {
     const corn = CORN[this.season]
     const base = [0.79, 0.87, 0.96, 1.05][row] * H
     const height = (0.12 + row * 0.045) * H * corn.height
-    const spacing = 0.026 + row * 0.006
+    // Stalks stand at least a few cells apart, so in the terminal the field reads as plants rather than stripes.
+    const spacing = this.cells ? Math.max(0.026 + row * 0.006, 9 / H) : 0.026 + row * 0.006
+    const stalk = this.paint(corn.stalk)
+    // The row's shaded mass of leaves, so the field reads as rows rather than a tangle of thin strokes.
+    const end = (0.36 * A + 0.03) * H
+    const mass: [number, number][] = [[-2, base + 2]]
+    for (let x = -2; x < end; x += 6) mass.push([x, base - height * (0.42 + 0.08 * Math.sin((x / H) * 37 + row * 2))])
+    mass.push([end + 0.02 * H, base + 2])
+    this.polygon(mass, [stalk[0] * 0.6, stalk[1] * 0.6, stalk[2] * 0.6])
     for (let i = 0; i * spacing < 0.36 * A; i++) {
       const x = (i * spacing + (row % 2) * spacing * 0.5 + hash(i * 3.1 + row) * 0.008) * H
       const h = height * (0.85 + hash(i * 7.3 + row) * 0.3)
       const sway = row === 3 ? Math.sin(this.time * 0.7 + i * 0.9) * 0.05 : (hash(i + row * 5) - 0.5) * 0.06
       const top: [number, number] = [x + Math.sin(sway) * h, base - Math.cos(sway) * h]
       const at = (t: number): [number, number] => [lerp(x, top[0], t), lerp(base, top[1], t)]
-      const stalk = this.paint(corn.stalk)
-      const parts: Part[] = [cap(x, base, ...top, 0.006 * H * (1 + row * 0.3), 0.003 * H, stalk)]
+      const parts: Part[] = [cap(x, base, ...top, this.thick(0.006 * (1 + row * 0.3), 1.2), this.thick(0.003, 0.8), stalk)]
       for (let l = 0; l < 4; l++) {
         const [lx, ly] = at(0.3 + l * 0.15)
         const side = l % 2 ? 1 : -1
         const reach = h * 0.28
         const mid: [number, number] = [lx + side * reach * 0.6, ly - reach * 0.25]
-        parts.push(cap(lx, ly, ...mid, 0.006 * H, 0.004 * H, stalk), cap(...mid, lx + side * reach, ly + reach * 0.15 + sway * reach, 0.004 * H, 0.0015 * H, stalk))
+        parts.push(cap(lx, ly, ...mid, this.thick(0.006, 1.3), this.thick(0.004, 1.1), stalk), cap(...mid, lx + side * reach, ly + reach * 0.15 + sway * reach, this.thick(0.004, 1.1), this.thick(0.0015, 0.6), stalk))
       }
       const [ex, ey] = at(0.55)
-      if (corn.ear) parts.push(ell(ex + 0.008 * H, ey, 0.007 * H, 0.016 * H, 0.25 + sway, this.paint(corn.ear)))
-      if (corn.tassel) parts.push(cap(...top, top[0] + 0.012 * H, top[1] - 0.012 * H, 0.002 * H, 0.001 * H, this.paint(corn.tassel)), cap(...top, top[0] - 0.01 * H, top[1] - 0.014 * H, 0.002 * H, 0.001 * H, this.paint(corn.tassel)))
+      if (corn.ear) parts.push(ell(ex + 0.008 * H, ey, this.thick(0.007, 1.6), this.thick(0.016, 3), 0.25 + sway, this.paint(corn.ear)))
+      if (corn.tassel && !this.cells) parts.push(cap(...top, top[0] + 0.012 * H, top[1] - 0.012 * H, 0.002 * H, 0.001 * H, this.paint(corn.tassel)), cap(...top, top[0] - 0.01 * H, top[1] - 0.014 * H, 0.002 * H, 0.001 * H, this.paint(corn.tassel)))
       // Rim light on every thin leaf would turn the field into a wireframe, so the corn only catches a little of it.
       this.shape(parts, this.lighting, this.look.style === "rim" ? 0.2 : 0.6)
     }

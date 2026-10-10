@@ -618,6 +618,8 @@ class Ocean extends Canvas {
     const camFar = Math.round(Math.sin(t * 0.09) * H * 0.04) + this.pad
     const camMid = Math.round(Math.sin(t * 0.09) * H * 0.08) + this.pad
     const cs = 128 / (H * 0.55)
+    // The caustic net is squashed into the thin surface band; less so on terminal cells, which would break its lines up.
+    const squash = this.cells ? 2 : 4
     // After an error the rays fade, as if clouds had covered the sun.
     const overcast = 1 - smoothstep(0, 1, this.gloom) * 0.7
     for (let y = 0; y < H; y++) {
@@ -630,7 +632,7 @@ class Ocean extends Canvas {
         const sl = surf + Math.sin(x * 0.045 + t * 1.3) * 1.4 + Math.sin(x * 0.13 - t * 2.1) * 0.7
         if (y < sl) {
           const cu = ((x * 0.6 * cs + t * 9) | 0) & 127
-          const cv = ((y * 4 * cs + x * 0.2 * cs - t * 6) | 0) & 127
+          const cv = ((y * squash * cs + x * 0.2 * cs - t * 6) | 0) & 127
           const c = CAUSTICS[cv * CAUS_N + cu]
           const win = Math.exp(-Math.pow((x / W - 0.5) * 2.2, 2)) * 0.6
           const edge = smoothstep(sl - 3, sl, y)
@@ -760,7 +762,9 @@ class Ocean extends Canvas {
       r = lerp(r, fog[0], 0.3)
       g = lerp(g, fog[1], 0.3)
       b = lerp(b, fog[2], 0.3)
-      const stem = Math.max(0.6, w * 0.55)
+      // On terminal cells the stem and blades stay at least a sub-pixel or so wide, so they sway without shimmering.
+      const least = this.cells ? 1.1 : 0.6
+      const stem = Math.max(least, w * 0.55)
       const steps = Math.max(1, Math.ceil(Math.hypot(nx - px, ny - py) / Math.max(0.5, stem * 0.6)))
       for (let j = 0; j < steps; j++) {
         const u = j / steps
@@ -779,7 +783,7 @@ class Ocean extends Canvas {
           const bend = dirA * (1 + q * 0.6)
           const lx = nx + Math.sin(bend) * bladeL * q
           const ly = ny - Math.cos(bend) * bladeL * q
-          const rad = Math.max(0.5, w * 0.95 * Math.sin(Math.PI * Math.min(0.98, q * 0.9 + 0.08)))
+          const rad = Math.max(least - 0.1, w * 0.95 * Math.sin(Math.PI * Math.min(0.98, q * 0.9 + 0.08)))
           this.disc(lx, ly, rad, lr * (0.85 + q * 0.3), lg * (0.85 + q * 0.3), lb * (0.85 + q * 0.3), 0.88)
         }
       }

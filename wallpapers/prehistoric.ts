@@ -1,4 +1,4 @@
-import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
+import { Canvas, blade, cap, ell, type Lighting, type Part } from "../src/canvas"
 import { eggWait } from "../src/egg"
 import { bird, flyAway, startle, type Flier } from "../src/flock"
 import { TAU, clamp, fbm1, hash, hash2, lerp, rand, smoothstep, type RGB } from "../src/math"
@@ -319,7 +319,8 @@ class Prehistoric extends Canvas {
     const [far, near] = look.ground
     this.fillBelow(groundTop, (x, y, d) => {
       const depth = clamp((y / H - 0.62) / 0.38, 0, 1)
-      const blades = 0.9 + 0.1 * Math.sin(x * 1.7 + y * 0.6 + fbm1(x * 0.1, 2) * 6) + (hash2(x, y) - 0.5) * 0.05
+      // Blades are a pixel-fine texture, which terminal cells would turn into diagonal hatching.
+      const blades = this.cells ? 0.95 : 0.9 + 0.1 * Math.sin(x * 1.7 + y * 0.6 + fbm1(x * 0.1, 2) * 6) + (hash2(x, y) - 0.5) * 0.05
       return this.rim([lerp(far[0], near[0], depth) * blades, lerp(far[1], near[1], depth) * blades, lerp(far[2], near[2], depth) * blades], x, d, 2)
     })
     if (this.activity === "teeming") this.paintLake()
@@ -484,16 +485,21 @@ class Prehistoric extends Canvas {
       const len = size * (1.4 + hash(i * 3 + x) * 0.5) * H
       const parts: Part[] = []
       let [px, py] = [x * H, top * H]
+      const spine: [number, number][] = [[px, py]]
+      const widths = [1]
       let angle = a
       for (let s = 0; s < 6; s++) {
         angle += Math.cos(a) > 0 ? 0.05 : -0.05
         const nx = px + Math.cos(angle) * (len / 6)
         const ny = py + Math.sin(angle) * (len / 6) + s * 0.0015 * H
-        parts.push(cap(px, py, nx, ny, 0.004 * H, 0.003 * H, frond))
+        parts.push(cap(px, py, nx, ny, this.thick(0.004), this.thick(0.003), frond))
         const leaf = (1 - s / 8) * size * 0.4 * H
-        for (const side of [-1, 1]) parts.push(cap(nx, ny, nx + Math.cos(angle + side * 0.8) * leaf, ny + Math.sin(angle + side * 0.8) * leaf, 0.004 * H, 0.0012 * H, frond))
+        spine.push([nx, ny])
+        widths.push(leaf * 0.45)
+        if (!this.cells) for (const side of [-1, 1]) parts.push(cap(nx, ny, nx + Math.cos(angle + side * 0.8) * leaf, ny + Math.sin(angle + side * 0.8) * leaf, 0.004 * H, 0.0012 * H, frond))
         ;[px, py] = [nx, ny]
       }
+      if (this.cells) parts.push(...blade(spine, widths, frond))
       this.shape(parts, this.lighting, this.look.style === "rim" ? 0.3 : 0.6)
     }
     this.shape([ell(x * H, (top - 0.008) * H, size * 0.12 * H, size * 0.16 * H, 0, this.paint([0.7, 0.5, 0.2]), 3)], this.lighting, 0.6)
@@ -509,17 +515,22 @@ class Prehistoric extends Canvas {
       const len = size * (0.75 + hash(seed * 7 + i) * 0.35) * H
       const parts: Part[] = []
       let [px, py] = [x * H, y * H]
+      const spine: [number, number][] = [[px, py]]
+      const widths = [1]
       let angle = base + bend
       for (let s = 0; s < 7; s++) {
         const q = s / 7
         angle += (Math.cos(base) >= 0 ? 1 : -1) * 0.1 * (0.4 + Math.abs(Math.cos(base))) + bend * 0.3
         const nx = px + Math.cos(angle) * (len / 7)
         const ny = py + Math.sin(angle) * (len / 7)
-        parts.push(cap(px, py, nx, ny, lerp(0.004, 0.0012, q) * H, lerp(0.004, 0.0012, q + 1 / 7) * H, fern))
+        parts.push(cap(px, py, nx, ny, this.thick(lerp(0.004, 0.0012, q)), this.thick(lerp(0.004, 0.0012, q + 1 / 7), 0.7), fern))
         const leaf = Math.sin(Math.PI * (0.25 + q * 0.75)) * size * 0.22 * H
-        for (const side of [-1, 1]) parts.push(cap(nx, ny, nx + Math.cos(angle + side * 1.15) * leaf, ny + Math.sin(angle + side * 1.15) * leaf, 0.0045 * H, 0.001 * H, fern))
+        spine.push([nx, ny])
+        widths.push(leaf * 0.55)
+        if (!this.cells) for (const side of [-1, 1]) parts.push(cap(nx, ny, nx + Math.cos(angle + side * 1.15) * leaf, ny + Math.sin(angle + side * 1.15) * leaf, 0.0045 * H, 0.001 * H, fern))
         ;[px, py] = [nx, ny]
       }
+      if (this.cells) parts.push(...blade(spine, widths, fern))
       this.shape(parts, this.lighting, this.look.style === "rim" ? 0.3 : 0.6)
     }
   }

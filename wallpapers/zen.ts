@@ -516,10 +516,17 @@ class Zen extends Canvas {
     const rocks = this.rocks()
     const s0 = 0.011
     const k = (0.03 - s0) / (1 - GROUND)
+    // Lines stay at least 8 pixels apart (two terminal cells), so they read as lines rather than moiré. Nearer than
+    // where the perspective spacing passes that, they widen as before.
+    const least = this.cells ? Math.max(s0, 8 / H) : s0
+    const near = GROUND + (least - s0) / k
     for (let y = Math.floor(GROUND * H); y < H; y++) {
       const v = (y + 0.5) / H
-      const spacing = s0 + k * (v - GROUND)
-      const lines = Math.log(spacing / s0) / k / s0
+      const perspective = s0 + k * (v - GROUND)
+      const spacing = Math.max(least, perspective)
+      // Rings are squashed to 0.42 of their width, so they sit farther apart to stay clear of each other down the screen.
+      const ring = this.cells ? Math.max(perspective, 6 / (0.42 * H)) : perspective
+      const lines = v < near ? (v - GROUND) / least : (near - GROUND) / least + Math.log(spacing / least) / k
       for (let x = 0; x < W; x++) {
         const u = (x + 0.5) / H
         const top = GROUND + 0.004 * Math.sin(u * 9)
@@ -531,7 +538,7 @@ class Zen extends Canvas {
         let moss = smoothstep(0.62, 0.6, v + 0.008 * Math.sin(u * 13)) + smoothstep(1.22, 1.15, pd + 0.04 * Math.sin(u * 23)) + smoothstep(0.04, 0.03, sd)
         for (const r of rocks) {
           const d = Math.hypot(u - r.x, (v - r.y) / 0.42)
-          if (d < r.r + 4.4 * spacing) groove = Math.sin(((d - r.r) / spacing) * TAU)
+          if (d < r.r + 4.4 * perspective + ring) groove = Math.sin(((d - r.r) / ring) * TAU)
           moss += smoothstep(r.r * 1.12, r.r * 0.95, d)
         }
         const grain = (hash2(x, y) - 0.5) * 0.08
