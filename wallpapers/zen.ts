@@ -363,7 +363,12 @@ class Zen extends Canvas {
     // The garden in front of the water painted on black and on white gives its color and coverage there. The
     // supersampled pass hands these layers, box-filtered, to the real-size pass, which builds the water from them.
     const layers = this.layers ?? [sky, bank, this.frontGardenOn(0), this.frontGardenOn(1)]
-    this.drawFrontGarden()
+    // Every primitive mixes linearly over what's under it, so the garden painted over the bank is the black layer plus
+    // the white one's coverage of the bank. The real-size pass after a supersampled one paints nothing that is kept.
+    if (!this.layers) {
+      const [black, white, hdr] = [layers[2], layers[3], this.hdr]
+      for (let i = 0; i < hdr.length; i++) hdr[i] = black[i] + (white[i] - black[i]) * hdr[i]
+    }
     if (this.px > 1) {
       this.layers = layers.map((layer) => this.shrink(layer))
       return
