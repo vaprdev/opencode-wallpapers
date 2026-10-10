@@ -387,7 +387,7 @@ class Ocean extends Canvas {
       this.farPx[x] = (0.56 - (fbm1(u * 1.4, 7) - 0.5) * 0.3 - spires) * H
       const arches = Math.pow(noise1(u * 6.5, 12), 7) * 0.25
       this.midPx[x] = (0.72 - (fbm1(u * 2.3, 11) - 0.5) * 0.2 - arches) * H
-      this.midTone[x] = this.timeOfDay === "day" ? 0.7 + 0.6 * smoothstep(0.3, 0.7, fbm1(u * 3.1, 17)) : 1
+      this.midTone[x] = this.timeOfDay === "day" ? 0.6 + 0.55 * smoothstep(0.3, 0.7, fbm1(u * 3.1, 17)) : 1
     }
     // Three kelp strands in the gaps between the creatures' areas.
     this.kelp = this.activity === "teeming" ? [[0.05, 0.28], [0.5, 0.21], [0.96, 0.3]].map(([x, height]) => ({ x: x * A, height, phase: x * 9 })) : []
