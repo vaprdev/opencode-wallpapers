@@ -1,5 +1,6 @@
 import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
 import { eggWait } from "../src/egg"
+import { lightPool } from "../src/light"
 import { TAU, clamp, fbm1, fbm2, hash, hash2, lerp, rand, smoothstep, type RGB } from "../src/math"
 import type { Activity, Settings, Time, Wallpaper } from "../src/wallpaper"
 
@@ -11,8 +12,9 @@ const CREATURE_SPEED = 0.25
 const TW = 512
 const TH = 256
 
-// Where the planet sits and how big it is: center x as a fraction of the width, y and radius in screen heights.
-const PLANET = { x: 0.68, y: 1.1, r: 0.58 }
+// Where the planet sits and how big it is, in screen heights: its center x from the right edge, so it rises in the
+// lower right clear of the text in the middle, and its center y and radius.
+const PLANET = { x: 0.52, y: 1.1, r: 0.58 }
 const RING = { tilt: 0.42, flat: 0.24, inner: 1.25, outer: 2.1 }
 // How long a shooting star lasts, in scene seconds.
 const METEOR = 1.2
@@ -49,8 +51,8 @@ const LOOKS: Record<Time, Look> = {
     ring: 1,
     lighting: "front",
     tint: [1, 1, 1],
-    ringColor: [0.75, 0.68, 0.55],
-    rockColor: [0.75, 0.68, 0.6],
+    ringColor: [0.78, 0.64, 0.46],
+    rockColor: [0.62, 0.54, 0.46],
     starTints: false,
   },
   sunset: {
@@ -73,10 +75,10 @@ const LOOKS: Record<Time, Look> = {
     sun: normalize(0.6, 0.6, -0.5),
     starK: 1,
     nebula: [
-      [0.06, 0.02, 0.1],
-      [0.02, 0.04, 0.09],
+      [0.08, 0.025, 0.14],
+      [0.025, 0.055, 0.12],
     ],
-    milkyWay: 1,
+    milkyWay: 1.3,
     atmosphere: [0.2, 0.35, 0.8],
     ring: 0.12,
     lighting: "night",
@@ -131,7 +133,7 @@ class Space extends Canvas {
   private stars = Array.from({ length: 320 }, (_, i) => ({ x: Math.random() * 3, y: Math.random(), layer: i % 3, b: 0.3 + Math.random() * 0.7, phase: Math.random() * TAU, tint: STAR_TINTS[i % STAR_TINTS.length] }))
   private comet = { x: -9, y: 0, vx: 0, vy: 0, next: 14 }
   private ufo = { x: -9, y: 0.2, dir: 1, next: 30 }
-  private station: Traveler = { x: 0.2, y: 0.3, dir: 1, wait: 0 }
+  private station: Traveler = { x: 0.2, y: 0.24, dir: 1, wait: 0 }
   private satellite: Traveler = { x: 1.4, y: 0.15, dir: -1, wait: 0 }
   private rocks: Rock[] = []
   private meteors: { x: number; y: number; vx: number; vy: number; age: number }[] = []
@@ -142,6 +144,7 @@ class Space extends Canvas {
     super()
     this.activity = settings.activity
     this.look = LOOKS[settings.time]
+    if (settings.time === "day") this.frame = 0.25
     if (settings.activity === "teeming")
       this.rocks = Array.from({ length: 6 }, (_, i) => ({
         x: Math.random() * 2,
@@ -240,7 +243,7 @@ class Space extends Canvas {
   // The nebula, the Milky Way and the far half of the rings never move, so they are painted once per size.
   protected override layout() {
     const { W, H, A, look } = this
-    const cx = PLANET.x * W
+    const cx = W - PLANET.x * H
     const cy = PLANET.y * H
     const R = PLANET.r * H
     this.starPos = look.lighting === "front" ? [0.14 * W, 0.14 * H] : [cx + R * look.sun[0] / Math.hypot(look.sun[0], look.sun[1]), cy + R * look.sun[1] / Math.hypot(look.sun[0], look.sun[1])]
@@ -249,7 +252,7 @@ class Space extends Canvas {
         ? { style: "front", dir: look.sun }
         : look.lighting === "limb"
           ? { style: "rim", color: [1, 0.6, 0.3], x: this.starPos[0], y: this.starPos[1] }
-          : { style: "rim", color: [0.2, 0.4, 1], x: cx, y: cy }
+          : { style: "rim", color: [0.3, 0.6, 1.5], x: cx, y: cy }
     // The nebula is smooth, so it is worked out once per real pixel, in the first layout pass, and spread over the
     // pixels of each pass.
     const px = this.px
@@ -288,7 +291,11 @@ class Space extends Canvas {
         const a = 0.75 * density
         const k = look.ring * (0.6 + 0.4 * density)
         const o = y * W + x
-        const [rr, rg, rb] = look.ringColor
+        // By day the bands alternate between warm tan and cool gray dust.
+        const warm = look.lighting === "front" ? 0.16 * Math.sin(rho * 9 + 1) : 0
+        const rr = look.ringColor[0] * (1 + warm)
+        const rg = look.ringColor[1]
+        const rb = look.ringColor[2] * (1 - warm * 1.5)
         if (qy < 0) {
           this.blend(o * 3, rr * k, rg * k, rb * k, a)
           if (a > 0.3) this.ringMask[o] = 1
@@ -351,7 +358,7 @@ class Space extends Canvas {
   // the edge, and on the dark side city lights and aurora.
   private drawPlanet() {
     const { W, H, hdr, look } = this
-    const cx = PLANET.x * W
+    const cx = W - PLANET.x * H
     const cy = PLANET.y * H
     const R = PLANET.r * H
     const rot = this.time * 0.02
@@ -371,7 +378,8 @@ class Space extends Canvas {
         const facing = (dx * lsx + dy * lsy) / (r || 1)
         const glowLit = look.lighting === "night" ? 0.25 : look.lighting === "limb" ? 0.2 + 1.6 * Math.max(0, facing) ** 4 : 0.3 + 0.7 * Math.max(0, facing)
         if (r > 1) {
-          const halo = Math.exp(-(r - 1) / 0.025) * glowLit * 0.6
+          // At night a wide band of airglow rises off the limb, so whatever passes in front of it reads dark.
+          const halo = Math.exp(-(r - 1) / 0.025) * glowLit * 0.6 + (look.lighting === "night" ? Math.exp(-(r - 1) / 0.09) * 0.07 : 0)
           hdr[o] += look.atmosphere[0] * halo
           hdr[o + 1] += look.atmosphere[1] * halo
           hdr[o + 2] += look.atmosphere[2] * halo
@@ -453,9 +461,11 @@ class Space extends Canvas {
   private drawMoon() {
     const { W, H, look } = this
     const a = this.creatureTime * 0.05
-    const cx = (0.24 * this.A + 0.06 * Math.cos(a)) * H
-    const cy = (0.36 + 0.025 * Math.sin(a)) * H
+    const cx = (0.3 + 0.06 * Math.cos(a)) * H
+    const cy = (0.24 + 0.025 * Math.sin(a)) * H
     const R = 0.035 * H
+    // Cobalt rather than grey at night.
+    const [mr, mg, mb] = look.lighting === "night" ? look.rockColor : [0.9, 0.9, 0.95]
     for (let y = Math.max(0, Math.floor(cy - R - 1)); y <= Math.min(H - 1, cy + R + 1); y++)
       for (let x = Math.max(0, Math.floor(cx - R - 1)); x <= Math.min(W - 1, cx + R + 1); x++) {
         const dx = (x + 0.5 - cx) / R
@@ -466,7 +476,7 @@ class Space extends Canvas {
         const lit = Math.max(0, dx * look.sun[0] + dy * look.sun[1] + nz * look.sun[2])
         const craters = 0.75 + 0.35 * fbm2(dx * 3 + 5, dy * 3 + 2, 4)
         const k = (0.015 + lit * 0.9) * craters
-        this.blend((y * W + x) * 3, k * 0.9, k * 0.9, k * 0.95, clamp((1 - Math.sqrt(r2)) * R + 0.5, 0, 1))
+        this.blend((y * W + x) * 3, k * mr, k * mg, k * mb, clamp((1 - Math.sqrt(r2)) * R + 0.5, 0, 1))
       }
   }
 
@@ -589,6 +599,11 @@ class Space extends Canvas {
     for (const u of [-0.42, -0.27, 0.27, 0.42]) parts.push(cap(...P(u, -0.22), ...P(u, -0.04), 0.055 * S, 0.055 * S, panel, 4), cap(...P(u, 0.04), ...P(u, 0.22), 0.055 * S, 0.055 * S, panel, 4))
     parts.push(cap(...P(-0.13, 0), ...P(0.13, 0), 0.045 * S, 0.045 * S, white), cap(...P(0, -0.12), ...P(0, 0.1), 0.035 * S, 0.035 * S, white), cap(...P(0.13, 0.02), ...P(0.2, 0.08), 0.02 * S, 0.02 * S, white))
     this.shape(parts, this.lighting, 0.8)
+    // At night the modules' windows glow amber and light the panels beside them.
+    if (this.look.lighting === "night") {
+      lightPool(this.hdr, this.W, H, ...P(0, 0), 0.4 * S, 0.25 * S, [1, 0.6, 0.15], 3, 0.008)
+      for (const u of [-0.08, 0, 0.08]) this.disc(...P(u, 0), 0.018 * S, 1.6, 0.85, 0.2, 0.9)
+    }
     const blink = Math.sin(this.time * 4) > 0.6 ? 1.5 : 0
     this.add(...P(0.5, 0), blink, 0.1 * blink, 0.1 * blink)
     this.add(...P(-0.5, 0), 0.1 * blink, blink, 0.2 * blink)
@@ -626,7 +641,9 @@ class Space extends Canvas {
         const lit = Math.max(0, (dx / edge) * look.sun[0] + (dy / edge) * look.sun[1] + nz * look.sun[2])
         const pits = 0.7 + 0.45 * fbm2(dx * 2.5 + Math.cos(r.angle) * 2 + r.seed, dy * 2.5 + Math.sin(r.angle) * 2, 4)
         const ambient = look.lighting === "night" ? 0.01 : 0.02
-        const k = (ambient + lit * 0.7) * pits
+        // At night the planet's glow below rims the side of the rock facing it.
+        const rim = look.lighting === "night" ? Math.pow(1 - nz, 2) * Math.max(0, ((dx / edge) * (W - PLANET.x * H - cx) + (dy / edge) * (PLANET.y * H - cy)) / Math.hypot(W - PLANET.x * H - cx, PLANET.y * H - cy)) * 0.6 : 0
+        const k = (ambient + lit * 0.7 + rim) * pits
         this.blend((y * W + x) * 3, k * look.rockColor[0], k * look.rockColor[1], k * look.rockColor[2], clamp((1.05 - rr) * R, 0, 1))
       }
   }
@@ -635,7 +652,7 @@ class Space extends Canvas {
   private drawAstronaut() {
     const H = this.H
     const t = this.creatureTime
-    const x = (0.24 * this.A + 0.05 * Math.sin(t * 0.13)) * H
+    const x = (0.28 + 0.05 * Math.sin(t * 0.13)) * H
     const y = (0.6 + 0.03 * Math.sin(t * 0.21)) * H
     const a = t * 0.08
     const S = 0.09 * H
@@ -659,6 +676,10 @@ class Space extends Canvas {
       0.8,
     )
     if (this.look.lighting !== "night") this.add(...P(0.14, -0.36), 1.2, 1.1, 0.9)
+    // At night the helmet lamp lights the suit and the dark around it amber.
+    if (this.look.lighting !== "night") return
+    lightPool(this.hdr, this.W, H, ...P(0.2, -0.33), 0.6 * S, 0.6 * S, [1, 0.6, 0.15], 2.5, 0.01)
+    this.disc(...P(0.12, -0.33), 0.06 * S, 1.2, 0.6, 0.12, 0.8)
   }
 
   // Now and then a flying saucer glides across the top of the sky, its rim lights chasing round.
