@@ -11,8 +11,9 @@ const TIME_SCALE = 0.35
 const CREATURE_SPEED = 0.25
 const HORIZON = 0.55
 
-// What changes with the time of day. Buildings, crops and animals have one daytime color each; tint darkens them into
-// silhouettes at sunset and night, while the sky, hills and window light get their own values.
+// What changes with the time of day. Buildings, crops and animals have one daytime color each; tint warms them in the
+// golden-hour sunset and darkens them into silhouettes at night, while the sky, hills and window light get their own
+// values.
 interface Look {
   style: "rim" | "front"
   light: RGB
@@ -48,22 +49,23 @@ const LOOKS: Record<Time, Look> = {
   },
   sunset: {
     style: "rim",
-    light: [1, 0.5, 0.2],
+    // Golden hour: the sun still clear of the hills, a honeyed sky and warm grass in long light.
+    light: [1, 0.66, 0.25],
     sky: [
-      [0, [0.03, 0.02, 0.08]],
-      [0.25, [0.12, 0.04, 0.12]],
-      [0.42, [0.45, 0.14, 0.14]],
-      [HORIZON, [1, 0.5, 0.18]],
+      [0, [0.1, 0.08, 0.18]],
+      [0.18, [0.4, 0.2, 0.18]],
+      [0.36, [1, 0.52, 0.16]],
+      [HORIZON, [1, 0.74, 0.3]],
     ],
-    orb: { x: 0.28, y: 0.5, r: 0.06, core: [3.2, 1.7, 0.6], glow: [1, 0.42, 0.14], near: 0.5, wide: 0.25 },
-    stars: 30,
-    clouds: { puffy: false, top: [0.1, 0.035, 0.09], bottom: [0.8, 0.3, 0.2], alpha: 0.55 },
+    orb: { x: 0.2, y: 0.37, r: 0.042, core: [3.2, 2, 0.7], glow: [1, 0.6, 0.2], near: 0.55, wide: 0.35 },
+    stars: 0,
+    clouds: { puffy: true, top: [1.3, 0.8, 0.35], bottom: [0.6, 0.3, 0.22], alpha: 0.8 },
     hills: [
-      [0.3, 0.12, 0.12],
-      [0.08, 0.04, 0.03],
+      [0.68, 0.42, 0.1],
+      [0.34, 0.24, 0.04],
     ],
-    tint: [0.22, 0.13, 0.1],
-    windows: 0.5,
+    tint: [0.46, 0.29, 0.13],
+    windows: 0.25,
     fireflies: false,
   },
   night: {
@@ -107,19 +109,19 @@ const GROUND: Partial<Record<Season, Partial<Record<Time, [far: RGB, near: RGB]>
       [0.56, 0.44, 0.17],
     ],
     sunset: [
-      [0.34, 0.13, 0.09],
-      [0.1, 0.05, 0.025],
+      [0.62, 0.34, 0.1],
+      [0.42, 0.22, 0.05],
     ],
   },
-  // Snow by day, rosy at sunset, and deep blue at night, never white.
+  // Snow by day, gold at sunset, and deep blue at night, never white.
   winter: {
     day: [
       [0.74, 0.79, 0.88],
       [0.82, 0.86, 0.93],
     ],
     sunset: [
-      [0.46, 0.25, 0.3],
-      [0.3, 0.16, 0.19],
+      [0.6, 0.4, 0.26],
+      [0.5, 0.34, 0.24],
     ],
     night: [
       [0.035, 0.07, 0.18],
@@ -897,9 +899,9 @@ export const farm: Wallpaper = {
       [14, 28, 10],
     ],
     sunset: [
-      [30, 14, 26],
-      [36, 16, 16],
-      [10, 6, 6],
+      [16, 18, 34],
+      [40, 28, 14],
+      [14, 12, 6],
     ],
     night: [
       [4, 6, 16],
