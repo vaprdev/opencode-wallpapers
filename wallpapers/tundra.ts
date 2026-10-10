@@ -396,7 +396,7 @@ class Tundra extends Canvas {
       for (let s = 0; s < 4; s++) {
         const nx = x + (hash(i * 9 + s) - 0.4) * 0.04
         const ny = y + (hash(i * 11 + s) - 0.5) * 0.012
-        parts.push(cap(x * H, y * H, nx * H, ny * H, 0.0015 * H, 0.001 * H, crack))
+        parts.push(cap(x * H, y * H, nx * H, ny * H, this.thick(0.0015, 0.55), this.thick(0.001, 0.45), crack))
         ;[x, y] = [nx, ny]
       }
       this.shape(parts, this.lighting, 0)
@@ -444,10 +444,10 @@ class Tundra extends Canvas {
     for (let row = 1; row < 4; row++) {
       const yy = base - (row / 4) * R * 0.85
       const half = R * Math.sqrt(1 - (row / 4) ** 2)
-      lines.push(cap((cx - half) * H, yy * H, (cx + half) * H, yy * H, 0.0018 * H, 0.0018 * H, seam))
+      lines.push(cap((cx - half) * H, yy * H, (cx + half) * H, yy * H, this.thick(0.0018, 0.6), this.thick(0.0018, 0.6), seam))
       for (let k = 0; k < 4; k++) {
         const sx = cx + (((k + (row % 2) * 0.5) / 4) * 2 - 1) * half * 0.85
-        lines.push(cap(sx * H, yy * H, sx * H, (yy + R * 0.21) * H, 0.001 * H, 0.001 * H, seam))
+        lines.push(cap(sx * H, yy * H, sx * H, (yy + R * 0.21) * H, this.thick(0.001, 0.5), this.thick(0.001, 0.5), seam))
       }
     }
     this.shape(lines, this.lighting, 0)

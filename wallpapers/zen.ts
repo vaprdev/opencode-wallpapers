@@ -779,14 +779,14 @@ class Zen extends Canvas {
     const red = this.paint(VERMILION)
     const shadow = this.paint([0.4, 0.08, 0.04])
     const posts: Part[] = []
-    for (const s of [-0.45, 0.45]) posts.push(cap((bx + s * span) * H, deck(s) * H, (bx + s * span) * H, (by + 0.03) * H, 0.004 * H, 0.004 * H, this.paint([0.2, 0.1, 0.08])))
+    for (const s of [-0.45, 0.45]) posts.push(cap((bx + s * span) * H, deck(s) * H, (bx + s * span) * H, (by + 0.03) * H, this.thick(0.004, 0.95), this.thick(0.004, 0.95), this.paint([0.2, 0.1, 0.08])))
     this.shape(posts, this.lighting, 0.4)
     const S = Array.from({ length: 25 }, (_, i) => -1.05 + (i / 24) * 2.1)
     this.polygon([...S.map((s) => [(bx + s * span) * H, (deck(s) - 0.004) * H] as const), ...S.toReversed().map((s) => [(bx + s * span) * H, deck(s) * H] as const)], this.paint([0.42, 0.3, 0.2]))
     this.polygon([...S.map((s) => [(bx + s * span) * H, deck(s) * H] as const), ...S.toReversed().map((s) => [(bx + s * span) * H, (deck(s) + 0.012) * H] as const)], red)
     this.polygon([...S.map((s) => [(bx + s * span) * H, (deck(s) + 0.012) * H] as const), ...S.toReversed().map((s) => [(bx + s * span) * H, (deck(s) + 0.016) * H] as const)], shadow)
     const rail: Part[] = []
-    const r = 0.0022 * H
+    const r = this.thick(0.0022, 0.55)
     for (let i = 0; i < 9; i++) {
       const s = -0.95 + (i / 8) * 1.9
       rail.push(cap((bx + s * span) * H, deck(s) * H, (bx + s * span) * H, (deck(s) - 0.026) * H, r, r, red))
