@@ -135,6 +135,13 @@ details), and values in between soften it.
 - `makeClouds(count, puffy, y0, y1)`, `driftClouds(clouds, A, dt)` and `paintClouds(hdr, W, H, clouds, top, bottom,
   alpha, puffy)` give puffy cumulus or thin streaks, shaded from `top` to `bottom`.
 
+`src/creature.ts` animates walkers. Pose a creature in body coordinates with `body(x, y, S, turn)` (u forward, v
+down, w across), and keep a `Gait` per walker: `stepGait(g, distance / stride, dt, face)` advances the step cycle with
+the distance walked, so planted feet don't slide, eases between standing and walking, turns through a three-quarter
+view instead of flipping, and rings a springy `lag` for tails and ears to trail. `quadruped()` draws four jointed
+legs in diagonal pairs, `limb()` any two-segment limb with a bending joint, `stride()` and `bob()` one foot's step and
+the body's rise, and `chain()` a tapered tail or neck along a curve.
+
 `src/math.ts` has `TAU`, `lerp`, `clamp`, `smoothstep`, `rand`, stable hashes (`hash`, `hash2`, `hashString`), smooth
 noise (`noise1`, `noise2`, `fbm1`, `fbm2`), `hsv` and the `RGB` type.
 
@@ -272,7 +279,7 @@ bun dev/gif.ts all                                # re-renders the README's GIFs
 
 ## Your own package
 
-A wallpaper package imports the API from `opencode-wallpapers/api`, which has `Canvas`, `cap`, `ell`, the sky,
+A wallpaper package imports the API from `opencode-wallpapers/api`, which has `Canvas`, `cap`, `ell`, the creature, sky,
 weather, flock, egg and math helpers, and the `Wallpaper` types, with no OpenCode or OpenTUI dependency. It isn't on
 npm yet, so build a clone of this repository and depend on it by path:
 
