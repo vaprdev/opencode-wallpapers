@@ -427,6 +427,8 @@ class Space extends Canvas {
     const cx = (0.24 * this.A + 0.06 * Math.cos(a)) * H
     const cy = (0.36 + 0.025 * Math.sin(a)) * H
     const R = 0.035 * H
+    // Cobalt rather than grey at night.
+    const [mr, mg, mb] = look.lighting === "night" ? look.rockColor : [0.9, 0.9, 0.95]
     for (let y = Math.max(0, Math.floor(cy - R - 1)); y <= Math.min(H - 1, cy + R + 1); y++)
       for (let x = Math.max(0, Math.floor(cx - R - 1)); x <= Math.min(W - 1, cx + R + 1); x++) {
         const dx = (x + 0.5 - cx) / R
@@ -437,8 +439,6 @@ class Space extends Canvas {
         const lit = Math.max(0, dx * look.sun[0] + dy * look.sun[1] + nz * look.sun[2])
         const craters = 0.75 + 0.35 * fbm2(dx * 3 + 5, dy * 3 + 2, 4)
         const k = (0.015 + lit * 0.9) * craters
-        // Cobalt rather than grey at night.
-        const [mr, mg, mb] = look.lighting === "night" ? look.rockColor : [0.9, 0.9, 0.95]
         this.blend((y * W + x) * 3, k * mr, k * mg, k * mb, clamp((1 - Math.sqrt(r2)) * R + 0.5, 0, 1))
       }
   }
