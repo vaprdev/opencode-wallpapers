@@ -1,4 +1,5 @@
 import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
+import { limb } from "../src/creature"
 import { eggWait } from "../src/egg"
 import { bird, flyAway, startle, type Flier } from "../src/flock"
 import { TAU, clamp, fbm1, hash, hash2, lerp, rand, smoothstep, type RGB } from "../src/math"
@@ -1001,11 +1002,16 @@ class Zen extends Canvas {
         : h.phase === "in"
           ? [lerp(-0.25, sx, 1 - (1 - p) ** 2), lerp(0.22, sy, 1 - (1 - p) ** 2), clamp((1 - p) / 0.25, 0, 1)]
           : [lerp(sx, this.A + 0.3, p * p), lerp(sy, 0.18, p * p), clamp(p / 0.12, 0, 1)]
-    const S = 0.2 * H
+    const S = 0.16 * H
     const P = (u: number, v: number): [number, number] => [x * H + u * S, y * H + v * S]
     const L = (a: [number, number], b: [number, number]): [number, number] => [lerp(a[0], b[0], fly), lerp(a[1], b[1], fly)]
-    const hunt = h.phase === "stand" ? smoothstep(0.2, 0.9, 0.5 - 0.5 * Math.cos(h.t * 0.45)) : 0
+    const huntAt = (t: number) => (h.phase === "stand" ? smoothstep(0.2, 0.9, 0.5 - 0.5 * Math.cos(t * 0.45)) : 0)
+    const hunt = huntAt(h.t)
+    // The crest plume trails the head as it leans out and back.
+    const sweep = (huntAt(h.t - 0.5) - hunt) * 0.6
+    // The wingtips beat a moment behind the arm.
     const flap = Math.sin(this.time * 2.6)
+    const lag = Math.sin(this.time * 2.6 - 0.7)
     const body = this.paint([0.62, 0.66, 0.72])
     const neck = this.paint([0.82, 0.82, 0.84])
     const wing = this.paint([0.38, 0.42, 0.5])
@@ -1015,13 +1021,20 @@ class Zen extends Canvas {
     const n2 = L([lerp(0.09, 0.3, hunt), lerp(-0.7, -0.56, hunt)], [0.16, -0.49])
     const head = L([lerp(0.14, 0.38, hunt), lerp(-0.8, -0.52, hunt)], [0.22, -0.47])
     const beak = L([lerp(0.15, 0.1, hunt), lerp(0.01, 0.11, hunt)], [0.15, 0.015])
-    const wingTip: [number, number] = [-0.08, -0.45 - 0.42 * flap]
+    const wingTip: [number, number] = [-0.08, -0.45 - 0.42 * lag]
     const wingMid: [number, number] = [-0.03, -0.45 - 0.22 * flap]
+    // Wading, it now and then lifts a foot and sets it down a little further on; the ankles bend back.
+    const wade = (side: number) => (h.phase === "stand" ? Math.max(0, Math.sin(h.t * 0.3 + side * 1.6)) ** 10 : 0)
+    const leg = (side: number): Part[] => {
+      const hip = L([side * 0.015, -0.33], [-0.1, -0.4 + side * 0.01])
+      const foot = L([side * 0.025 + wade(side) * 0.04, -wade(side) * 0.09], [-0.4, -0.37 + side * 0.02])
+      return [...limb(P, ...hip, ...foot, 0.17, 0.17, 1, 0.012 * S, 0.01 * S, 0.008 * S, legs), cap(...P(...foot), ...P(foot[0] + L([0.06, 0], [-0.04, 0])[0], foot[1]), 0.006 * S, 0.004 * S, legs)]
+    }
     if (fly > 0.3) this.shape([cap(...P(0.03, -0.45), ...P(wingMid[0] + 0.04, wingMid[1] + 0.02), 0.07 * S, 0.05 * S, this.paint([0.28, 0.31, 0.38])), cap(...P(wingMid[0] + 0.04, wingMid[1] + 0.02), ...P(wingTip[0] + 0.05, wingTip[1] + 0.03), 0.05 * S, 0.02 * S, this.paint([0.28, 0.31, 0.38]))], this.lighting, 0.4)
     this.shape(
       [
-        cap(...P(...L([-0.02, 0], [-0.4, -0.37])), ...P(...L([-0.01, -0.32], [-0.1, -0.4])), 0.011 * S, 0.012 * S, legs),
-        cap(...P(...L([0.03, 0], [-0.42, -0.4])), ...P(...L([0.01, -0.32], [-0.1, -0.41])), 0.011 * S, 0.012 * S, legs),
+        ...leg(-1),
+        ...leg(1),
         ell(...P(0, L([0, -0.41], [0, -0.42])[1]), 0.17 * S, 0.075 * S, -0.4 * (1 - fly), body),
         cap(...P(-0.12, L([-0.34, -0.33], [-0.42, -0.42])[1]), ...P(-0.2, L([-0.3, -0.3], [-0.42, -0.42])[1]), 0.04 * S, 0.02 * S, wing),
         cap(...P(...shoulder), ...P(...n1), 0.042 * S, 0.032 * S, neck),
@@ -1029,12 +1042,12 @@ class Zen extends Canvas {
         cap(...P(...n2), ...P(...head), 0.026 * S, 0.03 * S, neck),
         ell(...P(...head), 0.042 * S, 0.032 * S, 0, neck),
         cap(...P(...head), ...P(head[0] + beak[0], head[1] + beak[1]), 0.016 * S, 0.003 * S, this.paint([0.9, 0.72, 0.2])),
-        cap(...P(head[0] - 0.01, head[1] - 0.02), ...P(head[0] - 0.12, head[1] - 0.01), 0.009 * S, 0.003 * S, this.paint([0.08, 0.08, 0.1])),
+        cap(...P(head[0] - 0.01, head[1] - 0.02), ...P(head[0] - 0.12 - sweep * 0.3, head[1] - 0.01 - sweep * 0.15), 0.009 * S, 0.003 * S, this.paint([0.08, 0.08, 0.1])),
       ],
       this.lighting,
       0.6,
     )
-    if (fly > 0.3) this.shape([cap(...P(0.03, -0.44), ...P(...wingMid), 0.08 * S, 0.06 * S, wing), cap(...P(...wingMid), ...P(...wingTip), 0.06 * S, 0.025 * S, wing), cap(...P(...wingTip), ...P(wingTip[0] - 0.08, wingTip[1] + 0.02), 0.03 * S, 0.012 * S, this.paint([0.15, 0.16, 0.2]))], this.lighting, 0.6)
+    if (fly > 0.3) this.shape([cap(...P(0.03, -0.44), ...P(...wingMid), 0.08 * S, 0.06 * S, wing), cap(...P(...wingMid), ...P(...wingTip), 0.06 * S, 0.025 * S, wing), cap(...P(...wingTip), ...P(wingTip[0] - 0.08, wingTip[1] + 0.02 + (lag - flap) * 0.1), 0.03 * S, 0.012 * S, this.paint([0.15, 0.16, 0.2]))], this.lighting, 0.6)
     if (fly === 0) this.add(...P(head[0] + 0.02, head[1] - 0.005), 0.25, 0.2, 0.02)
   }
 
