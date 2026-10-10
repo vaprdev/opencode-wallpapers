@@ -122,8 +122,11 @@ class Space extends Canvas {
   private readonly activity: Activity
   private readonly look: Look
   private lighting: Lighting = { style: "front", dir: [0, 0, 1] }
-  private background = new Float32Array(0)
+  // The near half of the rings, premultiplied by their alpha, drawn over the planet each frame. fineRing is the
+  // supersampled layout pass's, box-filtered, for the real-size pass.
   private ringFront = new Float32Array(0)
+  private fineRing: Float32Array<ArrayBuffer> | undefined
+  private nebula: Float32Array | undefined
   private ringBox = [0, 0, 0, 0]
   private ringMask = new Uint8Array(0)
   private starPos: [number, number] = [0, 0]
@@ -250,20 +253,18 @@ class Space extends Canvas {
         : look.lighting === "limb"
           ? { style: "rim", color: [1, 0.6, 0.3], x: this.starPos[0], y: this.starPos[1] }
           : { style: "rim", color: [0.3, 0.6, 1.5], x: cx, y: cy }
-    const [n1, n2] = look.nebula
+    // The nebula is smooth, so it is worked out once per real pixel, in the first layout pass, and spread over the
+    // pixels of each pass.
+    const px = this.px
+    const nebula = this.nebula ?? this.makeNebula(W / px, H / px)
+    this.nebula = px > 1 ? nebula : undefined
     for (let y = 0; y < H; y++)
       for (let x = 0; x < W; x++) {
-        const u = x / H
-        const v = y / H
-        const a = smoothstep(0.45, 0.85, fbm2(u * 2.2, v * 2.2, 5))
-        const b = smoothstep(0.5, 0.9, fbm2(u * 3.1 + 7, v * 3.1 + 3, 5))
-        const band = Math.abs(v - (0.15 + u * 0.25)) / 0.12
-        const milky = Math.exp(-band * band) * (0.4 + 0.6 * fbm2(u * 9, v * 9, 4)) * 0.06 * look.milkyWay
+        const s = (Math.floor(y / px) * (W / px) + Math.floor(x / px)) * 3
         const o = (y * W + x) * 3
-        const [mr, mg] = look.starTints ? [0.55, 0.4] : [0.85, 0.85]
-        this.hdr[o] = 0.004 + n1[0] * a + n2[0] * b + milky * mr
-        this.hdr[o + 1] = 0.005 + n1[1] * a + n2[1] * b + milky * mg
-        this.hdr[o + 2] = 0.012 + n1[2] * a + n2[2] * b + milky
+        this.hdr[o] = nebula[s]
+        this.hdr[o + 1] = nebula[s + 1]
+        this.hdr[o + 2] = nebula[s + 2]
       }
     // Rings: bands of dust in a tilted, flattened annulus. The far half is painted now, behind the planet; the near
     // half is kept to draw over it each frame.
@@ -300,12 +301,38 @@ class Space extends Canvas {
           if (a > 0.3) this.ringMask[o] = 1
           continue
         }
-        this.ringFront[o * 4] = rr * k
-        this.ringFront[o * 4 + 1] = rg * k
-        this.ringFront[o * 4 + 2] = rb * k
+        this.ringFront[o * 4] = rr * k * a
+        this.ringFront[o * 4 + 1] = rg * k * a
+        this.ringFront[o * 4 + 2] = rb * k * a
         this.ringFront[o * 4 + 3] = a
       }
-    this.background = this.hdr.slice()
+    if (this.px > 1) this.fineRing = this.shrink(this.ringFront, 4)
+    else if (this.fineRing) {
+      this.ringFront = this.fineRing
+      this.fineRing = undefined
+    }
+  }
+
+  // The nebulae and the Milky Way at w by h pixels.
+  private makeNebula(w: number, h: number) {
+    const look = this.look
+    const [n1, n2] = look.nebula
+    const out = new Float32Array(w * h * 3)
+    for (let y = 0; y < h; y++)
+      for (let x = 0; x < w; x++) {
+        const u = x / h
+        const v = y / h
+        const a = smoothstep(0.45, 0.85, fbm2(u * 2.2, v * 2.2, 5))
+        const b = smoothstep(0.5, 0.9, fbm2(u * 3.1 + 7, v * 3.1 + 3, 5))
+        const band = Math.abs(v - (0.15 + u * 0.25)) / 0.12
+        const milky = Math.exp(-band * band) * (0.4 + 0.6 * fbm2(u * 9, v * 9, 4)) * 0.06 * look.milkyWay
+        const o = (y * w + x) * 3
+        const [mr, mg] = look.starTints ? [0.55, 0.4] : [0.85, 0.85]
+        out[o] = 0.004 + n1[0] * a + n2[0] * b + milky * mr
+        out[o + 1] = 0.005 + n1[1] * a + n2[1] * b + milky * mg
+        out[o + 2] = 0.012 + n1[2] * a + n2[2] * b + milky
+      }
+    return out
   }
 
   private paint(c: RGB): RGB {
@@ -400,7 +427,11 @@ class Space extends Canvas {
       for (let x = x0; x <= x1; x++) {
         const o = y * W + x
         const a = ringFront[o * 4 + 3]
-        if (a > 0) this.blend(o * 3, ringFront[o * 4], ringFront[o * 4 + 1], ringFront[o * 4 + 2], a)
+        if (a <= 0) continue
+        const i = o * 3
+        this.hdr[i] = this.hdr[i] * (1 - a) + ringFront[o * 4]
+        this.hdr[i + 1] = this.hdr[i + 1] * (1 - a) + ringFront[o * 4 + 1]
+        this.hdr[i + 2] = this.hdr[i + 2] * (1 - a) + ringFront[o * 4 + 2]
       }
   }
 

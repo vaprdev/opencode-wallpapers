@@ -255,7 +255,6 @@ class Desert extends Canvas {
   private time = 0
   private readonly activity: Activity
   private readonly look: Look
-  private background = new Float32Array(0)
   private frontTop = new Float32Array(0)
   private nearTop = new Float32Array(0)
   private orbX = 0
@@ -359,7 +358,7 @@ class Desert extends Canvas {
 
   // Everything that never moves is painted once per size into `background`, then copied in each frame.
   protected override layout() {
-    const { W, H, A, look } = this
+    const { W, H, A, look, px } = this
     this.orbX = look.orb.x * W
     this.orbY = look.orb.y * H
     this.drawSky()
@@ -377,8 +376,8 @@ class Desert extends Canvas {
     }
     const horizon = look.sky[look.sky.length - 1][1]
     this.fillBelow(farTop, (x, y, d) => {
-      if (y > HORIZON * H + 1) return undefined
-      const haze = (0.35 + 0.4 * (1 - d / 40)) * (look.style === "front" ? 0.45 : 0.4)
+      if (y > HORIZON * H + px) return undefined
+      const haze = (0.35 + 0.4 * (1 - d / (40 * px))) * (look.style === "front" ? 0.45 : 0.4)
       return this.surface(mix(look.farMesa, horizon, haze), farTop, x, d, 1.5, 0.6, true)
     })
     this.drawFloor()
@@ -392,36 +391,35 @@ class Desert extends Canvas {
       backTop[x] = (0.7 + 0.035 * Math.sin(u * 3.1 + 1) + 0.02 * Math.sin(u * 7.3)) * H
       this.frontTop[x] = (0.83 + 0.045 * Math.sin(u * 2.2 + 2.5) + 0.015 * Math.sin(u * 5.7 + 1)) * H
     }
-    this.fillBelow(backTop, (x, _y, d) => this.surface(scale(look.backDune, 1 - d * 0.005), backTop, x, d, 2.2, 0.55, false))
+    this.fillBelow(backTop, (x, _y, d) => this.surface(scale(look.backDune, 1 - (d / px) * 0.005), backTop, x, d, 2.2, 0.55, false))
     this.fillBelow(this.frontTop, (x, _y, d) => {
-      const ripple = 0.9 + 0.1 * Math.sin(x * 0.5 + d * 0.9 + fbm1(x * 0.05, 3) * 4)
+      const ripple = 0.9 + 0.1 * Math.sin((x / px) * 0.5 + (d / px) * 0.9 + fbm1((x / px) * 0.05, 3) * 4)
       return this.surface(scale(look.frontDune, ripple), this.frontTop, x, d, 2.5, 0.5, false)
     })
     if (day) mottle(this.hdr, W, H, HORIZON, 1, 0.6, [1.1, 0.98, 0.8], [0.72, 0.7, 0.86])
     if (this.season === "spring") this.drawBloom()
     if (this.activity === "teeming") {
       for (const [x, h] of [[0.45, 0.14], [A - 0.14, 0.11]]) {
-        const gy = backTop[clamp(Math.round(x * H), 0, W - 1)] + 2
+        const gy = backTop[clamp(Math.round(x * H), 0, W - 1)] + 2 * px
         this.shadow(x * H, gy, 0.25 * h * H, h * H)
         this.drawSaguaro(x * H, gy, h * H, 0.5)
       }
     }
     // The big saguaro and the skull keep to the sides, clear of the text in the middle.
     this.shadow(0.22 * H, this.ground(0.22 / A), 0.085 * H, 0.34 * H)
-    this.drawSaguaro(0.22 * H, this.ground(0.22 / A) + 3, 0.34 * H, 0)
+    this.drawSaguaro(0.22 * H, this.ground(0.22 / A) + 3 * px, 0.34 * H, 0)
     this.shadow((A - 0.32) * H, this.ground(1 - 0.32 / A), 0.07 * H, 0.1 * H, 2.5)
     this.drawSkull((A - 0.32) * H, this.ground(1 - 0.32 / A), 0.07 * H)
     if (this.activity === "teeming") {
       this.shadow(0.33 * A * H, this.ground(0.33), 0.09 * H, 0.16 * H, 1.1)
-      this.drawPricklyPear(0.33 * A * H, this.ground(0.33) + 2, H)
+      this.drawPricklyPear(0.33 * A * H, this.ground(0.33) + 2 * px, H)
       this.shadow(0.62 * A * H, this.ground(0.62), 0.06 * H, 0.07 * H, 0.8)
-      this.drawBarrel(0.62 * A * H, this.ground(0.62) + 1, H)
+      this.drawBarrel(0.62 * A * H, this.ground(0.62) + px, H)
     }
     // The coyote sits on the tallest near mesa toward either side, where text rarely covers it, but not behind the saguaro.
     let best = W - 1 - Math.round(W * 0.05)
     for (let x = 0; x < W; x++) if (Math.abs(x / W - 0.5) > 0.3 && Math.abs(x / W - 0.5) < 0.47 && Math.abs(x / H - 0.22) > 0.1 && this.nearTop[x] < this.nearTop[best]) best = x
     this.coyoteX = best
-    this.background = this.hdr.slice()
   }
 
   // Ground height in pixels at a fraction of the width.
@@ -435,10 +433,10 @@ class Desert extends Canvas {
   }
 
   // Shades a mesa or dune pixel `depth` below its top edge. At sunset and night the edge glows with backlight; by day,
-  // slopes facing the sun are brighter, and cliffs show their rock layers.
+  // slopes facing the sun are brighter, and cliffs show their rock layers. rimWidth is in real pixels.
   private surface(base: RGB, top: Float32Array, x: number, depth: number, rimWidth: number, rimStrength: number, strata: boolean): RGB {
     if (strata && this.season === "winter") {
-      const snow = smoothstep(1, 0, depth - (0.006 + 0.03 * fbm1(x * 0.06, 4) ** 2) * this.H)
+      const snow = smoothstep(this.px, 0, depth - (0.006 + 0.03 * fbm1((x / this.px) * 0.06, 4) ** 2) * this.H)
       if (snow > 0) return mix(this.lit(base, top, x, depth, rimWidth, rimStrength, strata), this.dusting, snow * 0.85)
     }
     return this.lit(base, top, x, depth, rimWidth, rimStrength, strata)
@@ -446,14 +444,15 @@ class Desert extends Canvas {
 
   private lit(base: RGB, top: Float32Array, x: number, depth: number, rimWidth: number, rimStrength: number, strata: boolean): RGB {
     const { light } = this.look
+    const px = this.px
     if (this.look.style === "rim") {
-      const k = Math.exp(-depth / rimWidth) * rimStrength * this.glowAt(x) * 0.6
+      const k = Math.exp(-depth / (rimWidth * px)) * rimStrength * this.glowAt(x) * 0.6
       return [base[0] + light[0] * k, base[1] + light[1] * k, base[2] + light[2] * k]
     }
     const slope = (top[Math.min(this.W - 1, x + 1)] - top[Math.max(0, x - 1)]) / 2
     const face = strata ? (slope < -0.6 ? 0.6 : slope > 0.6 ? 1.1 : 0.85) : 0.85 + clamp(slope * 1.5, -0.3, 0.3)
-    const layers = strata ? 0.9 + 0.1 * Math.sin(depth * 0.7 + fbm1(x * 0.08, 2) * 3) : 1
-    const edge = 1 + 0.35 * Math.exp(-depth / 1.2)
+    const layers = strata ? 0.9 + 0.1 * Math.sin((depth / px) * 0.7 + fbm1((x / px) * 0.08, 2) * 3) : 1
+    const edge = 1 + 0.35 * Math.exp(-depth / (1.2 * px))
     const k = face * layers * edge
     return [base[0] * k, base[1] * k, base[2] * k]
   }
@@ -476,10 +475,10 @@ class Desert extends Canvas {
         hdr[o] = lerp(from[0], to[0], k) + glow * orb.glow[0]
         hdr[o + 1] = lerp(from[1], to[1], k) + glow * orb.glow[1]
         hdr[o + 2] = lerp(from[2], to[2], k) + glow * orb.glow[2]
-        if (look.milkyWay) {
+        const band = Math.abs(v - (0.45 - (x / W) * 0.35)) / 0.07
+        if (look.milkyWay && band < 4) {
           // A faint, mottled band rising from lower left to upper right.
-          const band = Math.abs(v - (0.45 - (x / W) * 0.35)) / 0.07
-          const m = Math.exp(-band * band) * (0.5 + 0.5 * fbm1(x * 0.05 + v * 9, 4)) * 0.05
+          const m = Math.exp(-band * band) * (0.5 + 0.5 * fbm1((x / this.px) * 0.05 + v * 9, 4)) * 0.05
           hdr[o] += m * 0.55
           hdr[o + 1] += m * 0.4
           hdr[o + 2] += m
@@ -489,7 +488,7 @@ class Desert extends Canvas {
         if (cov <= 0) continue
         const limb = 0.85 + 0.15 * Math.sqrt(Math.max(0, 1 - (r / R) ** 2))
         // The moon gets a few darker maria.
-        const maria = orb.moon ? 1 - 0.18 * smoothstep(0.55, 0.75, fbm1((x - this.orbX) * 0.25 + 3, 7) + fbm1((y - this.orbY) * 0.25 + 1, 9) * 0.6) : 1
+        const maria = orb.moon ? 1 - 0.18 * smoothstep(0.55, 0.75, fbm1(((x - this.orbX) / this.px) * 0.25 + 3, 7) + fbm1(((y - this.orbY) / this.px) * 0.25 + 1, 9) * 0.6) : 1
         this.blend(o, orb.core[0] * limb * maria, orb.core[1] * limb * maria, orb.core[2] * limb * maria, cov)
       }
     }

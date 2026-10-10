@@ -30,8 +30,8 @@ export interface Star {
 }
 
 // Fills the whole canvas with a vertical gradient through stops ([height fraction, color]), adds a glow around the orb
-// and draws the orb itself.
-export function paintSky(hdr: Float32Array, W: number, H: number, stops: [number, RGB][], orb: Orb) {
+// and draws the orb itself. px is Canvas.px, for the moon's texture.
+export function paintSky(hdr: Float32Array, W: number, H: number, stops: [number, RGB][], orb: Orb, px = 1) {
   const ox = orb.x * W
   const oy = orb.y * H
   const R = orb.r * H
@@ -52,7 +52,7 @@ export function paintSky(hdr: Float32Array, W: number, H: number, stops: [number
       const cov = Math.min(1, Math.max(0, R - r + 0.5))
       if (cov <= 0) continue
       const limb = 0.85 + 0.15 * Math.sqrt(Math.max(0, 1 - (r / R) ** 2))
-      const maria = orb.moon ? 1 - 0.18 * smoothstep(0.55, 0.75, fbm1((x - ox) * 0.25 + 3, 7) + fbm1((y - oy) * 0.25 + 1, 9) * 0.6) : 1
+      const maria = orb.moon ? 1 - 0.18 * smoothstep(0.55, 0.75, fbm1(((x - ox) / px) * 0.25 + 3, 7) + fbm1(((y - oy) / px) * 0.25 + 1, 9) * 0.6) : 1
       const m = limb * maria
       hdr[o] += (orb.core[0] * m - hdr[o]) * cov
       hdr[o + 1] += (orb.core[1] * m - hdr[o + 1]) * cov

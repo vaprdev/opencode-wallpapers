@@ -114,6 +114,8 @@ interface Particle {
 }
 
 class Ocean extends Canvas {
+  // The whole scene sways, so layout() paints nothing.
+  protected override supersample = 1
   private time = 0
   private rowCol = new Float32Array(0)
   private rayFade = new Float32Array(0)

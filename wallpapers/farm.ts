@@ -185,7 +185,6 @@ class Farm extends Canvas {
   private readonly look: Look
   private lighting: Lighting = { style: "front", dir: DAYLIGHT }
   private readonly shade: Shade
-  private background = new Float32Array(0)
   private stars: Star[]
   private clouds: Cloud[]
   private shadows = makeShadows(3, HORIZON + 0.08, 0.95)
@@ -326,7 +325,7 @@ class Farm extends Canvas {
   protected override layout() {
     const { W, H, A, look } = this
     this.lighting = look.style === "front" ? { style: "front", dir: DAYLIGHT } : { style: "rim", color: look.light, x: look.orb.x * W, y: look.orb.y * H }
-    paintSky(this.hdr, W, H, look.sky, look.orb)
+    paintSky(this.hdr, W, H, look.sky, look.orb, this.px)
     this.weather.cover(this.hdr, W, H)
     // Far hills with a patchwork of fields, then the nearer pasture hill. Autumn turns most fields gold; snow evens
     // them out.
@@ -361,7 +360,7 @@ class Farm extends Canvas {
     // The far fields fade into the sky, then the pasture in front of them stays crisp.
     if (day) haze(this.hdr, sky, W, H, 0.5, 0.62, 0.24, 0.08)
     this.fillBelow(this.nearTop, (x, y, d) => {
-      const blades = 1 - grass + grass * Math.sin(x * 1.7 + y * 0.6 + fbm1(x * 0.1, 2) * 6)
+      const blades = 1 - grass + grass * Math.sin((x / this.px) * 1.7 + (y / this.px) * 0.6 + fbm1((x / this.px) * 0.1, 2) * 6)
       const depth = 1 - clamp((y / H - 0.6) * 0.6, 0, 0.25)
       return this.rim([near[0] * blades * depth, near[1] * blades * depth, near[2] * blades * depth], x, d, 2)
     })
@@ -414,7 +413,6 @@ class Farm extends Canvas {
     for (let row = 0; row < 3; row++) this.drawCornRow(row)
     // Weighted by height on screen: the farther rows' tops sit higher, so each stalk bends from near its foot.
     this.corn.end(this.hdr, W, H, 0.012 * H, (_x, y) => clamp((0.96 * H - y) / (0.26 * H), 0, 1))
-    this.background = this.hdr.slice()
     // Open grass on the pasture hill: the pixels nothing was painted over.
     const pasture: number[] = []
     for (let x = 0; x < W; x++)
@@ -464,11 +462,11 @@ class Farm extends Canvas {
     return 0.665 + 0.008 * Math.sin(u * 1.7)
   }
 
-  // At sunset and night, the top edge of a hill catches the light.
+  // At sunset and night, the top edge of a hill catches the light, over about width real pixels.
   private rim(base: RGB, x: number, depth: number, width: number): RGB {
     if (this.look.style === "front") return base
     const glow = 0.35 + 0.65 * Math.exp(-Math.abs(x - this.look.orb.x * this.W) / (0.45 * this.H))
-    const k = Math.exp(-depth / width) * glow * 0.35
+    const k = Math.exp(-depth / (width * this.px)) * glow * 0.35
     return [base[0] + this.look.light[0] * k, base[1] + this.look.light[1] * k, base[2] + this.look.light[2] * k]
   }
 
@@ -587,13 +585,14 @@ class Farm extends Canvas {
     const base = [0.79, 0.87, 0.96, 1.05][row] * H
     const height = (0.12 + row * 0.045) * H * corn.height
     // Stalks stand at least a few cells apart, so in the terminal the field reads as plants rather than stripes.
-    const spacing = this.cells ? Math.max(0.026 + row * 0.006, 9 / H) : 0.026 + row * 0.006
+    const spacing = this.cells ? Math.max(0.026 + row * 0.006, (9 * this.px) / H) : 0.026 + row * 0.006
     const stalk = this.paint(corn.stalk)
     // The row's shaded mass of leaves, so the field reads as rows rather than a tangle of thin strokes.
     const end = (0.36 * A + 0.03) * H
-    const mass: [number, number][] = [[-2, base + 2]]
-    for (let x = -2; x < end; x += 6) mass.push([x, base - height * (0.42 + 0.08 * Math.sin((x / H) * 37 + row * 2))])
-    mass.push([end + 0.02 * H, base + 2])
+    const px = this.px
+    const mass: [number, number][] = [[-2 * px, base + 2 * px]]
+    for (let x = -2 * px; x < end; x += 6 * px) mass.push([x, base - height * (0.42 + 0.08 * Math.sin((x / H) * 37 + row * 2))])
+    mass.push([end + 0.02 * H, base + 2 * px])
     this.polygon(mass, [stalk[0] * 0.6, stalk[1] * 0.6, stalk[2] * 0.6])
     for (let i = 0; i * spacing < 0.36 * A; i++) {
       const x = (i * spacing + (row % 2) * spacing * 0.5 + hash(i * 3.1 + row) * 0.008) * H

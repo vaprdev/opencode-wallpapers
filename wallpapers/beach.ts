@@ -182,7 +182,6 @@ class Beach extends Canvas {
   private readonly look: Look
   private lighting: Lighting = { style: "front", dir: DAYLIGHT }
   private readonly shade: Shade
-  private background = new Float32Array(0)
   private stars: Star[]
   private clouds: Cloud[]
   // Towering cumulus far out on the sea horizon, painted into the background, and shadows of the near clouds.
@@ -322,7 +321,7 @@ class Beach extends Canvas {
   protected override layout() {
     const { W, H, A, look } = this
     this.lighting = look.style === "front" ? { style: "front", dir: DAYLIGHT } : { style: "rim", color: look.light, x: look.orb.x * W, y: look.orb.y * H }
-    paintSky(this.hdr, W, H, look.sky, look.orb)
+    paintSky(this.hdr, W, H, look.sky, look.orb, this.px)
     this.weather.cover(this.hdr, W, H)
     const sky = this.hdr.slice()
     if (!this.weather.covered) paintClouds(this.hdr, W, H, this.towers, look.clouds.top, look.clouds.bottom, look.clouds.alpha, look.orb)
@@ -336,9 +335,12 @@ class Beach extends Canvas {
     }
     // Dry sand everywhere below the horizon; the sea covers it down to the waterline each frame.
     const [dry] = look.sand
+    const px = this.px
     for (let y = Math.floor(HORIZON * H); y < H; y++)
       for (let x = 0; x < W; x++) {
-        const ripple = 0.92 + 0.08 * Math.sin(x * 0.4 + y * 1.1 + fbm1(x * 0.05 + y * 0.02, 3) * 5) + (hash2(x, y) - 0.5) * 0.06
+        const u = x / px
+        const v = y / px
+        const ripple = 0.92 + 0.08 * Math.sin(u * 0.4 + v * 1.1 + fbm1(u * 0.05 + v * 0.02, 3) * 5) + (hash2(Math.floor(u), Math.floor(v)) - 0.5) * 0.06
         const o = (y * W + x) * 3
         this.hdr[o] = dry[0] * ripple
         this.hdr[o + 1] = dry[1] * ripple
@@ -359,7 +361,6 @@ class Beach extends Canvas {
       { base: [0.12, 1.03], crown: [0.35, 0.33], lean: 1 },
       { base: [A - 0.1, 1.0], crown: [A - 0.27, 0.39], lean: -1 },
     ]
-    this.background = this.hdr.slice()
     // Each row of sea mirrors the sky about the horizon, stretched a little as rough water does, its ripples wobbling
     // wider toward the shore.
     const y0 = Math.floor(HORIZON * H)

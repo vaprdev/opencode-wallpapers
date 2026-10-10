@@ -142,7 +142,6 @@ class Tundra extends Canvas {
   private readonly look: Look
   private lighting: Lighting = { style: "front", dir: DAYLIGHT }
   private readonly shade: Shade
-  private background = new Float32Array(0)
   private stars: Star[]
   private clouds: Cloud[]
   private shadows = makeShadows(3, HORIZON + 0.08, 0.95)
@@ -265,9 +264,9 @@ class Tundra extends Canvas {
 
   // Everything that never moves is painted once per size into `background`, then copied in each frame.
   protected override layout() {
-    const { W, H, A, look } = this
+    const { W, H, A, look, px } = this
     this.lighting = look.style === "front" ? { style: "front", dir: DAYLIGHT } : { style: "rim", color: look.light, x: look.orb.x * W, y: look.orb.y * H }
-    paintSky(this.hdr, W, H, look.sky, look.orb)
+    paintSky(this.hdr, W, H, look.sky, look.orb, px)
     this.weather.cover(this.hdr, W, H)
     const sky = this.hdr.slice()
     this.drawMountains()
@@ -277,11 +276,11 @@ class Tundra extends Canvas {
     for (let x = 0; x < W; x++)
       for (let y = Math.max(0, Math.floor(drift[x])); y < H; y++) {
         const v = y / H
-        const waves = 0.5 + 0.5 * Math.sin((x / H) * 6 + v * 40 + fbm1(x * 0.02, 3) * 4)
+        const waves = 0.5 + 0.5 * Math.sin((x / H) * 6 + v * 40 + fbm1((x / px) * 0.02, 3) * 4)
         const k = smoothstep(0.3, 1, waves) * (look === LOOKS.day ? 0.2 : 0.35) * (1 - (v - 0.6) * 0.8)
         // By day the foreground lies in blue shadow, framing the sunlit middle distance.
         const c = lerpRGB(look.snow, look.shade, look === LOOKS.day ? Math.min(1, k + smoothstep(0.7, 1.1, v) * 0.45) : k)
-        const edge = look.style === "rim" ? Math.exp(-(y + 0.5 - drift[x]) / 2) * 0.3 : 0
+        const edge = look.style === "rim" ? Math.exp(-(y + 0.5 - drift[x]) / (2 * px)) * 0.3 : 0
         this.blend((y * W + x) * 3, c[0] + look.light[0] * edge, c[1] + look.light[1] * edge, c[2] + look.light[2] * edge, clamp(y + 1 - drift[x], 0, 1))
       }
     // By day, broad blue cloud shadows drift over the snow, and the far field and peaks fade into the sky.
@@ -304,7 +303,6 @@ class Tundra extends Canvas {
     this.pines.begin(this.hdr)
     for (const [fx, h] of [[0.04, 0.46], [0.11, 0.34], [0.955, 0.42], [0.995, 0.3]] as const) this.drawPine(fx * A, 1.02, h, 0)
     this.pines.end(this.hdr, W, H, 0.01 * H, (_x, y) => clamp((0.95 * H - y) / (0.4 * H), 0, 1) ** 1.5)
-    this.background = this.hdr.slice()
   }
 
   // Shadows under everything on the snow, drawn before any of it so none falls across another animal. The yeti has
@@ -362,7 +360,7 @@ class Tundra extends Canvas {
         let c = y < snowLine ? look.peaks : look.rock
         // Sunlit faces warm, shaded ones a crisp blue.
         if (look.style === "front") c = mulRGB(c, slope > 0.3 ? [1.05, 1, 0.92] : slope < -0.3 ? [0.45, 0.6, 0.92] : [0.8, 0.82, 0.9])
-        const edge = look.style === "rim" ? Math.exp(-(y + 0.5 - top[x]) / 1.8) * 0.5 : 0
+        const edge = look.style === "rim" ? Math.exp(-(y + 0.5 - top[x]) / (1.8 * this.px)) * 0.5 : 0
         c = lerpRGB(c, look.sky[look.sky.length - 1][1], haze * 0.5)
         this.blend((y * W + x) * 3, c[0] + look.light[0] * edge, c[1] + look.light[1] * edge, c[2] + look.light[2] * edge, clamp(y + 1 - top[x], 0, 1))
       }
@@ -398,7 +396,7 @@ class Tundra extends Canvas {
       for (let s = 0; s < 4; s++) {
         const nx = x + (hash(i * 9 + s) - 0.4) * 0.04
         const ny = y + (hash(i * 11 + s) - 0.5) * 0.012
-        parts.push(cap(x * H, y * H, nx * H, ny * H, 0.0015 * H, 0.001 * H, crack))
+        parts.push(cap(x * H, y * H, nx * H, ny * H, this.thick(0.0015, 0.55), this.thick(0.001, 0.45), crack))
         ;[x, y] = [nx, ny]
       }
       this.shape(parts, this.lighting, 0)
@@ -446,10 +444,10 @@ class Tundra extends Canvas {
     for (let row = 1; row < 4; row++) {
       const yy = base - (row / 4) * R * 0.85
       const half = R * Math.sqrt(1 - (row / 4) ** 2)
-      lines.push(cap((cx - half) * H, yy * H, (cx + half) * H, yy * H, 0.0018 * H, 0.0018 * H, seam))
+      lines.push(cap((cx - half) * H, yy * H, (cx + half) * H, yy * H, this.thick(0.0018, 0.6), this.thick(0.0018, 0.6), seam))
       for (let k = 0; k < 4; k++) {
         const sx = cx + (((k + (row % 2) * 0.5) / 4) * 2 - 1) * half * 0.85
-        lines.push(cap(sx * H, yy * H, sx * H, (yy + R * 0.21) * H, 0.001 * H, 0.001 * H, seam))
+        lines.push(cap(sx * H, yy * H, sx * H, (yy + R * 0.21) * H, this.thick(0.001, 0.5), this.thick(0.001, 0.5), seam))
       }
     }
     this.shape(lines, this.lighting, 0)

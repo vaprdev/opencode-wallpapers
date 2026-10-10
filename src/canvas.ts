@@ -8,6 +8,11 @@ const BLOOM_THRESHOLD = 0.82
 // Bloom changes smaller than this are left out when finish decides which blocks to tone-map again: under 0.06 of a
 // level at the steepest point of the tone curve.
 const BLOOM_EPSILON = 1e-4
+// layout() paints the static background at SUPERSAMPLE times the resolution while that stays within LAYOUT_PIXELS
+// (about a 270x70-cell terminal), which keeps a resize under about 150 ms; larger canvases, such as real-pixel mode on
+// a big terminal, paint it at their own size.
+const SUPERSAMPLE = 2
+const LAYOUT_PIXELS = 600_000
 
 export type Part =
   | { kind: "capsule"; ax: number; ay: number; bx: number; by: number; r0: number; r1: number; color: RGB; ribs: number }
@@ -156,8 +161,17 @@ export abstract class Canvas {
     return best
   }
 
-  // Called after every size change, once the buffers match the new size.
+  // Called after every size change, once the buffers match the new size, to paint what never moves into hdr; Canvas
+  // keeps the result in `background` for render() to start from. It usually runs twice: first with W, H and hdr
+  // `supersample` times larger, painting a background that is then box-filtered down so every static edge is
+  // anti-aliased, then at the real size for everything else render() reads (positions, masks, per-pixel layers), whose
+  // painting is dropped. `px` is one real pixel in the current pass's pixels: scale pixel-sized widths, offsets and
+  // textures by it.
   protected layout() {}
+  protected background = new Float32Array(0)
+  protected px = 1
+  // 1 for scenes whose layout() paints nothing.
+  protected supersample = SUPERSAMPLE
 
   resize(W: number, H: number, cells = false) {
     W = Math.max(64, Math.round(W))
@@ -213,16 +227,38 @@ export abstract class Canvas {
       this.colB[x] = Math.min(this.bw - 1, i + 1) * 3
       this.colF[x] = clamp(bx - i, 0, 1)
     }
+    const S = W * H * this.supersample ** 2 <= LAYOUT_PIXELS ? this.supersample : 1
+    let fine: Float32Array | undefined
+    if (S > 1) {
+      const hdr = this.hdr
+      this.W = W * S
+      this.H = H * S
+      this.px = S
+      this.hdr = new Float32Array(W * S * H * S * 3)
+      this.layout()
+      fine = this.hdr
+      this.W = W
+      this.H = H
+      this.px = 1
+      this.hdr = hdr
+    }
     this.layout()
     keepShadows(this.hdr)
-    this.still = this.hdr.slice()
+    this.background = fine ? shrink(fine, W, H, S, 3) : this.hdr.slice()
+    this.still = this.background
     this.stillExposure = NaN
   }
 
-  // A stroke radius in screen heights, in pixels; on terminal cells never under min, since thinner strokes break up
-  // into noise there and shimmer as they move.
+  // Box-filters buf, a buffer of the size being painted in layout()'s supersampled pass with `channels` values per
+  // pixel, down to the real size; for per-pixel layers that render() reads, kept from that pass for the next.
+  protected shrink(buf: Float32Array, channels = 3) {
+    return shrink(buf, this.W / this.px, this.H / this.px, this.px, channels)
+  }
+
+  // A stroke radius in screen heights, in pixels; on terminal cells never under min real pixels, since thinner strokes
+  // break up into noise there and shimmer as they move.
   protected thick(radius: number, min = 1) {
-    return this.cells ? Math.max(radius * this.H, min) : radius * this.H
+    return this.cells ? Math.max(radius * this.H, min * this.px) : radius * this.H
   }
 
   // Adds light to one pixel.
@@ -263,7 +299,7 @@ export abstract class Canvas {
   // only the outline facing the light catches it; with front lighting each part is shaded as a rounded form.
   // light scales the effect (0 draws flat color).
   protected shape(parts: Part[], lighting: Lighting, light = 1) {
-    fillShape(this.hdr, this.W, this.H, parts, lighting, light)
+    fillShape(this.hdr, this.W, this.H, parts, lighting, light, this.px)
   }
 
   // Bloom, vignette and ACES tone mapping from hdr into pixels.
@@ -315,6 +351,23 @@ function blurLines(src: Float32Array, dst: Float32Array, k0: number, k1: number,
   }
 }
 
+// Averages each S x S block of src (W * S by H * S pixels of `channels` values) into one pixel.
+function shrink(src: Float32Array, W: number, H: number, S: number, channels: number) {
+  const out = new Float32Array(W * H * channels)
+  const k = 1 / (S * S)
+  for (let y = 0; y < H; y++)
+    for (let sy = 0; sy < S; sy++) {
+      const row = (y * S + sy) * W * S
+      for (let x = 0; x < W; x++)
+        for (let sx = 0; sx < S; sx++) {
+          const i = (row + x * S + sx) * channels
+          const o = (y * W + x) * channels
+          for (let c = 0; c < channels; c++) out[o + c] += src[i + c] * k
+        }
+    }
+  return out
+}
+
 function fillDisc(hdr: Float32Array, W: number, H: number, cx: number, cy: number, rad: number, r: number, g: number, b: number, a: number) {
   const x0 = Math.max(0, Math.floor(cx - rad - 1))
   const x1 = Math.min(W - 1, Math.ceil(cx + rad + 1))
@@ -354,7 +407,8 @@ function fillEllipse(hdr: Float32Array, W: number, H: number, cx: number, cy: nu
   }
 }
 
-function fillShape(hdr: Float32Array, W: number, H: number, parts: Part[], lighting: Lighting, light: number) {
+// unit is Canvas.px: the rim light reaches 2.2 real pixels in.
+function fillShape(hdr: Float32Array, W: number, H: number, parts: Part[], lighting: Lighting, light: number, unit: number) {
   if (!parts.length) return
   // The shape's overall extent: the pixels it can cover, and the direction its rim light comes from.
   let cx0 = Infinity
@@ -449,7 +503,7 @@ function fillShape(hdr: Float32Array, W: number, H: number, parts: Part[], light
         hdr[o + 2] += (c[2] * shade - hdr[o + 2]) * cov
         continue
       }
-      const lit = light * clamp((best + 2.2) / 2.2, 0, 1) * Math.max(0, nx * sx + ny * sy) * 0.8
+      const lit = light * clamp((best + 2.2 * unit) / (2.2 * unit), 0, 1) * Math.max(0, nx * sx + ny * sy) * 0.8
       hdr[o] += (c[0] * k + lighting.color[0] * lit - hdr[o]) * cov
       hdr[o + 1] += (c[1] * k + lighting.color[1] * lit - hdr[o + 1]) * cov
       hdr[o + 2] += (c[2] * k + lighting.color[2] * lit - hdr[o + 2]) * cov
@@ -621,11 +675,13 @@ function fillPolygon(hdr: Float32Array, W: number, H: number, pts: readonly (rea
       const px = x + 0.5
       const py = y + 0.5
       let inside = false
-      let dmin = Infinity
+      let dmin = 0.5
       for (let i = 0, j = n - 1; i < n; j = i++) {
         const [ax, ay] = pts[j]
         const [bx, by] = pts[i]
         if (ay > py !== by > py && px < ((bx - ax) * (py - ay)) / (by - ay) + ax) inside = !inside
+        // Only edges within half a pixel change the coverage.
+        if (px < Math.min(ax, bx) - 0.5 || px > Math.max(ax, bx) + 0.5 || py < Math.min(ay, by) - 0.5 || py > Math.max(ay, by) + 0.5) continue
         const dx = bx - ax
         const dy = by - ay
         const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy || 1e-6)))

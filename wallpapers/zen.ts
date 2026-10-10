@@ -204,7 +204,6 @@ class Zen extends Canvas {
   private readonly look: Look
   private lighting: Lighting = { style: "front", dir: DAYLIGHT }
   private readonly shade: Shade
-  private background = new Float32Array(0)
   private stars: Star[]
   private clouds: Cloud[]
   private pond = { x: 1, y: 0.8, rx: 0.45, ry: 0.14 }
@@ -219,6 +218,8 @@ class Zen extends Canvas {
   // The still water's color, reflections included, which the ripples shift sideways.
   private mirror = new Float32Array(0)
   private wave = new Float32Array(0)
+  // The supersampled layout pass's sky, bank and front garden on black and on white, for the real-size pass.
+  private layers: Float32Array[] | undefined
   private pads: { x: number; y: number; r: number }[] = []
   private koi: Koi[] = []
   private rings: Ring[] = []
@@ -357,7 +358,18 @@ class Zen extends Canvas {
     const rx = Math.min(0.25 * A, 0.56)
     this.pond = { x: Math.max(0.64 * A, 0.36 * A + rx + 0.06), y: 0.8, rx, ry: 0.14 }
     this.cherry = { x: A - 0.2, y: 0.27 }
-    paintSky(this.hdr, W, H, look.sky, look.orb)
+    // Lily pads, placed in pond coordinates (-1..1 across and down).
+    const p = this.pond
+    this.pads = [
+      [-0.15, -0.5, 0.045],
+      [0.3, -0.6, 0.035],
+      [0.55, 0.35, 0.05],
+      [0.08, 0.5, 0.05],
+      [-0.62, -0.15, 0.04],
+      [0.35, 0.02, 0.03],
+      [-0.3, 0.2, 0.028],
+    ].map(([u, v, r]) => ({ x: p.x + u * p.rx, y: p.y + v * p.ry, r }))
+    paintSky(this.hdr, W, H, look.sky, look.orb, this.px)
     this.weather.cover(this.hdr, W, H)
     const clear = this.hdr.slice()
     this.drawHills()
@@ -373,8 +385,23 @@ class Zen extends Canvas {
     for (const r of this.rocks()) ground(r.x + r.r * 0.2, r.y + r.r * 0.15, r.r * 2.2, r.r * 1.4, 0.8)
     for (const [i, l] of this.lanterns().entries()) ground(l.x, l.base, l.scale * (i === 0 ? 0.45 : 1), l.scale * (i === 0 ? 1 : 0.8), i === 0 ? 0.9 : 0.8)
     this.drawBackGarden()
+    const bank = this.hdr.slice()
+    // The garden in front of the water, painted on black and on white, gives its color and coverage there. Every
+    // primitive mixes linearly over what's under it, so the garden over the bank is the black layer plus the white
+    // one's coverage of the bank.
+    const black = this.frontGardenOn(0)
+    const white = this.frontGardenOn(1)
+    const hdr = this.hdr
+    for (let i = 0; i < hdr.length; i++) hdr[i] = black[i] + (white[i] - black[i]) * hdr[i]
+    this.trees.seal(this.hdr, W)
+    // The supersampled pass hands these layers, box-filtered, to the real-size pass, which builds the water from them.
+    if (this.px > 1) {
+      this.layers = [sky, bank, black, white].map((layer) => this.shrink(layer))
+      return
+    }
+    const [skyLayer, bankLayer, onBlack, onWhite] = this.layers ?? [sky, bank, black, white]
+    this.layers = undefined
     // Find the water, note what lies under its edges, and work out its still color with the sky mirrored in it.
-    const p = this.pond
     const pool: number[] = []
     this.wet = new Float32Array(W * H)
     for (let y = Math.floor(0.56 * H); y < H; y++)
@@ -386,7 +413,7 @@ class Zen extends Canvas {
       }
     this.pool = Int32Array.from(pool)
     this.under = new Float32Array(pool.length * 3)
-    for (let k = 0; k < pool.length; k++) for (let c = 0; c < 3; c++) this.under[k * 3 + c] = this.hdr[pool[k] * 3 + c]
+    for (let k = 0; k < pool.length; k++) for (let c = 0; c < 3; c++) this.under[k * 3 + c] = bankLayer[pool[k] * 3 + c]
     this.mirror = new Float32Array(W * H * 3)
     this.wave = new Float32Array(W)
     const lamps = this.lanterns()
@@ -397,9 +424,9 @@ class Zen extends Canvas {
       for (let x = 0; x < W; x++) {
         const o = (y * W + x) * 3
         const s = (sy * W + x) * 3
-        let r = look.water[0] * (1 - m) + sky[s] * m
-        let g = look.water[1] * (1 - m) + sky[s + 1] * m
-        let b = look.water[2] * (1 - m) + sky[s + 2] * m
+        let r = look.water[0] * (1 - m) + skyLayer[s] * m
+        let g = look.water[1] * (1 - m) + skyLayer[s + 1] * m
+        let b = look.water[2] * (1 - m) + skyLayer[s + 2] * m
         // Lantern light streaks down the water below each lantern.
         for (const l of lamps) {
           const k = Math.exp(-(((x - l.x * H) / (0.012 * H)) ** 2) - ((y - (2 * l.base - l.light) * H) / (0.035 * H)) ** 2) * look.lamps * 0.7
@@ -412,35 +439,23 @@ class Zen extends Canvas {
         this.mirror[o + 2] = b
       }
     }
-    // Lily pads, placed in pond coordinates (-1..1 across and down).
-    this.pads = [
-      [-0.15, -0.5, 0.045],
-      [0.3, -0.6, 0.035],
-      [0.55, 0.35, 0.05],
-      [0.08, 0.5, 0.05],
-      [-0.62, -0.15, 0.04],
-      [0.35, 0.02, 0.03],
-      [-0.3, 0.2, 0.028],
-    ].map(([u, v, r]) => ({ x: p.x + u * p.rx, y: p.y + v * p.ry, r }))
-    // Paint the garden in front of the water on black and on white to find its color and coverage, then for real.
-    const real = this.hdr
-    this.hdr = new Float32Array(real.length)
-    this.drawFrontGarden()
-    const black = this.hdr
-    this.hdr = new Float32Array(real.length).fill(1)
-    this.drawFrontGarden()
-    const white = this.hdr
-    this.hdr = real
-    this.drawFrontGarden()
     this.front = new Float32Array(pool.length * 3)
     this.keep = new Float32Array(pool.length)
     for (let k = 0; k < pool.length; k++) {
       const i = pool[k] * 3
-      this.front.set([black[i], black[i + 1], black[i + 2]], k * 3)
-      this.keep[k] = white[i] - black[i]
+      this.front.set([onBlack[i], onBlack[i + 1], onBlack[i + 2]], k * 3)
+      this.keep[k] = onWhite[i] - onBlack[i]
     }
-    this.trees.seal(this.hdr, W)
-    this.background = this.hdr.slice()
+  }
+
+  // The garden in front of the water, painted alone over a plain `fill`.
+  private frontGardenOn(fill: number) {
+    const real = this.hdr
+    this.hdr = new Float32Array(real.length).fill(fill)
+    this.drawFrontGarden()
+    const out = this.hdr
+    this.hdr = real
+    return out
   }
 
   private paint(c: RGB): RGB {
@@ -486,24 +501,26 @@ class Zen extends Canvas {
     const [far, near] = look.hills
     const peak = 0.42 * A
     const fuji = (u: number) => 0.255 + 0.24 * (1 - Math.exp(-Math.max(0, Math.abs(u - peak) - 0.012) / 0.17))
+    // The hills stop where the garden's ground covers them.
+    const bottom = Math.min(H, Math.ceil((GROUND + 0.004) * H))
     for (let x = 0; x < W; x++) {
       const u = x / H
       const range = 0.41 - 0.035 * fbm1(u * 1.3, 3) - 0.015 * Math.sin(u * 2.5 + 1)
       const top = Math.min(range, fuji(u)) * H
       const snowline = (0.3 + 0.012 * Math.sin(u * 140) * Math.sin(u * 37) - 0.01 * Math.abs(Math.sin(u * 61))) * H
-      for (let y = Math.max(0, Math.floor(top)); y < H; y++) {
+      for (let y = Math.max(0, Math.floor(top)); y < bottom; y++) {
         const c = this.rim(fuji(u) <= range && y < snowline ? look.snow : far, x, y + 0.5 - top, 1.5)
         this.blend((y * W + x) * 3, c[0], c[1], c[2], clamp(y + 1 - top, 0, 1))
       }
     }
     for (let y = Math.floor(0.36 * H); y < Math.min(H, GROUND * H); y++) {
       const k = smoothstep(0.36, HORIZON, y / H) * 0.55
-      for (let x = 0; x < W; x++) this.blend((y * W + x) * 3, look.mist[0], look.mist[1], look.mist[2], k * (0.8 + 0.2 * Math.sin((x / H) * 6 + y * 0.1)))
+      for (let x = 0; x < W; x++) this.blend((y * W + x) * 3, look.mist[0], look.mist[1], look.mist[2], k * (0.8 + 0.2 * Math.sin((x / H) * 6 + (y / this.px) * 0.1)))
     }
     for (let x = 0; x < W; x++) {
       const u = x / H
       const top = (0.485 - 0.012 * fbm1(u * 7, 5) - 0.01 * Math.sin(u * 2 + 2)) * H
-      for (let y = Math.max(0, Math.floor(top)); y < H; y++) {
+      for (let y = Math.max(0, Math.floor(top)); y < bottom; y++) {
         const c = this.rim(near, x, y + 0.5 - top, 2)
         this.blend((y * W + x) * 3, c[0], c[1], c[2], clamp(y + 1 - top, 0, 1))
       }
@@ -528,11 +545,11 @@ class Zen extends Canvas {
     this.polygon([P(-0.001, -0.09), P(0.001, -0.09), P(0.001, -0.115), P(-0.001, -0.115)], roof)
   }
 
-  // At sunset and night, the top edge of a hill catches the light.
+  // At sunset and night, the top edge of a hill catches the light, over about width real pixels.
   private rim(base: RGB, x: number, depth: number, width: number): RGB {
     if (this.look.style === "front") return base
     const glow = 0.35 + 0.65 * Math.exp(-Math.abs(x - this.look.orb.x * this.W) / (0.45 * this.H))
-    const k = Math.exp(-depth / width) * glow * 0.35
+    const k = Math.exp(-depth / (width * this.px)) * glow * 0.35
     return [base[0] + this.look.light[0] * k, base[1] + this.look.light[1] * k, base[2] + this.look.light[2] * k]
   }
 
@@ -545,14 +562,15 @@ class Zen extends Canvas {
     const k = (0.03 - s0) / (1 - GROUND)
     // Lines stay at least 8 pixels apart (two terminal cells), so they read as lines rather than moiré. Nearer than
     // where the perspective spacing passes that, they widen as before.
-    const least = this.cells ? Math.max(s0, 8 / H) : s0
+    const px = this.px
+    const least = this.cells ? Math.max(s0, (8 * px) / H) : s0
     const near = GROUND + (least - s0) / k
     for (let y = Math.floor(GROUND * H); y < H; y++) {
       const v = (y + 0.5) / H
       const perspective = s0 + k * (v - GROUND)
       const spacing = Math.max(least, perspective)
       // Rings are squashed to 0.42 of their width, so they sit farther apart to stay clear of each other down the screen.
-      const ring = this.cells ? Math.max(perspective, 6 / (0.42 * H)) : perspective
+      const ring = this.cells ? Math.max(perspective, (6 * px) / (0.42 * H)) : perspective
       const lines = v < near ? (v - GROUND) / least : (near - GROUND) / least + Math.log(spacing / least) / k
       for (let x = 0; x < W; x++) {
         const u = (x + 0.5) / H
@@ -568,10 +586,10 @@ class Zen extends Canvas {
           if (d < r.r + 4.4 * perspective + ring) groove = Math.sin(((d - r.r) / ring) * TAU)
           moss += smoothstep(r.r * 1.12, r.r * 0.95, d)
         }
-        const grain = (hash2(x, y) - 0.5) * 0.08
+        const grain = (hash2(Math.floor(x / px), Math.floor(y / px)) - 0.5) * 0.08
         const g = 0.93 + 0.1 * groove + grain
         const m = clamp(moss, 0, 1)
-        const mt = 0.85 + 0.25 * hash2(x >> 1, y >> 1) + 0.1 * Math.sin(u * 40 + v * 30)
+        const mt = 0.85 + 0.25 * hash2(Math.floor(x / px) >> 1, Math.floor(y / px) >> 1) + 0.1 * Math.sin(u * 40 + v * 30)
         const o = (y * W + x) * 3
         const cov = clamp((v - top) * H + 0.5, 0, 1)
         this.blend(o, lerp(look.gravel[0] * g, look.moss[0] * mt, m), lerp(look.gravel[1] * g, look.moss[1] * mt, m), lerp(look.gravel[2] * g, look.moss[2] * mt, m), cov)
@@ -761,14 +779,14 @@ class Zen extends Canvas {
     const red = this.paint(VERMILION)
     const shadow = this.paint([0.4, 0.08, 0.04])
     const posts: Part[] = []
-    for (const s of [-0.45, 0.45]) posts.push(cap((bx + s * span) * H, deck(s) * H, (bx + s * span) * H, (by + 0.03) * H, 0.004 * H, 0.004 * H, this.paint([0.2, 0.1, 0.08])))
+    for (const s of [-0.45, 0.45]) posts.push(cap((bx + s * span) * H, deck(s) * H, (bx + s * span) * H, (by + 0.03) * H, this.thick(0.004, 0.95), this.thick(0.004, 0.95), this.paint([0.2, 0.1, 0.08])))
     this.shape(posts, this.lighting, 0.4)
     const S = Array.from({ length: 25 }, (_, i) => -1.05 + (i / 24) * 2.1)
     this.polygon([...S.map((s) => [(bx + s * span) * H, (deck(s) - 0.004) * H] as const), ...S.toReversed().map((s) => [(bx + s * span) * H, deck(s) * H] as const)], this.paint([0.42, 0.3, 0.2]))
     this.polygon([...S.map((s) => [(bx + s * span) * H, deck(s) * H] as const), ...S.toReversed().map((s) => [(bx + s * span) * H, (deck(s) + 0.012) * H] as const)], red)
     this.polygon([...S.map((s) => [(bx + s * span) * H, (deck(s) + 0.012) * H] as const), ...S.toReversed().map((s) => [(bx + s * span) * H, (deck(s) + 0.016) * H] as const)], shadow)
     const rail: Part[] = []
-    const r = 0.0022 * H
+    const r = this.thick(0.0022, 0.55)
     for (let i = 0; i < 9; i++) {
       const s = -0.95 + (i / 8) * 1.9
       rail.push(cap((bx + s * span) * H, deck(s) * H, (bx + s * span) * H, (deck(s) - 0.026) * H, r, r, red))
