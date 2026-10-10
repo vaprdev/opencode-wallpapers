@@ -258,15 +258,15 @@ class Tundra extends Canvas {
       for (let y = Math.max(0, Math.floor(drift[x])); y < H; y++) {
         const v = y / H
         const waves = 0.5 + 0.5 * Math.sin((x / H) * 6 + v * 40 + fbm1(x * 0.02, 3) * 4)
-        const k = smoothstep(0.3, 1, waves) * (look === LOOKS.day ? 0.5 : 0.35) * (1 - (v - 0.6) * 0.8)
+        const k = smoothstep(0.3, 1, waves) * (look === LOOKS.day ? 0.2 : 0.35) * (1 - (v - 0.6) * 0.8)
         // By day the foreground lies in blue shadow, framing the sunlit middle distance.
-        const c = lerpRGB(look.snow, look.shade, look === LOOKS.day ? Math.min(1, k + smoothstep(0.72, 1.1, v) * 0.4) : k)
+        const c = lerpRGB(look.snow, look.shade, look === LOOKS.day ? Math.min(1, k + smoothstep(0.7, 1.1, v) * 0.45) : k)
         const edge = look.style === "rim" ? Math.exp(-(y + 0.5 - drift[x]) / 2) * 0.3 : 0
         this.blend((y * W + x) * 3, c[0] + look.light[0] * edge, c[1] + look.light[1] * edge, c[2] + look.light[2] * edge, clamp(y + 1 - drift[x], 0, 1))
       }
     // By day, broad blue cloud shadows drift over the snow, and the far field and peaks fade into the sky.
     if (look === LOOKS.day) {
-      mottle(this.hdr, W, H, 0.6, 1, 0.7, [1.04, 1, 0.9], [0.46, 0.62, 1])
+      mottle(this.hdr, W, H, 0.6, 1, 0.7, [1.04, 1, 0.9], [0.5, 0.66, 1])
       haze(this.hdr, sky, W, H, 0.6, 0.8, 0.15, 0)
     }
     this.drawLake(0.5 * A, 0.72, 0.3, 0.045)
