@@ -501,7 +501,7 @@ class Prehistoric extends Canvas {
       }
       if (this.cells) parts.push(...blade(spine, widths, frond))
       // On terminal cells rim light would outline every frond in scribbles; they stay near-silhouettes there.
-      this.shape(parts, this.lighting, this.look.style === "rim" ? (this.cells ? 0.12 : 0.3) : 0.6)
+      this.shape(parts, this.lighting, this.look.style === "rim" ? (this.cells ? 0.18 : 0.3) : 0.6)
     }
     this.shape([ell(x * H, (top - 0.008) * H, size * 0.12 * H, size * 0.16 * H, 0, this.paint([0.7, 0.5, 0.2]), 3)], this.lighting, 0.6)
   }
@@ -533,7 +533,7 @@ class Prehistoric extends Canvas {
       }
       if (this.cells) parts.push(...blade(spine, widths, fern))
       // On terminal cells rim light would outline every frond in scribbles; they stay near-silhouettes there.
-      this.shape(parts, this.lighting, this.look.style === "rim" ? (this.cells ? 0.12 : 0.3) : 0.6)
+      this.shape(parts, this.lighting, this.look.style === "rim" ? (this.cells ? 0.18 : 0.3) : 0.6)
     }
   }
 
