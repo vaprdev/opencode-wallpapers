@@ -135,6 +135,11 @@ details), and values in between soften it.
 - `makeClouds(count, puffy, y0, y1)`, `driftClouds(clouds, A, dt)` and `paintClouds(hdr, W, H, clouds, top, bottom,
   alpha, puffy)` give puffy cumulus or thin streaks, shaded from `top` to `bottom`.
 
+`src/grade.ts` gives daytime depth in `layout()`: `haze(hdr, sky, W, H, y0, y1, far, near?, top?)` fades what was
+painted toward a copy of the sky taken right after `paintSky` (call it after each layer so farther ones fade more), and
+`mottle(hdr, W, H, horizon, bottom, size, warm, cool)` lays broad warm and cool patches over the ground in perspective.
+Setting `this.frame` (0 to 1) in the constructor darkens the bottom corners to frame a bright foreground.
+
 `src/math.ts` has `TAU`, `lerp`, `clamp`, `smoothstep`, `rand`, stable hashes (`hash`, `hash2`, `hashString`), smooth
 noise (`noise1`, `noise2`, `fbm1`, `fbm2`), `hsv` and the `RGB` type.
 
