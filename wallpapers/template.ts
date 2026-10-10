@@ -1,7 +1,7 @@
 // A starter wallpaper: rolling hills with a tree, a hot-air balloon and birds. It is not registered in index.ts; try it
 // with `WALLPAPER_MODULES=$PWD/wallpapers/template.ts bun dev/snap.ts template teeming day 30`. In a package of your
 // own, import from "opencode-wallpapers/api" instead of "../src/api". See CONTRIBUTING.md.
-import { Canvas, TAU, cap, clamp, driftClouds, ell, fbm1, makeClouds, makeStars, paintClouds, paintSky, paintStars, type Activity, type Cloud, type Lighting, type Orb, type RGB, type Settings, type Star, type Time, type Wallpaper } from "../src/api"
+import { Canvas, TAU, cap, clamp, driftClouds, ell, fbm1, groundShadow, makeClouds, makeStars, paintClouds, paintSky, paintStars, sunShade, type Activity, type Cloud, type Lighting, type Orb, type RGB, type Settings, type Shade, type Star, type Time, type Wallpaper } from "../src/api"
 
 // Every wallpaper runs slower than real time, and its creatures slower still, so nothing is busy behind text.
 const TIME_SCALE = 0.35
@@ -90,6 +90,7 @@ class Template extends Canvas {
   private readonly activity: Activity
   private readonly look: Look
   private lighting: Lighting = { style: "front", dir: DAYLIGHT }
+  private readonly shade: Shade
   private background = new Float32Array(0)
   private stars: Star[]
   private clouds: Cloud[]
@@ -99,6 +100,7 @@ class Template extends Canvas {
     super()
     this.activity = settings.activity
     this.look = LOOKS[settings.time]
+    this.shade = sunShade(settings.time, this.look.orb)
     this.stars = makeStars(this.look.stars, 0.55)
     this.clouds = makeClouds(4, true, 0.08, 0.3)
   }
@@ -145,6 +147,8 @@ class Template extends Canvas {
       }
     // A tree on the near hill: shape() joins the parts into one lit form.
     const [tx, ty] = [0.8 * A * H, 0.86 * H]
+    // Its shadow first, so the tree stands on it: width and height in pixels, and how much wider the crown's end is.
+    groundShadow(hdr, W, H, this.shade, tx, ty, 0.08 * H, 0.24 * H, 1.6)
     this.shape([cap(tx, ty, tx, ty - 0.12 * H, 0.012 * H, 0.008 * H, this.paint([0.4, 0.28, 0.18]))], this.lighting)
     const leaves = this.paint([0.2, 0.42, 0.14])
     this.shape([ell(tx, ty - 0.18 * H, 0.07 * H, 0.06 * H, 0, leaves), ell(tx - 0.05 * H, ty - 0.14 * H, 0.045 * H, 0.04 * H, 0, leaves), ell(tx + 0.05 * H, ty - 0.14 * H, 0.045 * H, 0.04 * H, 0, leaves)], this.lighting)

@@ -135,6 +135,15 @@ details), and values in between soften it.
 - `makeClouds(count, puffy, y0, y1)`, `driftClouds(clouds, A, dt)` and `paintClouds(hdr, W, H, clouds, top, bottom,
   alpha, puffy)` give puffy cumulus or thin streaks, shaded from `top` to `bottom`.
 
+### Shadows
+
+`src/shadow.ts` grounds things standing on the ground. Make one `Shade` with `sunShade(time, look.orb,
+weather.covered)`, then call `groundShadow(hdr, W, H, shade, x, y, w, h, tip?, lift?)` with the ground point under a
+thing, its width and height in pixels, before drawing it: static things in `layout()`, moving ones each frame. It draws a
+soft contact shadow and a cast shadow away from the light: short by day, long and spreading from the low sun at sunset,
+faint at night, contact only under cloud. `lift` (pixels off the ground) fades the contact shadow and slides the cast one
+away, for hops and lifts. Shadows multiply the ground toward a sky-tinted color, so they never gray it.
+
 `src/math.ts` has `TAU`, `lerp`, `clamp`, `smoothstep`, `rand`, stable hashes (`hash`, `hash2`, `hashString`), smooth
 noise (`noise1`, `noise2`, `fbm1`, `fbm2`), `hsv` and the `RGB` type.
 
