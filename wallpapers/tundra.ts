@@ -1,4 +1,5 @@
 import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
+import { bob, body, chain, gait, quadruped, stepGait, stride, view, type Gait } from "../src/creature"
 import { eggWait } from "../src/egg"
 import { haze, mottle } from "../src/grade"
 import { lightPool } from "../src/light"
@@ -136,6 +137,7 @@ interface Walker {
   moving: boolean
   // Creature time into a hop after a click; negative while waiting its turn, Infinity when not hopping.
   hop: number
+  g: Gait
 }
 
 class Tundra extends Canvas {
@@ -172,7 +174,7 @@ class Tundra extends Canvas {
     this.weather = new WeatherLayer(settings.weather ?? "clear", settings.time, HORIZON)
     this.shade = sunShade(settings.time, this.look.orb, this.weather.covered)
     this.flakes = Array.from({ length: settings.weather ? 0 : { calm: 70, lively: 100, teeming: 130 }[settings.activity] }, () => ({ x: Math.random() * 4, y: Math.random(), z: Math.random(), s: Math.random() }))
-    const walker = (x: number, y: number): Walker => ({ x, y, wx: x, wy: y, wanderT: 0, face: 1, phase: Math.random() * TAU, rest: 0, moving: false, hop: Infinity })
+    const walker = (x: number, y: number): Walker => ({ x, y, wx: x, wy: y, wanderT: 0, face: 1, phase: Math.random() * TAU, rest: 0, moving: false, hop: Infinity, g: gait(1, hash(x * 7 + y)) })
     if (settings.activity !== "calm") {
       this.penguins = Array.from({ length: settings.activity === "teeming" ? 5 : 3 }, (_, i) => walker(0.6 + i * 0.12, 0.78 + (i % 2) * 0.015))
       this.fox = walker(0.9, 0.88)
@@ -201,9 +203,9 @@ class Tundra extends Canvas {
     }
     this.stepOwl(dt)
     const A = this.A
-    for (const p of this.penguins) this.wander(p, cdt, [0.34 * A, 0.58 * A, 0.77, 0.81], 0.025)
-    if (this.fox) this.wander(this.fox, cdt, [0.3 * A, 0.95 * A, 0.84, 0.92], 0.04)
-    if (this.bear) this.wander(this.bear, cdt, [0.25 * A, 0.85 * A, 0.648, 0.662], 0.025)
+    for (const p of this.penguins) this.wander(p, cdt, [0.34 * A, 0.58 * A, 0.77, 0.81], 0.025, 0.012)
+    if (this.fox) this.wander(this.fox, cdt, [0.3 * A, 0.95 * A, 0.84, 0.92], 0.04, 0.038)
+    if (this.bear) this.wander(this.bear, cdt, [0.25 * A, 0.85 * A, 0.648, 0.662], 0.025, 0.08)
     const f = this.fisher
     f.next -= cdt
     if (f.next <= 0) {
@@ -310,17 +312,17 @@ class Tundra extends Canvas {
     const H = this.H
     const ground = (x: number, y: number, w: number, h: number, tip?: number, lift?: number) => groundShadow(this.hdr, this.W, H, this.shade, x * H, y * H, w * H, h * H, tip, lift)
     if (this.bear) {
-      const S = 0.13 * this.depthScale(this.bear.y)
-      ground(this.bear.x + this.bear.face * 0.05 * S, this.bear.y, 1.0 * S, 0.6 * S, 0.8)
+      const S = 0.16 * this.depthScale(this.bear.y)
+      ground(this.bear.x + this.bear.face * 0.04 * S, this.bear.y, 0.85 * S, 0.5 * S, 0.8)
     }
     if (this.activity === "teeming") ground(0.68 * this.A + 0.05, 0.718, 0.04, 0.11, 0.6)
     for (const p of this.penguins) {
-      const S = 0.07 * this.depthScale(p.y)
+      const S = 0.075 * this.depthScale(p.y)
       const hop = p.hop >= 0 && p.hop < HOP ? Math.abs(Math.sin((p.hop / HOP) * TAU)) * 0.025 * this.depthScale(p.y) : 0
       ground(p.x, p.y, 0.45 * S, S, 0.6, hop * H)
     }
     if (this.fox) {
-      const S = 0.08 * this.depthScale(this.fox.y)
+      const S = 0.064 * this.depthScale(this.fox.y)
       ground(this.fox.x - this.fox.face * 0.05 * S, this.fox.y, 1.1 * S, 0.7 * S, 0.7)
     }
   }
@@ -511,7 +513,14 @@ class Tundra extends Canvas {
     }
   }
 
-  private wander(w: Walker, dt: number, zone: [number, number, number, number], speed: number) {
+  // stride is the distance a full step cycle covers at the front of the snowfield, so the legs keep pace with the ground.
+  private wander(w: Walker, dt: number, zone: [number, number, number, number], speed: number, stride: number) {
+    const [x0, y0] = [w.x, w.y]
+    this.roam(w, dt, zone, speed)
+    stepGait(w.g, Math.hypot(w.x - x0, w.y - y0) / (stride * this.depthScale(w.y)), dt, w.face)
+  }
+
+  private roam(w: Walker, dt: number, zone: [number, number, number, number], speed: number) {
     w.phase += dt * (w.moving ? 6 : 1)
     if (w.rest > 0) {
       w.rest -= dt
@@ -542,33 +551,46 @@ class Tundra extends Canvas {
     return 0.55 + (y - 0.65) * 2.5
   }
 
-  // A penguin waddling side to side, flippers out.
+  // A penguin waddling side to side on short steps, flippers out and trailing as it sets off and stops; its white
+  // front comes round as it turns.
   private drawPenguin(p: Walker) {
     const H = this.H
-    const S = 0.07 * H * this.depthScale(p.y)
-    const rock = p.moving ? Math.sin(p.phase) * 0.14 : Math.sin(p.phase) * 0.03
+    const g = p.g
+    const S = 0.075 * H * this.depthScale(p.y)
+    const rock = Math.sin(TAU * g.phase) * 0.14 * g.go + Math.sin(p.phase) * 0.03 * (1 - g.go)
     const x = p.x * H
     const y = (p.y - (p.hop >= 0 && p.hop < HOP ? Math.abs(Math.sin((p.hop / HOP) * TAU)) * 0.025 * this.depthScale(p.y) : 0)) * H
+    const [al, ac] = view(g.turn)
     const cr = Math.cos(rock)
     const sr = Math.sin(rock)
-    const P = (u: number, v: number): [number, number] => [x + (u * p.face * cr - v * sr) * S, y + (u * p.face * sr + v * cr) * S]
+    // Rocks about the feet, which stay put.
+    const P = (u: number, v: number, w = 0): [number, number] => {
+      const sx = u * al - w * ac
+      return [x + (sx * cr - v * sr) * S, y + (sx * sr + v * cr) * S]
+    }
+    const len = (u: number, w: number) => (u * Math.abs(al) + w * ac) * S
     const black = this.paint(DARK)
     const belly = this.paint([0.92, 0.92, 0.95])
     const orange = this.paint(ORANGE)
+    const feet = [-1, 1].map((w) => {
+      const [reach, lift] = stride(g.phase, w > 0 ? 0 : 0.5)
+      const fu = reach * 0.06 * g.go
+      return ell(...P(fu + 0.05, -0.02 - lift * 0.05 * g.go, w * 0.09), len(0.1, 0.05), 0.035 * S, 0, orange)
+    })
+    const flip = 0.1 + g.lag * 0.12 + Math.abs(rock) * 0.3
     this.shape(
       [
-        ell(...P(0.06, -0.02), 0.1 * S, 0.035 * S, 0, orange),
-        ell(...P(-0.08, -0.02), 0.1 * S, 0.035 * S, 0, orange),
-        ell(...P(0, -0.42), 0.22 * S, 0.4 * S, rock, black),
-        cap(...P(-0.05, -0.62), ...P(-0.2, -0.32), 0.06 * S, 0.03 * S, black),
-        ell(...P(0.03, -0.82), 0.15 * S, 0.14 * S, 0, black),
+        ...feet,
+        ell(...P(0, -0.42), len(0.22, 0.2), 0.4 * S, rock, black),
+        ...[-1, 1].map((w) => cap(...P(-0.04, -0.62, w * 0.17), ...P(-0.14 - flip * 0.3, -0.32, w * (0.2 + flip)), 0.06 * S, 0.025 * S, black)),
+        ell(...P(0.04, -0.82), len(0.15, 0.13), 0.14 * S, 0, black),
       ],
       this.lighting,
       0.6,
     )
-    this.shape([ell(...P(0.07, -0.38), 0.13 * S, 0.3 * S, rock, belly)], this.lighting, 0.6)
-    this.shape([cap(...P(0.13, -0.84), ...P(0.26, -0.81), 0.035 * S, 0.012 * S, orange)], this.lighting, 0.5)
-    this.add(...P(0.09, -0.86), 0.5, 0.5, 0.5)
+    this.shape([ell(...P(0.08, -0.38), len(0.13, 0.15), 0.3 * S, rock, belly)], this.lighting, 0.6)
+    this.shape([cap(...P(0.14, -0.84), ...P(0.27, -0.81), 0.035 * S, 0.012 * S, orange)], this.lighting, 0.5)
+    for (const w of ac > 0.3 ? [-1, 1] : [0]) this.add(...P(0.1, -0.86, w * 0.06), 0.5, 0.5, 0.5)
   }
 
   // A shaggy silhouette on the far snowfield, fading in and out of the falling snow. It stands, looks around, shuffles
@@ -604,60 +626,67 @@ class Tundra extends Canvas {
     if (look.style === "rim") for (const s of [-1, 1]) this.add(...P(turn + s * 0.035, -0.99), 0.5 * fade, 0.3 * fade, 0.04 * fade)
   }
 
-  // An arctic fox trotting across the snow, bushy tail out behind.
+  // An arctic fox trotting across the snow on slim legs, ears up and bushy tail streaming out behind.
   private drawFox(f: Walker) {
     const H = this.H
-    const S = 0.08 * H * this.depthScale(f.y)
-    const x = f.x * H
-    const y = f.y * H
-    const P = (u: number, v: number): [number, number] => [x + u * f.face * S, y + v * S]
+    const g = f.g
+    const P = body(f.x * H, f.y * H, 0.064 * H * this.depthScale(f.y), g.turn)
+    const S = P.S
     const fur = this.paint(FUR)
-    const swing = f.moving ? Math.sin(f.phase) * 0.08 : 0
+    const rise = bob(g.phase) * g.go * 0.02
+    const legs = { fore: 0.21, hind: 0.21, top: 0.3 - rise, w: 0.06, a: 0.5, b: 0.5, reach: 0.18, lift: 0.09, r: [0.065, 0.032, 0.028] as [number, number, number], paw: [0.035, fur] as [number, RGB] }
+    this.shape(quadruped(P, g, true, { ...legs, color: this.paint([0.72, 0.72, 0.7]) }), this.lighting, 0.7)
+    const nod = Math.cos(TAU * 2 * g.phase - 1) * 0.015 * g.go - rise
+    const flick = Math.sin(TAU * 2 * g.phase - 2) * 0.03 * g.go - g.lag * 0.05
+    const tail = (t: number) => P(-0.26 - t * 0.4, -0.4 - rise + t * 0.12 - Math.sin(Math.PI * t) * 0.06 + flick * t * t)
     this.shape(
       [
-        ...[[0.22, 1], [0.27, -1], [-0.2, -1], [-0.25, 1]].map(([u, s]) => cap(...P(u, -0.28), ...P(u + swing * s, 0), 0.035 * S, 0.028 * S, fur)),
-        cap(...P(-0.32, -0.4), ...P(-0.7, -0.3), 0.1 * S, 0.06 * S, fur),
-        ell(...P(0, -0.38), 0.34 * S, 0.14 * S, 0, fur),
-        cap(...P(0.28, -0.42), ...P(0.4, -0.52), 0.09 * S, 0.08 * S, fur),
-        ell(...P(0.44, -0.55), 0.11 * S, 0.09 * S, 0, fur),
-        cap(...P(0.5, -0.53), ...P(0.62, -0.5), 0.05 * S, 0.02 * S, fur),
-        cap(...P(0.4, -0.62), ...P(0.36, -0.74), 0.035 * S, 0.006 * S, fur),
-        cap(...P(0.47, -0.62), ...P(0.46, -0.75), 0.035 * S, 0.006 * S, fur),
+        ...quadruped(P, g, false, { ...legs, color: fur }),
+        ell(...P(0, -0.4 - rise), P.len(0.3, 0.11), 0.12 * S, 0, fur),
+        ...chain(tail, 3, 0.07 * S, 0.1 * S, fur),
+        ell(...tail(0.95), P.len(0.09, 0.08), 0.08 * S, 0, fur),
+        cap(...P(0.22, -0.43 - rise), ...P(0.36, -0.54 + nod), 0.1 * S, 0.075 * S, fur),
+        ell(...P(0.4, -0.56 + nod), 0.09 * S, 0.08 * S, 0, fur),
+        cap(...P(0.44, -0.54 + nod), ...P(0.58, -0.5 + nod), 0.05 * S, 0.016 * S, fur),
+        ...[-1, 1].map((w) => cap(...P(0.38, -0.62 + nod, w * 0.05), ...P(0.36 - g.lag * 0.02, -0.76 + nod, w * 0.07), 0.035 * S, 0.006 * S, fur)),
       ],
       this.lighting,
       0.7,
     )
-    this.add(...P(0.62, -0.5), 0.02, 0.02, 0.02)
+    this.add(...P(0.58, -0.5 + nod), 0.02, 0.02, 0.02)
   }
 
-  // A polar bear plodding along the far shore of the lake, head low.
+  // A polar bear plodding along the far shore of the lake, head low and swinging, rump high, on big furry paws.
   private drawBear(b: Walker) {
     const H = this.H
-    const S = 0.13 * H * this.depthScale(b.y)
-    const x = b.x * H
-    const y = b.y * H
-    const P = (u: number, v: number): [number, number] => [x + u * b.face * S, y + v * S]
+    const g = b.g
+    const P = body(b.x * H, b.y * H, 0.16 * H * this.depthScale(b.y), g.turn)
+    const S = P.S
     const fur = this.paint([0.95, 0.9, 0.74])
-    const swing = b.moving ? Math.sin(b.phase * 0.8) * 0.06 : 0
+    const rise = bob(g.phase) * g.go * 0.015
+    const legs = { fore: 0.24, hind: 0.24, top: 0.33 - rise, w: 0.09, a: 0.5, b: 0.5, reach: 0.15, lift: 0.07, r: [0.11, 0.075, 0.07] as [number, number, number], paw: [0.05, fur] as [number, RGB] }
+    this.shape(quadruped(P, g, true, { ...legs, color: this.paint([0.76, 0.72, 0.6]) }), this.lighting, 0.7)
+    const sway = Math.sin(TAU * g.phase - 1) * 0.04 * g.go
+    const nod = Math.cos(TAU * 2 * g.phase - 1) * 0.015 * g.go - rise
     this.shape(
       [
-        ...[[0.25, 1], [0.3, -1], [-0.22, -1], [-0.27, 1]].map(([u, s]) => cap(...P(u, -0.3), ...P(u + swing * s, 0), 0.07 * S, 0.06 * S, fur)),
-        ell(...P(0, -0.38), 0.38 * S, 0.2 * S, 0, fur),
-        ell(...P(-0.22, -0.42), 0.18 * S, 0.17 * S, 0, fur),
-        cap(...P(0.3, -0.42), ...P(0.46, -0.34), 0.12 * S, 0.09 * S, fur),
-        ell(...P(0.5, -0.32), 0.1 * S, 0.08 * S, 0.2 * b.face, fur),
-        ell(...P(0.43, -0.42), 0.035 * S, 0.035 * S, 0, fur),
+        ...quadruped(P, g, false, { ...legs, color: fur }),
+        ell(...P(-0.02, -0.4 - rise), P.len(0.36, 0.17), 0.19 * S, 0.08 * P.along, fur),
+        cap(...P(0.24, -0.44 - rise), ...P(0.46, -0.36 + nod, sway), 0.14 * S, 0.09 * S, fur),
+        cap(...P(0.46, -0.37 + nod, sway), ...P(0.62, -0.32 + nod, sway), 0.085 * S, 0.045 * S, fur),
+        ...[-1, 1].map((w) => ell(...P(0.45, -0.45 + nod, sway + w * 0.05), 0.035 * S, 0.035 * S, 0, fur)),
+        ell(...P(-0.38, -0.46 - rise), 0.04 * S, 0.035 * S, 0, fur),
       ],
       this.lighting,
       0.7,
     )
-    this.add(...P(0.6, -0.31), 0.02, 0.02, 0.02)
+    this.add(...P(0.63, -0.33 + nod, sway), 0.02, 0.02, 0.02)
   }
 
   // Someone in a red parka ice fishing on the lake, rod tugging now and then.
   private drawFisher() {
     const H = this.H
-    const S = 0.12 * H
+    const S = 0.1 * H
     const hx = 0.68 * this.A * H
     const hy = 0.718 * H
     const x = hx + 0.06 * H

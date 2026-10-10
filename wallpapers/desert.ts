@@ -1,4 +1,5 @@
 import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
+import { chain } from "../src/creature"
 import { eggWait } from "../src/egg"
 import { haze, mottle } from "../src/grade"
 import { bird, flyAway, startle, type Flier } from "../src/flock"
@@ -242,6 +243,9 @@ interface Snake {
 
 interface Coyote {
   howl: number
+  // Where the head is between resting (0) and howling (1): it chases howl on a spring, so it lags and overshoots.
+  head: number
+  headV: number
   t: number
   next: number
 }
@@ -299,7 +303,7 @@ class Desert extends Canvas {
       this.flock = look.night
         ? [0, 1.6, 3.1, 4.7].map((angle, i) => ({ angle, speed: 0.9 + i * 0.12, cx: 0.72, cy: 0.3, rx: 0.06 + i * 0.03, ry: 0.04, phase: i * 1.7 }))
         : [0, 2.1, 4.2].map((angle, i) => ({ angle, speed: 0.4 + i * 0.05, cx: 0.25, cy: 0.16, rx: 0.08 + i * 0.035, ry: 0.025, phase: i }))
-      this.coyote = { howl: 0, t: -1, next: 8 }
+      this.coyote = { howl: 0, head: 0, headV: 0, t: -1, next: 8 }
     }
   }
 
@@ -608,6 +612,8 @@ class Desert extends Canvas {
         }
       }
       c.howl = c.t < 0 ? 0 : smoothstep(0, 1.5, c.t) * (1 - smoothstep(4.5, 6, c.t))
+      c.headV += ((c.howl - c.head) * 30 - c.headV * 3.5) * dt
+      c.head += c.headV * dt
     }
   }
 
@@ -746,7 +752,8 @@ class Desert extends Canvas {
     const flex = 0.006 * Math.sin(b.phase * 1.3)
     const parts: Part[] = []
     for (const side of [-1, 1]) {
-      const spine = (t: number): [number, number] => [side * (0.028 + 0.125 * t), -dihedral * t * t + flex * t * t]
+      // The wingtips lag the roll, bending against the way it is banking.
+      const spine = (t: number): [number, number] => [side * (0.028 + 0.125 * t), -dihedral * t * t + flex * t * t + side * 0.025 * Math.cos(b.angle) * t * t * t]
       for (let i = 0; i < 6; i++) parts.push(cap(...T(...spine(i / 6)), ...T(...spine((i + 1) / 6)), chord * (1 - 0.3 * (i / 6)) * S, chord * (1 - 0.3 * ((i + 1) / 6)) * S, main))
       const [tu, tv] = spine(0.92)
       if (kind === "owl") {
@@ -803,7 +810,8 @@ class Desert extends Canvas {
     this.silhouette(parts, 0.35)
   }
 
-  // A coyote sitting on top of a mesa, facing the sun or moon, that now and then lifts its head to howl.
+  // A coyote sitting on top of a mesa, facing the sun or moon, that now and then lifts its head to howl. The head
+  // swings up and settles back a little past rest, ears trailing it, and the brush of a tail sweeps now and then.
   private drawCoyote(c: Coyote) {
     const x = this.coyoteX + 0.5
     const gy = this.nearTop[this.coyoteX] + 0.5
@@ -812,24 +820,27 @@ class Desert extends Canvas {
     const P = (u: number, v: number): [number, number] => [x + u * face * S, gy + v * S]
     const k = this.look.coyote
     // The head turns from looking ahead to pointing at the sky; R places points in the head's frame.
-    const a = lerp(-0.2, -1.2, c.howl)
-    const head = [0.21, -0.66]
+    const a = lerp(-0.15, -1.2, c.head)
+    const head = [0.2, -0.66]
     const R = (u: number, v: number): [number, number] => P(head[0] + u * Math.cos(a) - v * Math.sin(a), head[1] + u * Math.sin(a) + v * Math.cos(a))
+    const ears = 0.4 * c.head + (c.howl - c.head) * 2
+    const sweep = Math.sin(this.time * CREATURE_SPEED * 1.7) ** 3 * 0.04
+    const tail = (t: number) => P(-0.18 - t * 0.3, -0.07 + t * 0.04 - Math.sin(Math.PI * t) * 0.04 + sweep * t)
     this.silhouette(
       [
-        cap(...P(-0.17, -0.06), ...P(-0.3, -0.02), 0.06 * S, 0.055 * S, k),
-        cap(...P(-0.3, -0.02), ...P(-0.42, -0.01), 0.055 * S, 0.03 * S, k),
-        ell(...P(-0.05, -0.17), 0.17 * S, 0.17 * S, 0, k),
-        cap(...P(-0.02, -0.22), ...P(0.12, -0.48), 0.13 * S, 0.11 * S, k),
-        cap(...P(0.12, -0.45), ...P(0.16, -0.12), 0.08 * S, 0.055 * S, k),
-        cap(...P(0.15, -0.15), ...P(0.17, 0), 0.035 * S, 0.03 * S, k),
-        cap(...P(0.11, -0.15), ...P(0.12, 0), 0.03 * S, 0.028 * S, k),
-        ell(...P(0.04, -0.025), 0.1 * S, 0.03 * S, 0, k),
-        cap(...P(0.12, -0.5), ...P(head[0], head[1]), 0.07 * S, 0.06 * S, k),
-        ell(...R(0, 0), 0.08 * S, 0.062 * S, a * face, k),
-        cap(...R(0, 0), ...R(0.15, 0.01), 0.045 * S, 0.02 * S, k),
-        cap(...R(-0.025, -0.045), ...R(-0.055, -0.135), 0.026 * S, 0.004 * S, k),
-        cap(...R(0.005, -0.05), ...R(-0.015, -0.14), 0.024 * S, 0.004 * S, k),
+        ...chain(tail, 3, 0.05 * S, 0.065 * S, k),
+        ell(...tail(1), 0.06 * S, 0.04 * S, 0, k),
+        ell(...P(-0.08, -0.15), 0.16 * S, 0.15 * S, 0, k),
+        ell(...P(0.02, -0.03), 0.12 * S, 0.03 * S, 0, k),
+        cap(...P(-0.04, -0.2), ...P(0.1, -0.48), 0.14 * S, 0.105 * S, k),
+        cap(...P(0.12, -0.42), ...P(0.16, -0.03), 0.055 * S, 0.03 * S, k),
+        cap(...P(0.08, -0.42), ...P(0.11, -0.03), 0.05 * S, 0.028 * S, k),
+        ell(...P(0.18, -0.02), 0.045 * S, 0.022 * S, 0, k),
+        cap(...P(0.1, -0.48), ...P(head[0], head[1]), 0.085 * S, 0.06 * S, k),
+        ell(...R(0, 0), 0.075 * S, 0.058 * S, a * face, k),
+        cap(...R(0.02, 0.005), ...R(0.17, 0.02), 0.042 * S, 0.014 * S, k),
+        cap(...R(-0.025, -0.04), ...R(-0.05 - ears * 0.05, -0.15 + ears * 0.03), 0.03 * S, 0.004 * S, k),
+        cap(...R(0.01, -0.045), ...R(-0.005 - ears * 0.05, -0.15 + ears * 0.03), 0.027 * S, 0.004 * S, k),
       ],
       1.3,
     )

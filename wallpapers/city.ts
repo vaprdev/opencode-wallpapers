@@ -1,4 +1,5 @@
 import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
+import { bob, limb, stride } from "../src/creature"
 import { eggWait } from "../src/egg"
 import { bird, flyAway, startle, type Flier } from "../src/flock"
 import { haze } from "../src/grade"
@@ -145,6 +146,12 @@ const PAINT: RGB[] = [
   [0.3, 0.55, 0.4],
   [0.55, 0.56, 0.6],
 ]
+const HAIR: RGB[] = [
+  [0.12, 0.08, 0.05],
+  [0.45, 0.28, 0.12],
+  [0.05, 0.05, 0.06],
+  [0.7, 0.55, 0.3],
+]
 const NEON: RGB[] = [
   [1.5, 0.2, 0.95],
   [0.2, 1.3, 1.25],
@@ -193,8 +200,11 @@ interface Car {
 interface Walker {
   x: number
   dir: number
+  // Strides taken: one per step of both feet.
   phase: number
+  size: number
   coat: RGB
+  hair: RGB
   umbrella: RGB
 }
 
@@ -262,7 +272,7 @@ class City extends Canvas {
     this.wet = settings.weather ? settings.weather === "rain" || settings.weather === "snow" : this.look.night && settings.activity === "teeming"
     if (settings.activity !== "teeming") return
     const umbrellas: RGB[] = [[0.1, 0.55, 0.6], [0.6, 0.1, 0.4], [0.65, 0.35, 0.05], [0.3, 0.15, 0.6], [0.6, 0.1, 0.08]]
-    this.walkers = Array.from({ length: 5 }, (_, i) => ({ x: 0.15 + i * 0.37, dir: i % 2 ? -1 : 1, phase: Math.random() * TAU, coat: PAINT[(i * 3) % PAINT.length], umbrella: umbrellas[i] }))
+    this.walkers = Array.from({ length: 5 }, (_, i) => ({ x: 0.15 + i * 0.37, dir: i % 2 ? -1 : 1, phase: Math.random(), size: [1, 0.92, 1.06, 0.97, 1.03][i], coat: PAINT[(i * 3) % PAINT.length], hair: HAIR[i % HAIR.length], umbrella: umbrellas[i] }))
     if (this.look.night && !settings.weather) this.rain = Array.from({ length: 30 }, () => ({ x: Math.random() * 2, y: Math.random(), speed: rand(0.9, 1.3) }))
   }
 
@@ -285,7 +295,7 @@ class City extends Canvas {
       if (b.x < -0.15) b.x = this.A + 0.15
     }
     for (const w of this.walkers) {
-      w.phase += cdt * 6
+      w.phase += (0.06 * cdt) / (0.07 * w.size)
       w.x += w.dir * 0.06 * cdt
       if (w.x > this.A + 0.05) w.x = -0.05
       if (w.x < -0.05) w.x = this.A + 0.05
@@ -971,24 +981,37 @@ class City extends Canvas {
     if (lit) this.glow(this.hdr, X(L / 2), y - 0.006 * H, 0.004 * H, 0.004 * H, HEADLIGHT, 1.5 * look.glow)
   }
 
-  // People strolling along the sidewalk, under umbrellas when it rains.
+  // People strolling along the sidewalk, under umbrellas when it rains. Each step lands and holds, knees bending,
+  // arms swinging against the legs and the body rising over each stride.
   private drawWalker(w: Walker) {
     const { H, look } = this
-    const S = 0.1 * H
-    const x = w.x * H
-    const y = 0.996 * H
-    const P = (u: number, v: number): [number, number] => [x + u * w.dir * S, y + v * S]
-    const swing = Math.sin(w.phase) * 0.12
+    const S = 0.1 * H * w.size
+    const rise = bob(w.phase) * 0.015
+    const P = (u: number, v: number): [number, number] => [w.x * H + u * w.dir * S, 0.996 * H + (v - rise) * S]
     const coat = this.paint(w.coat)
     const legs = this.paint([0.15, 0.15, 0.2])
     const skin = this.paint([0.8, 0.6, 0.48])
+    const shoe = this.paint([0.08, 0.07, 0.07])
+    const side = (s: number, far: boolean): Part[] => {
+      const [reach, lift] = stride(w.phase, s > 0 ? 0 : 0.5)
+      const fu = reach * 0.21
+      const fv = -lift * 0.07 - 0.025 + rise
+      const umbrella = this.wet && !far
+      const hand: [number, number] = umbrella ? [0.12, -0.85] : [-reach * 0.13 + 0.02, -0.44]
+      const shade = (c: RGB): RGB => (far ? [c[0] * 0.7, c[1] * 0.7, c[2] * 0.7] : c)
+      return [
+        ...limb(P, 0, -0.47, fu, fv, 0.24, 0.24, -1, 0.045 * S, 0.037 * S, 0.032 * S, shade(legs)),
+        cap(...P(fu - 0.02, fv), ...P(fu + 0.06, fv + 0.006), 0.028 * S, 0.024 * S, shoe),
+        ...limb(P, 0.01, -0.77, ...hand, 0.18, 0.18, umbrella ? -1 : 1, 0.033 * S, 0.028 * S, 0.025 * S, shade(coat)),
+      ]
+    }
+    this.shape(side(-1, true), this.lighting, 0.6)
     this.shape(
       [
-        cap(...P(0, -0.45), ...P(-swing, 0), 0.04 * S, 0.035 * S, legs),
-        cap(...P(0, -0.45), ...P(swing, 0), 0.04 * S, 0.035 * S, legs),
+        ...side(1, false),
         cap(...P(0, -0.42), ...P(0.01, -0.8), 0.085 * S, 0.075 * S, coat),
-        cap(...P(0.01, -0.76), ...P(swing * 0.5 + (this.wet ? 0.12 : 0), this.wet ? -0.85 : -0.45), 0.03 * S, 0.026 * S, coat),
-        ell(...P(0.02, -0.89), 0.06 * S, 0.068 * S, 0, skin),
+        ell(...P(0.02, -0.89 + Math.cos(TAU * 2 * w.phase - 1) * 0.008), 0.06 * S, 0.068 * S, 0, skin),
+        ell(...P(0.005, -0.925 + Math.cos(TAU * 2 * w.phase - 1) * 0.008), 0.062 * S, 0.04 * S, -0.3 * w.dir, this.paint(w.hair)),
       ],
       this.lighting,
       0.6,
