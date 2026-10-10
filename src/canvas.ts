@@ -1,5 +1,5 @@
 import type { AgentEvent } from "./wallpaper"
-import { clamp, type RGB } from "./math"
+import { clamp, smoothstep, type RGB } from "./math"
 
 // Bloom is computed at 1/BLOOM resolution, then again at half that for the wide halo.
 const BLOOM = 4
@@ -56,6 +56,9 @@ export abstract class Canvas {
   // clouds by it.
   protected gloom = 0
   private gloomy = false
+  // Extra darkening toward the bottom corners (0 to 1), folded into the vignette: set it in the constructor to frame
+  // a bright daytime foreground.
+  protected frame = 0
 
   abstract step(dt: number): void
   abstract render(): void
@@ -99,7 +102,8 @@ export abstract class Canvas {
       for (let x = 0; x < W; x++) {
         const dx = (x - W / 2) * invR
         const dy = (y - H / 2) * invR
-        this.vignette[y * W + x] = 1 - 0.62 * Math.pow(dx * dx + dy * dy, 1.25)
+        const corner = this.frame * smoothstep(0.45, 1, y / H) * (0.35 + 0.65 * (2 * Math.abs(x / W - 0.5)) ** 2)
+        this.vignette[y * W + x] = (1 - 0.62 * Math.pow(dx * dx + dy * dy, 1.25)) * (1 - corner)
       }
     // Bilinear lookup from full-resolution rows and columns into the bloom grid.
     this.rowA = new Int32Array(H)

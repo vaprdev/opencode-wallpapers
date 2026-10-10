@@ -1,6 +1,7 @@
 import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
 import { eggWait } from "../src/egg"
 import { bird, flyAway, startle, type Flier } from "../src/flock"
+import { haze } from "../src/grade"
 import { TAU, clamp, fbm1, hash, hash2, lerp, rand, smoothstep, type RGB } from "../src/math"
 import { driftClouds, makeClouds, makeStars, makeStorm, paintClouds, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
 import type { Activity, Settings, Time, Wallpaper } from "../src/wallpaper"
@@ -55,10 +56,10 @@ const LOOKS: Record<Time, Look> = {
     orb: { x: 0.14, y: 0.11, r: 0.035, core: [5, 4.6, 3.8], glow: [1, 0.95, 0.8], near: 0.45, wide: 0.12 },
     stars: 0,
     clouds: { puffy: true, top: [1.1, 1.1, 1.1], bottom: [0.6, 0.66, 0.78], alpha: 0.85 },
-    haze: [0.55, 0.65, 0.78],
+    haze: [0.48, 0.6, 0.8],
     river: [
-      [0.2, 0.36, 0.48],
-      [0.08, 0.2, 0.3],
+      [0.12, 0.3, 0.48],
+      [0.05, 0.16, 0.3],
     ],
     reflect: 0.55,
     tint: [1, 1, 1],
@@ -125,12 +126,12 @@ const DAYLIGHT = (() => {
 
 // Daytime colors.
 const FACADES: RGB[] = [
-  [0.5, 0.56, 0.64],
-  [0.68, 0.62, 0.52],
-  [0.32, 0.46, 0.6],
-  [0.58, 0.42, 0.36],
-  [0.4, 0.52, 0.54],
-  [0.62, 0.62, 0.68],
+  [0.3, 0.42, 0.6],
+  [0.7, 0.55, 0.4],
+  [0.18, 0.33, 0.55],
+  [0.62, 0.36, 0.26],
+  [0.22, 0.43, 0.48],
+  [0.66, 0.6, 0.53],
 ]
 const PAINT: RGB[] = [
   [0.75, 0.12, 0.1],
@@ -249,6 +250,7 @@ class City extends Canvas {
     super()
     this.activity = settings.activity
     this.look = LOOKS[settings.time]
+    if (settings.time === "day") this.frame = 0.4
     this.stars = makeStars(this.look.stars, 0.45)
     this.clouds = makeClouds(this.look.clouds.puffy ? 3 : 4, this.look.clouds.puffy, 0.04, 0.1)
     this.weather = new WeatherLayer(settings.weather ?? "clear", settings.time, BANK)
@@ -354,6 +356,7 @@ class City extends Canvas {
     tallest[0].crown = 3
     tallest[1].crown = 2
     for (const t of near) this.paintTower(t)
+    if (look === LOOKS.day) haze(this.hdr, sky, W, H, BANK, BANK + 0.01, 0.12)
     this.visibleStars = this.stars.filter((s) => {
       const o = (Math.floor(s.y * H) * W + Math.floor(s.x * W)) * 3
       return this.hdr[o] === sky[o] && this.hdr[o + 1] === sky[o + 1] && this.hdr[o + 2] === sky[o + 2]
@@ -447,7 +450,8 @@ class City extends Canvas {
           const shade = day ? side * (0.9 + 0.15 * up) : 1
           let r = body[0] * shade
           let g = body[1] * shade
-          let b = body[2] * shade
+          // The shaded side takes the blue of the sky.
+          let b = body[2] * shade * (side < 1 ? 1.25 : 1)
           const wu = u - 0.004
           const wv = v - 0.006
           const fu = wu / cw - Math.floor(wu / cw)
@@ -458,9 +462,9 @@ class City extends Canvas {
             const row = Math.floor(wv / (t.windows === 2 ? ch * 1.5 : ch))
             const h = hash2(t.seed * 13.1 + col * 1.7, row * 3.3 + k * 17)
             const glass = day ? 0.55 + 0.2 * up : 0.6
-            r = lerp(r * glass, 0.45, day ? 0.25 : 0)
-            g = lerp(g * glass, 0.6, day ? 0.25 : 0)
-            b = lerp(b * glass, 0.78, day ? 0.25 : 0)
+            r = lerp(r * glass, 0.26, day ? 0.35 : 0)
+            g = lerp(g * glass, 0.46, day ? 0.35 : 0)
+            b = lerp(b * glass, 0.78, day ? 0.35 : 0)
             if (h < look.lit * (t.far ? 0.6 : 1)) {
               const h2 = hash(h * 91.7)
               const c = palette[h2 < 0.75 ? t.palette % palette.length : Math.floor(h2 * 997) % palette.length]
@@ -624,7 +628,7 @@ class City extends Canvas {
   private paintHighway() {
     const { A, H } = this
     const edge = this.paint([0.45, 0.42, 0.38])
-    this.polygon(this.rect(-0.01, QUAY, A + 0.01, ROAD), this.paint([0.5, 0.47, 0.42]))
+    this.polygon(this.rect(-0.01, QUAY, A + 0.01, ROAD), this.paint([0.52, 0.43, 0.34]))
     this.polygon(this.rect(-0.01, QUAY, A + 0.01, QUAY + 0.004), edge)
     const rail: Part[] = [cap(-1, (QUAY - 0.012) * H, A * H + 1, (QUAY - 0.012) * H, 0.0012 * H, 0.0012 * H, edge)]
     for (let x = 0.01; x < A; x += 0.03) rail.push(cap(x * H, QUAY * H, x * H, (QUAY - 0.012) * H, 0.001 * H, 0.001 * H, edge))
@@ -640,7 +644,7 @@ class City extends Canvas {
     for (let y = UNDER; y < STREET; y += 0.005) this.polygon(this.rect(-0.01, y, A + 0.01, y + 0.0052), this.paint([0.12 + (y - UNDER) * 2, 0.12 + (y - UNDER) * 2, 0.15 + (y - UNDER) * 2]))
     this.polygon(this.rect(-0.01, STREET, A + 0.01, 0.965), this.paint([0.26, 0.26, 0.28]))
     for (let x = 0.02; x < A; x += 0.07) this.polygon(this.rect(x, 0.931, x + 0.032, 0.935), this.paint([0.8, 0.72, 0.35]))
-    this.polygon(this.rect(-0.01, 0.965, A + 0.01, 1.01), this.paint([0.48, 0.46, 0.43]))
+    this.polygon(this.rect(-0.01, 0.965, A + 0.01, 1.01), this.paint([0.44, 0.37, 0.31]))
     this.polygon(this.rect(-0.01, 0.965, A + 0.01, 0.969), this.paint([0.62, 0.6, 0.56]))
     for (let i = 0; this.pillarX(i) - 0.04 < A; i++) {
       const x = this.pillarX(i)

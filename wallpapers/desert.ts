@@ -1,5 +1,6 @@
 import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
 import { eggWait } from "../src/egg"
+import { haze, mottle } from "../src/grade"
 import { bird, flyAway, startle, type Flier } from "../src/flock"
 import { TAU, clamp, fbm1, fbm2, hash, lerp, rand, smoothstep, type RGB } from "../src/math"
 import { driftClouds, makeStorm, paintStorm } from "../src/sky"
@@ -66,11 +67,11 @@ const LOOKS: Record<Time, Look> = {
     farMesa: [0.62, 0.36, 0.26],
     nearMesa: [0.62, 0.27, 0.13],
     floor: [
-      [0.66, 0.52, 0.38],
-      [0.6, 0.42, 0.26],
+      [0.66, 0.5, 0.34],
+      [0.6, 0.4, 0.23],
     ],
-    backDune: [0.7, 0.5, 0.3],
-    frontDune: [0.76, 0.54, 0.3],
+    backDune: [0.72, 0.48, 0.26],
+    frontDune: [0.78, 0.52, 0.27],
     cactus: [0.16, 0.32, 0.12],
     bone: [0.86, 0.8, 0.68],
     horn: [0.72, 0.62, 0.45],
@@ -284,6 +285,7 @@ class Desert extends Canvas {
     super()
     this.activity = settings.activity
     this.look = LOOKS[settings.time]
+    if (settings.time === "day") this.frame = 0.4
     this.season = settings.season ?? "summer"
     this.flowerLight = FLOWER_LIGHT[settings.time]
     this.dusting = DUSTING[settings.time]
@@ -366,6 +368,8 @@ class Desert extends Canvas {
     this.orbY = look.orb.y * H
     this.drawSky()
     this.weather.cover(this.hdr, W, H)
+    const sky = this.hdr.slice()
+    const day = look === LOOKS.day
     const far = mesas(A, 3, 7, [0.06, 0.16], [0.04, 0.09])
     const near = mesas(A, 2, 19, [0.05, 0.12], [0.06, 0.13])
     this.nearTop = new Float32Array(W)
@@ -383,6 +387,8 @@ class Desert extends Canvas {
     })
     this.drawFloor()
     this.fillBelow(this.nearTop, (x, y, d) => (y > (HORIZON + 0.02) * H ? undefined : this.surface(look.nearMesa, this.nearTop, x, d, 1.6, 0.8, true)))
+    // By day the mesas and the far floor fade toward the sky, layer by layer.
+    if (day) haze(this.hdr, sky, W, H, HORIZON, 0.72, 0.12)
     const backTop = new Float32Array(W)
     this.frontTop = new Float32Array(W)
     for (let x = 0; x < W; x++) {
@@ -395,6 +401,7 @@ class Desert extends Canvas {
       const ripple = 0.9 + 0.1 * Math.sin(x * 0.5 + d * 0.9 + fbm1(x * 0.05, 3) * 4)
       return this.surface(scale(look.frontDune, ripple), this.frontTop, x, d, 2.5, 0.5, false)
     })
+    if (day) mottle(this.hdr, W, H, HORIZON, 1, 0.6, [1.1, 0.98, 0.8], [0.72, 0.7, 0.86])
     if (this.season === "spring") this.drawBloom()
     if (this.activity === "teeming") {
       for (const fx of [0.47, 0.92]) {

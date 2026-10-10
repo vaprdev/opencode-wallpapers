@@ -1,5 +1,6 @@
 import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
 import { eggWait } from "../src/egg"
+import { haze, mottle } from "../src/grade"
 import { bird, flyAway, startle, type Flier } from "../src/flock"
 import { TAU, clamp, fbm1, hash, hash2, lerp, rand, smoothstep, type RGB } from "../src/math"
 import { driftClouds, makeClouds, makeStars, makeStorm, paintClouds, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
@@ -59,7 +60,7 @@ const LOOKS: Record<Time, Look> = {
     snow: [1, 1.02, 1.08],
     mist: [0.72, 0.82, 0.9],
     moss: [0.2, 0.4, 0.12],
-    gravel: [0.8, 0.76, 0.66],
+    gravel: [0.72, 0.66, 0.55],
     water: [0.03, 0.14, 0.13],
     mirror: 0.55,
     glitter: 0.15,
@@ -235,6 +236,7 @@ class Zen extends Canvas {
     super()
     this.activity = settings.activity
     this.look = LOOKS[settings.time]
+    if (settings.time === "day") this.frame = 0.4
     this.season = settings.season ?? "spring"
     this.weather = new WeatherLayer(settings.weather ?? (this.season === "winter" ? "snow" : "clear"), settings.time, HORIZON, !settings.weather)
     this.stars = makeStars(this.look.stars, 0.45)
@@ -344,9 +346,13 @@ class Zen extends Canvas {
     this.cherry = { x: A - 0.2, y: 0.27 }
     paintSky(this.hdr, W, H, look.sky, look.orb)
     this.weather.cover(this.hdr, W, H)
+    const clear = this.hdr.slice()
     this.drawHills()
+    if (look === LOOKS.day) haze(this.hdr, clear, W, H, HORIZON, GROUND, 0.15)
     const sky = this.hdr.slice()
     this.drawGround()
+    // By day, broad warm and cool patches of sun and shade lie over the raked gravel.
+    if (look === LOOKS.day) mottle(this.hdr, W, H, GROUND, 1, 0.5, [1.08, 1, 0.84], [0.76, 0.84, 0.96])
     this.drawBackGarden()
     // Find the water, note what lies under its edges, and work out its still color with the sky mirrored in it.
     const p = this.pond
