@@ -1,9 +1,14 @@
 import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
+import { bob, body, chain, gait, limb, quadruped, stepGait, stride, type Gait } from "../src/creature"
 import { eggWait } from "../src/egg"
+import { haze, mottle } from "../src/grade"
+import { fireflyLight, lightPool } from "../src/light"
 import { TAU, clamp, fbm1, hash, hash2, lerp, rand, smoothstep, type RGB } from "../src/math"
-import { driftClouds, makeClouds, makeStars, makeStorm, paintClouds, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
+import { groundShadow, sunShade, type Shade } from "../src/shadow"
+import { driftClouds, makeClouds, makeShadows, makeStars, makeStorm, paintClouds, paintShadows, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
 import type { Activity, Season, Settings, Time, Wallpaper } from "../src/wallpaper"
 import { WeatherLayer } from "../src/weather"
+import { SwayLayer, gust, sway } from "../src/wind"
 
 // The scene runs slower than real time, which keeps it calm behind text.
 const TIME_SCALE = 0.35
@@ -11,15 +16,16 @@ const TIME_SCALE = 0.35
 const CREATURE_SPEED = 0.25
 const HORIZON = 0.55
 
-// What changes with the time of day. Buildings, crops and animals have one daytime color each; tint darkens them into
-// silhouettes at sunset and night, while the sky, hills and window light get their own values.
+// What changes with the time of day. Buildings, crops and animals have one daytime color each; tint warms them in the
+// golden-hour sunset and darkens them into silhouettes at night, while the sky, hills and window light get their own
+// values.
 interface Look {
   style: "rim" | "front"
   light: RGB
   sky: [number, RGB][]
   orb: Orb
   stars: number
-  clouds: { puffy: boolean; top: RGB; bottom: RGB; alpha: number }
+  clouds: { top: RGB; bottom: RGB; alpha: number }
   hills: [far: RGB, near: RGB]
   tint: RGB
   windows: number
@@ -37,10 +43,10 @@ const LOOKS: Record<Time, Look> = {
     ],
     orb: { x: 0.82, y: 0.13, r: 0.035, core: [5, 4.6, 3.8], glow: [1, 0.95, 0.8], near: 0.45, wide: 0.12 },
     stars: 0,
-    clouds: { puffy: true, top: [1.1, 1.1, 1.1], bottom: [0.6, 0.66, 0.78], alpha: 0.9 },
+    clouds: { top: [1.1, 1.1, 1.1], bottom: [0.6, 0.66, 0.78], alpha: 0.9 },
     hills: [
       [0.42, 0.6, 0.38],
-      [0.3, 0.55, 0.16],
+      [0.25, 0.5, 0.12],
     ],
     tint: [1, 1, 1],
     windows: 0,
@@ -48,40 +54,42 @@ const LOOKS: Record<Time, Look> = {
   },
   sunset: {
     style: "rim",
-    light: [1, 0.5, 0.2],
+    // Golden hour: the sun still clear of the hills, a honeyed sky and warm grass in long light.
+    light: [1, 0.66, 0.25],
     sky: [
-      [0, [0.03, 0.02, 0.08]],
-      [0.25, [0.12, 0.04, 0.12]],
-      [0.42, [0.45, 0.14, 0.14]],
-      [HORIZON, [1, 0.5, 0.18]],
+      [0, [0.1, 0.08, 0.18]],
+      [0.18, [0.4, 0.2, 0.18]],
+      [0.36, [1, 0.52, 0.16]],
+      [HORIZON, [1, 0.74, 0.3]],
     ],
-    orb: { x: 0.28, y: 0.5, r: 0.06, core: [3.2, 1.7, 0.6], glow: [1, 0.42, 0.14], near: 0.5, wide: 0.25 },
-    stars: 30,
-    clouds: { puffy: false, top: [0.1, 0.035, 0.09], bottom: [0.8, 0.3, 0.2], alpha: 0.55 },
+    orb: { x: 0.2, y: 0.37, r: 0.042, core: [3.2, 2, 0.7], glow: [1, 0.6, 0.2], near: 0.55, wide: 0.35 },
+    stars: 0,
+    clouds: { top: [1.3, 0.8, 0.35], bottom: [0.6, 0.3, 0.22], alpha: 0.8 },
     hills: [
-      [0.3, 0.12, 0.12],
-      [0.08, 0.04, 0.03],
+      [0.68, 0.42, 0.1],
+      [0.34, 0.24, 0.04],
     ],
-    tint: [0.22, 0.13, 0.1],
-    windows: 0.5,
+    tint: [0.46, 0.29, 0.13],
+    windows: 0.25,
     fireflies: false,
   },
   night: {
     style: "rim",
-    light: [0.2, 0.45, 1],
+    light: [0.3, 0.62, 1.5],
     sky: [
       [0, [0.004, 0.008, 0.03]],
-      [0.3, [0.012, 0.02, 0.06]],
-      [HORIZON, [0.04, 0.06, 0.15]],
+      [0.3, [0.014, 0.024, 0.07]],
+      [0.45, [0.035, 0.055, 0.14]],
+      [HORIZON, [0.07, 0.1, 0.24]],
     ],
     orb: { x: 0.74, y: 0.15, r: 0.032, core: [1, 0.72, 0.3], glow: [0.45, 0.3, 0.12], near: 0.2, wide: 0.08, moon: true },
     stars: 140,
-    clouds: { puffy: false, top: [0.015, 0.02, 0.05], bottom: [0.06, 0.1, 0.3], alpha: 0.45 },
+    clouds: { top: [0.015, 0.02, 0.05], bottom: [0.06, 0.1, 0.3], alpha: 0.7 },
     hills: [
-      [0.02, 0.035, 0.07],
-      [0.008, 0.016, 0.03],
+      [0.035, 0.06, 0.13],
+      [0.016, 0.03, 0.065],
     ],
-    tint: [0.025, 0.04, 0.08],
+    tint: [0.02, 0.032, 0.065],
     windows: 1,
     fireflies: true,
   },
@@ -107,19 +115,19 @@ const GROUND: Partial<Record<Season, Partial<Record<Time, [far: RGB, near: RGB]>
       [0.56, 0.44, 0.17],
     ],
     sunset: [
-      [0.34, 0.13, 0.09],
-      [0.1, 0.05, 0.025],
+      [0.62, 0.34, 0.1],
+      [0.42, 0.22, 0.05],
     ],
   },
-  // Snow by day, rosy at sunset, and deep blue at night, never white.
+  // Snow by day, gold at sunset, and deep blue at night, never white.
   winter: {
     day: [
       [0.74, 0.79, 0.88],
       [0.82, 0.86, 0.93],
     ],
     sunset: [
-      [0.46, 0.25, 0.3],
-      [0.3, 0.16, 0.19],
+      [0.6, 0.4, 0.26],
+      [0.5, 0.34, 0.24],
     ],
     night: [
       [0.035, 0.07, 0.18],
@@ -142,8 +150,14 @@ const CROWN: Record<Season, [crown: RGB, specks: RGB[]]> = {
   autumn: [[0.85, 0.42, 0.1], [[0.95, 0.68, 0.15], [0.7, 0.16, 0.06], [0.55, 0.3, 0.08]]],
   winter: [[0, 0, 0], []],
 }
-// Where the two trees stand, as fractions of the width.
-const TREES = [0.42, 0.95]
+// Daytime crops on the far fields, as multipliers of the far hill color.
+const CROPS: RGB[] = [
+  [1, 1, 1],
+  [0.66, 0.82, 0.62],
+  [1.1, 1.08, 0.8],
+  [1.45, 1.12, 0.45],
+  [1.2, 0.86, 0.55],
+]
 const WOOD: RGB = [0.45, 0.3, 0.16]
 const BLACK: RGB = [0.05, 0.05, 0.05]
 
@@ -161,6 +175,7 @@ interface Walker {
   // Time left standing with the head up, looking toward a click.
   look: number
   moving: boolean
+  g: Gait
 }
 
 class Farm extends Canvas {
@@ -169,15 +184,17 @@ class Farm extends Canvas {
   private readonly activity: Activity
   private readonly look: Look
   private lighting: Lighting = { style: "front", dir: DAYLIGHT }
+  private readonly shade: Shade
   private background = new Float32Array(0)
   private stars: Star[]
   private clouds: Cloud[]
+  private shadows = makeShadows(3, HORIZON + 0.08, 0.95)
   private storm = makeStorm()
   private nearTop = new Float32Array(0)
   private cows: Walker[] = []
   private chickens: Walker[] = []
   private pigs: Walker[] = []
-  private farmer = { x: 0.5, dir: 1, phase: 0, wave: -1, next: 20 }
+  private farmer = { x: 0.5, dir: 1, wave: -1, next: 20, g: gait() }
   private tractor = { x: -9, dir: 1, next: 14, wheel: 0 }
   private smoke: { x: number; y: number; age: number }[] = []
   private fireflies: { x: number; y: number; vx: number; vy: number; phase: number }[] = []
@@ -188,23 +205,34 @@ class Farm extends Canvas {
   private readonly weather: WeatherLayer
   private hills: [far: RGB, near: RGB]
   private treeTops: [number, number][] = []
+  // The barn and windmill stand toward the edges, in screen heights from the left, clear of the text in the middle.
+  private barnX = 0
+  private millX = 0.25
   // Blossom petals in spring and leaves in autumn, drifting down on the breeze.
   private leaves: { x: number; y: number; phase: number; color: RGB }[] = []
+  // The back corn rows are painted once but still bend as gusts pass, and the open pasture lightens under them.
+  private corn = new SwayLayer()
+  private pasture = new Int32Array(0)
+  private gusts = new Float32Array(0)
+  private fan = 0
 
   constructor(settings: Settings) {
     super()
     this.activity = settings.activity
     this.look = LOOKS[settings.time]
+    if (settings.time === "day") this.frame = 0.4
     this.season = settings.season ?? "summer"
     this.hills = GROUND[this.season]?.[settings.time] ?? this.look.hills
     // Without a weather setting, winter brings a light flurry.
     this.weather = new WeatherLayer(settings.weather ?? (this.season === "winter" ? "snow" : "clear"), settings.time, HORIZON, !settings.weather)
+    this.shade = sunShade(settings.time, this.look.orb, this.weather.covered)
     const drifting = { spring: 10, autumn: 22, summer: 0, winter: 0 }[this.season] * { calm: 1, lively: 1.3, teeming: 1.6 }[settings.activity]
     const colors: RGB[] = this.season === "spring" ? [[1, 0.78, 0.86], [0.95, 0.6, 0.72]] : [[0.9, 0.45, 0.1], [0.75, 0.2, 0.07], [0.95, 0.7, 0.18]]
     this.leaves = Array.from({ length: Math.round(drifting) }, (_, i) => ({ x: Math.random() * 2, y: 0.4 + Math.random() * 0.55, phase: Math.random() * TAU, color: colors[i % colors.length] }))
     this.stars = makeStars(this.look.stars, 0.45)
-    this.clouds = makeClouds(this.look.clouds.puffy ? 4 : 5, this.look.clouds.puffy, 0.08, 0.3)
-    const walker = (x: number, y: number): Walker => ({ x, y, wx: x, wy: y, wanderT: 0, face: 1, phase: Math.random() * TAU, graze: 0, rest: 0, look: 0, moving: false })
+    // Long thin streaks catch the low sun better than heaps of cumulus.
+    this.clouds = settings.time === "sunset" ? makeClouds(5, "cirrus", 0.06, 0.3) : makeClouds(5, "cumulus", 0.08, 0.3)
+    const walker = (x: number, y: number): Walker => ({ x, y, wx: x, wy: y, wanderT: 0, face: 1, phase: Math.random() * TAU, graze: 0, rest: 0, look: 0, moving: false, g: gait(1, hash(x * 7 + y)) })
     if (settings.activity !== "calm") {
       this.cows = [walker(0.9, 0.8), walker(1.3, 0.84), ...(settings.activity === "teeming" ? [walker(1.1, 0.78)] : [])]
       this.chickens = [walker(1.2, 0.69), walker(1.3, 0.7), walker(1.4, 0.685)]
@@ -220,12 +248,14 @@ class Farm extends Canvas {
     const cdt = dt * CREATURE_SPEED
     this.creatureTime += cdt
     driftClouds(this.clouds, this.A, dt)
+    driftClouds(this.shadows, this.A, dt)
     driftClouds(this.storm, this.A, dt)
     this.stepGloom(dt)
     this.weather.step(dt)
+    this.fan += dt * (0.8 + 1.6 * gust(this.millX, this.time))
     for (const l of this.leaves) {
       l.y += (0.02 + Math.sin(this.time * 1.3 + l.phase) * 0.012) * dt
-      l.x += (0.025 + Math.sin(this.time * 0.7 + l.phase * 3) * 0.02) * dt
+      l.x += (0.025 + Math.sin(this.time * 0.7 + l.phase * 3) * 0.02 + gust(l.x, this.time) * 0.09) * dt
       if (l.y < 0.99 && l.x < this.A + 0.05) continue
       // Most come loose from one of the trees; some blow in from off to the left.
       const tree = this.treeTops[Math.floor(Math.random() * this.treeTops.length)]
@@ -243,9 +273,9 @@ class Farm extends Canvas {
     }
     this.stepTractor(dt)
     const A = this.A
-    for (const c of this.cows) this.wander(c, cdt, [0.4 * A, 0.95 * A, 0.76, 0.87], 0.03, [6, 14])
-    for (const c of this.chickens) this.wander(c, cdt, [0.62 * A, 0.84 * A, 0.672, 0.712], 0.025, [2, 5])
-    for (const p of this.pigs) this.wander(p, cdt, [0.44 * A, 0.6 * A, 0.88, 0.94], 0.02, [5, 10])
+    for (const c of this.cows) this.wander(c, cdt, [0.4 * A, 0.95 * A, 0.76, 0.87], 0.03, [6, 14], 0.055)
+    for (const c of this.chickens) this.wander(c, cdt, [this.barnX - 0.21, this.barnX + 0.18, 0.672, 0.712], 0.025, [2, 5], 0.025)
+    for (const p of this.pigs) this.wander(p, cdt, [0.44 * A, 0.6 * A, 0.88, 0.94], 0.02, [5, 10], 0.035)
     if (this.activity === "teeming") this.stepFarmer(cdt)
     this.stepEgg(dt, cdt)
   }
@@ -261,10 +291,16 @@ class Farm extends Canvas {
 
   render() {
     this.hdr.set(this.background)
+    for (let x = 0; x < this.W; x++) this.gusts[x] = gust(x / this.H, this.time)
+    lightenGrass(this.hdr, this.W, this.H, this.pasture, this.gusts)
+    this.corn.draw(this.hdr, this.W, this.H, this.time)
     if (!this.weather.covered) paintStars(this.hdr, this.W, this.H, this.stars, this.time, 0.5, this.look.stars > 50 ? 0.5 : 0.3)
     const [top, bottom] = this.weather.scud ?? [this.look.clouds.top, this.look.clouds.bottom]
-    paintClouds(this.hdr, this.W, this.H, this.clouds, top, bottom, this.look.clouds.alpha, this.look.clouds.puffy)
+    const orb = this.weather.covered ? undefined : this.look.orb
+    paintClouds(this.hdr, this.W, this.H, this.clouds, top, bottom, this.look.clouds.alpha, orb)
+    paintShadows(this.hdr, this.W, this.H, this.shadows, HORIZON + 0.01, orb)
     paintStorm(this.hdr, this.W, this.H, this.storm, this.look.clouds.top, this.look.clouds.bottom, this.gloom)
+    this.drawShadows()
     this.drawFan()
     this.drawTractor()
     for (const c of this.chickens) this.drawChicken(c)
@@ -273,6 +309,8 @@ class Farm extends Canvas {
     for (const { w, kind } of herd) kind === "cow" ? this.drawCow(w) : this.drawPig(w)
     this.drawEgg()
     if (this.activity === "teeming") this.drawFarmer()
+    // At night the open barn door spills warm light across the yard and whatever is in it.
+    if (this.look.windows === 1) lightPool(this.hdr, this.W, this.H, this.barnX * this.H, 0.67 * this.H, 0.24 * this.H, 0.07 * this.H, [1, 0.55, 0.15], 3, 0.02)
     this.drawCornRow(3)
     this.drawFireflies()
     this.drawLeaves()
@@ -305,17 +343,30 @@ class Farm extends Canvas {
       farTop[x] = (0.52 - 0.03 * fbm1(u * 1.5, 3) - 0.015 * Math.sin(u * 3)) * H
       this.nearTop[x] = (0.6 - 0.025 * Math.sin(u * 2.2 + 1) - 0.02 * fbm1(u * 2, 5)) * H
     }
+    const day = look === LOOKS.day
+    const sky = this.hdr.slice()
     this.fillBelow(farTop, (x, y, d) => {
-      const field = hash2(Math.floor((x / H) * 5 + (y / H) * 9), Math.floor((y / H) * 22))
+      const fu = (x / H) * 5 + (y / H) * 9
+      const fv = (y / H) * 22
+      const field = hash2(Math.floor(fu), Math.floor(fv))
       const k = 1 + (field < 0.33 ? -0.15 : field < 0.66 ? 0 : 0.12) * patchwork
       const gold = field > golden && season !== "winter" ? 0.3 : 0
-      return this.rim([far[0] * k + gold * far[0], far[1] * k + gold * 0.2 * far[1], far[2] * k * (1 - gold)], x, d, 1.5)
+      const c: RGB = [far[0] * k + gold * far[0], far[1] * k + gold * 0.2 * far[1], far[2] * k * (1 - gold)]
+      if (!day || season === "winter") return this.rim(c, x, d, 1.5)
+      // By day each field takes its own crop, from deep green to ploughed ochre, edged by dark hedgerows.
+      const crop = CROPS[Math.floor(hash2(Math.floor(fu) + 7.1, Math.floor(fv) + 3.3) * CROPS.length)]
+      const hedge = Math.min(fu - Math.floor(fu), (fv - Math.floor(fv)) * 0.4) < 0.05 ? 0.5 : 1
+      return [c[0] * crop[0] * hedge, c[1] * crop[1] * hedge, c[2] * crop[2] * hedge]
     })
+    // The far fields fade into the sky, then the pasture in front of them stays crisp.
+    if (day) haze(this.hdr, sky, W, H, 0.5, 0.62, 0.24, 0.08)
     this.fillBelow(this.nearTop, (x, y, d) => {
       const blades = 1 - grass + grass * Math.sin(x * 1.7 + y * 0.6 + fbm1(x * 0.1, 2) * 6)
       const depth = 1 - clamp((y / H - 0.6) * 0.6, 0, 0.25)
       return this.rim([near[0] * blades * depth, near[1] * blades * depth, near[2] * blades * depth], x, d, 2)
     })
+    if (day) mottle(this.hdr, W, H, 0.58, 1, 0.55, season === "winter" ? [1.03, 1, 0.92] : [1.14, 1.06, 0.7], season === "winter" ? [0.62, 0.74, 1] : [0.66, 0.84, 0.66])
+    const field = this.hdr.slice()
     // A dirt road winding across the middle distance.
     for (let x = 0; x < W; x++) {
       const cy = this.roadY(x / H) * H
@@ -327,19 +378,28 @@ class Farm extends Canvas {
       }
     }
     if (season === "spring") this.drawWildflowers()
-    this.treeTops = TREES.map((t) => {
-      const base = this.nearTop[clamp(Math.round(t * W), 0, W - 1)] / H + 0.012
-      this.drawTree(t * A, base)
-      return [t * A, base - 0.12]
+    this.barnX = A - 0.24
+    const trees = [0.5, A - 0.04]
+    const ground = (x: number, y: number, w: number, h: number, tip?: number) => groundShadow(this.hdr, W, H, this.shade, x * H, y * H, w * H, h * H, tip)
+    for (const x of trees) ground(x, this.nearTop[clamp(Math.round(x * H), 0, W - 1)] / H + 0.012, 0.09, 0.17, 1.4)
+    ground(0.08, this.nearTop[clamp(Math.round(0.08 * H), 0, W - 1)] / H + 0.006, 0.08, 0.066, 0.6)
+    ground(this.millX, 0.65, 0.07, 0.27, 0.4)
+    ground(this.barnX, 0.655, 0.24, 0.19, 0.6)
+    for (const [dx, by] of [[-0.28, 0.705], [-0.2, 0.712]]) ground(this.barnX + dx, by + 0.02, 0.045, 0.04)
+    for (let x = 0.38 * A; x < A + 0.05; x += 0.07) ground(x, 0.725, 0.012, 0.045, 0.6)
+    this.treeTops = trees.map((x) => {
+      const base = this.nearTop[clamp(Math.round(x * H), 0, W - 1)] / H + 0.012
+      this.drawTree(x, base)
+      return [x, base - 0.12]
     })
-    this.drawFarmhouse(0.5 * A, this.nearTop[clamp(Math.round(0.5 * W), 0, W - 1)] / H + 0.006)
-    this.drawWindmillTower(0.3 * A, 0.65)
-    this.drawBarn(0.74 * A, 0.655)
-    for (const [bx, by] of [[0.58, 0.705], [0.625, 0.712]]) this.shape([ell(bx * A * H, by * H, 0.022 * H, 0.02 * H, 0, this.paint([0.78, 0.62, 0.3]), 3)], this.lighting, 0.8)
+    this.drawFarmhouse(0.08, this.nearTop[clamp(Math.round(0.08 * H), 0, W - 1)] / H + 0.006)
+    this.drawWindmillTower(this.millX, 0.65)
+    this.drawBarn(this.barnX, 0.655)
+    for (const [dx, by] of [[-0.28, 0.705], [-0.2, 0.712]]) this.shape([ell((this.barnX + dx) * H, by * H, 0.022 * H, 0.02 * H, 0, this.paint([0.78, 0.62, 0.3]), 3)], this.lighting, 0.8)
     // Pumpkins in front of the barn in autumn.
     if (season === "autumn")
       for (const [dx, r] of [[-0.062, 0.011], [-0.046, 0.008], [0.056, 0.01]]) {
-        const [px, py] = [(0.74 * A + dx) * H, 0.664 * H]
+        const [px, py] = [(this.barnX + dx) * H, 0.664 * H]
         this.shape([ell(px, py - r * H, r * 1.25 * H, r * H, 0, this.paint([0.92, 0.45, 0.06]), 3), cap(px, py - r * 1.9 * H, px + 0.003 * H, py - r * 2.4 * H, 0.0018 * H, 0.0012 * H, this.paint([0.3, 0.35, 0.1]))], this.lighting, 0.7)
       }
     // A fence along the front of the pasture.
@@ -350,8 +410,49 @@ class Farm extends Canvas {
     posts.push(cap(0.38 * A * H, fy - 0.014 * H, W + 5, fy - 0.014 * H, 0.0025 * H, 0.0025 * H, this.paint(WOOD)))
     this.shape(posts, this.lighting, 0.6)
     if (this.activity === "teeming") this.shape([ell(0.52 * A * H, 0.91 * H, 0.08 * H, 0.025 * H, 0, this.paint([0.32, 0.22, 0.12]))], this.lighting, 0.3)
+    this.corn.begin(this.hdr)
     for (let row = 0; row < 3; row++) this.drawCornRow(row)
+    // Weighted by height on screen: the farther rows' tops sit higher, so each stalk bends from near its foot.
+    this.corn.end(this.hdr, W, H, 0.012 * H, (_x, y) => clamp((0.96 * H - y) / (0.26 * H), 0, 1))
     this.background = this.hdr.slice()
+    // Open grass on the pasture hill: the pixels nothing was painted over.
+    const pasture: number[] = []
+    for (let x = 0; x < W; x++)
+      for (let y = Math.ceil(this.nearTop[x]) + 1; y < H; y++) {
+        const o = (y * W + x) * 3
+        if (this.hdr[o] === field[o] && this.hdr[o + 1] === field[o + 1] && this.hdr[o + 2] === field[o + 2]) pasture.push(y * W + x)
+      }
+    this.pasture = Int32Array.from(pasture)
+    this.gusts = new Float32Array(W)
+  }
+
+  // Shadows under everything that walks or drives, drawn before any of it so none falls across another animal.
+  private drawShadows() {
+    const H = this.H
+    const ground = (x: number, y: number, w: number, h: number, tip?: number, lift?: number) => groundShadow(this.hdr, this.W, H, this.shade, x * H, y * H, w * H, h * H, tip, lift)
+    const t = this.tractor
+    if (t.x > -5) ground(t.x + t.dir * 0.04, this.roadY(t.x) + 0.004, 0.11, 0.094)
+    for (const c of this.chickens) {
+      const S = 0.05 * this.depthScale(c.y)
+      ground(c.x, c.y, 0.7 * S, 0.9 * S)
+    }
+    for (const p of this.pigs) {
+      const S = 0.08 * this.depthScale(p.y)
+      ground(p.x, p.y, 0.9 * S, 0.6 * S)
+    }
+    for (const c of this.cows) {
+      const S = 0.11 * this.depthScale(c.y)
+      ground(c.x + c.face * 0.1 * S, c.y, 1.1 * S, 0.7 * S, 0.8)
+    }
+    const e = this.egg
+    if (e.cow && e.t < 24) {
+      const rise = e.t < 0 ? 0 : smoothstep(13, 24, e.t)
+      const size = lerp(1, 0.35, rise)
+      const uy = lerp(0.1, e.cow.y - 0.4, smoothstep(0, 10, e.t))
+      const S = 0.11 * this.depthScale(e.cow.y) * size
+      ground(e.cow.x + e.cow.face * 0.1 * S, e.cow.y, 1.1 * S, 0.7 * S, 0.8, rise * (e.cow.y - uy - 0.025) * H)
+    }
+    if (this.activity === "teeming") ground(this.farmer.x, 0.738, 0.03, 0.105, 0.6)
   }
 
   private paint(c: RGB): RGB {
@@ -415,7 +516,7 @@ class Farm extends Canvas {
       this.polygon(P([[c - 0.077, b - 0.157], [c, b - 0.188], [c + 0.077, b - 0.157], [c + 0.072, b - 0.148], [c, b - 0.176], [c - 0.072, b - 0.148]]), snow)
       this.shape([ell((c - 0.13) * H, (b - 0.175) * H, 0.023 * H, 0.013 * H, 0, snow)], this.lighting, 0.4)
     }
-    this.polygon(P([[c - 0.035, b - 0.065], [c + 0.035, b - 0.065], [c + 0.035, b], [c - 0.035, b]]), this.paint([0.42, 0.07, 0.05]))
+    this.polygon(P([[c - 0.035, b - 0.065], [c + 0.035, b - 0.065], [c + 0.035, b], [c - 0.035, b]]), this.look.windows === 1 ? [1.1, 0.6, 0.18] : this.paint([0.42, 0.07, 0.05]))
     const trim = this.paint([0.88, 0.86, 0.8])
     const t = 0.0025 * H
     this.shape(
@@ -464,10 +565,10 @@ class Farm extends Canvas {
 
   private drawFan() {
     const H = this.H
-    const x = 0.3 * this.A * H
+    const x = this.millX * H
     const y = (0.65 - 0.21) * H
     const metal = this.paint([0.75, 0.75, 0.72])
-    const turn = this.time * 0.8
+    const turn = this.fan
     this.polygon([[x - 0.01 * H, y], [x - 0.075 * H, y - 0.018 * H], [x - 0.075 * H, y + 0.012 * H]], this.paint([0.6, 0.15, 0.1]))
     const parts: Part[] = [ell(x, y, 0.009 * H, 0.009 * H, 0, this.paint([0.35, 0.33, 0.3]))]
     // Blade tips stay several pixels apart, so the turning wheel doesn't shimmer in the terminal's cells.
@@ -497,8 +598,8 @@ class Farm extends Canvas {
     for (let i = 0; i * spacing < 0.36 * A; i++) {
       const x = (i * spacing + (row % 2) * spacing * 0.5 + hash(i * 3.1 + row) * 0.008) * H
       const h = height * (0.85 + hash(i * 7.3 + row) * 0.3)
-      const sway = row === 3 ? Math.sin(this.time * 0.7 + i * 0.9) * 0.05 : (hash(i + row * 5) - 0.5) * 0.06
-      const top: [number, number] = [x + Math.sin(sway) * h, base - Math.cos(sway) * h]
+      const bend = row === 3 ? sway(x / H, this.time, i * 0.9) * 0.05 : (hash(i + row * 5) - 0.5) * 0.06
+      const top: [number, number] = [x + Math.sin(bend) * h, base - Math.cos(bend) * h]
       const at = (t: number): [number, number] => [lerp(x, top[0], t), lerp(base, top[1], t)]
       const parts: Part[] = [cap(x, base, ...top, this.thick(0.006 * (1 + row * 0.3), 1.2), this.thick(0.003, 0.8), stalk)]
       for (let l = 0; l < 4; l++) {
@@ -506,10 +607,11 @@ class Farm extends Canvas {
         const side = l % 2 ? 1 : -1
         const reach = h * 0.28
         const mid: [number, number] = [lx + side * reach * 0.6, ly - reach * 0.25]
-        parts.push(cap(lx, ly, ...mid, this.thick(0.006, 1.3), this.thick(0.004, 1.1), stalk), cap(...mid, lx + side * reach, ly + reach * 0.15 + sway * reach, this.thick(0.004, 1.1), this.thick(0.0015, 0.6), stalk))
+        // Leaves stream downwind as the stalk bends.
+        parts.push(cap(lx, ly, ...mid, this.thick(0.006, 1.3), this.thick(0.004, 1.1), stalk), cap(...mid, lx + side * reach + bend * reach * 1.5, ly + reach * 0.15 + bend * reach, this.thick(0.004, 1.1), this.thick(0.0015, 0.6), stalk))
       }
       const [ex, ey] = at(0.55)
-      if (corn.ear) parts.push(ell(ex + 0.008 * H, ey, this.thick(0.007, 1.6), this.thick(0.016, 3), 0.25 + sway, this.paint(corn.ear)))
+      if (corn.ear) parts.push(ell(ex + 0.008 * H, ey, this.thick(0.007, 1.6), this.thick(0.016, 3), 0.25 + bend, this.paint(corn.ear)))
       if (corn.tassel && !this.cells) parts.push(cap(...top, top[0] + 0.012 * H, top[1] - 0.012 * H, 0.002 * H, 0.001 * H, this.paint(corn.tassel)), cap(...top, top[0] - 0.01 * H, top[1] - 0.014 * H, 0.002 * H, 0.001 * H, this.paint(corn.tassel)))
       // Rim light on every thin leaf would turn the field into a wireframe, so the corn only catches a little of it, and
       // on terminal cells less still.
@@ -564,8 +666,15 @@ class Farm extends Canvas {
     }
   }
 
-  // Walks between random points in a zone, pausing at each to graze or peck.
-  private wander(w: Walker, dt: number, zone: [number, number, number, number], speed: number, pause: [number, number]) {
+  // Walks between random points in a zone, pausing at each to graze or peck. stride is the distance a full step cycle
+  // covers near the front of the field, so the legs keep pace with the ground.
+  private wander(w: Walker, dt: number, zone: [number, number, number, number], speed: number, pause: [number, number], stride: number) {
+    const [x0, y0] = [w.x, w.y]
+    this.roam(w, dt, zone, speed, pause)
+    stepGait(w.g, Math.hypot(w.x - x0, w.y - y0) / (stride * this.depthScale(w.y)), dt, w.face)
+  }
+
+  private roam(w: Walker, dt: number, zone: [number, number, number, number], speed: number, pause: [number, number]) {
     w.phase += dt * (w.moving ? 6 : 1.5)
     if (w.look > 0) {
       w.look -= dt
@@ -583,8 +692,7 @@ class Farm extends Canvas {
     w.wanderT -= dt
     if (w.wanderT <= 0) {
       w.wanderT = rand(6, 14)
-      w.wx = rand(zone[0], zone[1])
-      w.wy = rand(zone[2], zone[3])
+      ;[w.wx, w.wy] = this.openSpot(...zone)
     }
     const dx = w.wx - w.x
     const dy = w.wy - w.y
@@ -605,92 +713,129 @@ class Farm extends Canvas {
     return 0.6 + (y - 0.7) * 2.5
   }
 
-  // A black-and-white dairy cow seen from the side, lowering its head to graze. lift raises it off the ground and
-  // size shrinks it, for the saucer's beam.
+  // A black-and-white dairy cow on jointed legs, walking in diagonal pairs with its head nodding and its tail swinging
+  // behind, and lowering its head to graze. lift raises it off the ground and size shrinks it, for the saucer's beam.
   private drawCow(c: Walker, lift = 0, size = 1) {
     const H = this.H
-    const S = 0.11 * H * this.depthScale(c.y) * size
-    const x = c.x * H
-    const y = (c.y - lift) * H
-    const P = (u: number, v: number): [number, number] => [x + u * c.face * S, y + v * S]
-    const swing = c.moving ? Math.sin(c.phase) * 0.05 : 0
+    const g = c.g
+    const P = body(c.x * H, (c.y - lift) * H, 0.11 * H * this.depthScale(c.y) * size, g.turn)
+    const S = P.S
     const hide = this.paint([0.92, 0.9, 0.86])
-    const g = c.graze
-    const [hu, hv] = [lerp(0.55, 0.6, g), lerp(-0.56, -0.2, g)]
-    const parts: Part[] = []
-    for (const [u, s] of [[0.28, 1], [0.34, -1], [-0.24, -1], [-0.3, 1]] as const) parts.push(cap(...P(u, -0.3), ...P(u + swing * s, 0), 0.045 * S, 0.038 * S, hide))
-    parts.push(
-      cap(...P(-0.4, -0.5), ...P(-0.47, -0.2), 0.014 * S, 0.012 * S, hide),
-      ell(...P(0, -0.43), 0.42 * S, 0.2 * S, 0, hide),
-      ell(...P(-0.1, -0.25), 0.07 * S, 0.045 * S, 0, this.paint([0.9, 0.6, 0.6])),
-      cap(...P(0.33, -0.5), ...P(hu - 0.06, hv), 0.11 * S, 0.08 * S, hide),
-      ell(...P(hu, hv), 0.13 * S, 0.09 * S, lerp(-0.25, 1, g) * c.face, hide),
-      ell(...P(hu + lerp(0.1, 0.03, g), hv + lerp(0.03, 0.1, g)), 0.06 * S, 0.055 * S, 0, this.paint([0.88, 0.62, 0.58])),
-      cap(...P(hu - 0.05, hv - 0.07), ...P(hu - 0.14, hv - 0.09), 0.025 * S, 0.012 * S, hide),
-      ell(...P(-0.47, -0.17), 0.025 * S, 0.035 * S, 0, this.paint(BLACK)),
-    )
-    this.shape(parts, this.lighting, 0.7)
-    const spots = this.paint(BLACK)
-    this.shape([ell(...P(-0.15, -0.48), 0.12 * S, 0.08 * S, 0.3, spots), ell(...P(0.13, -0.39), 0.1 * S, 0.07 * S, -0.4, spots), ell(...P(-0.3, -0.37), 0.06 * S, 0.05 * S, 0, spots), ell(...P(hu - 0.02, hv - 0.02), 0.05 * S, 0.04 * S, 0, spots)], this.lighting, 0.4)
-  }
-
-  // A hen bobbing its head to peck at the ground.
-  private drawChicken(h: Walker) {
-    const H = this.H
-    const S = 0.05 * H * this.depthScale(h.y)
-    const x = h.x * H
-    const y = h.y * H
-    const P = (u: number, v: number): [number, number] => [x + u * h.face * S, y + v * S]
-    const peck = Math.max(h.graze, Math.pow(Math.max(0, Math.sin(h.phase * 2)), 6))
-    const feather = this.paint(h.x % 0.3 > 0.15 ? [0.6, 0.35, 0.15] : [0.92, 0.9, 0.82])
-    const leg = this.paint([0.95, 0.6, 0.15])
-    const [hu, hv] = [lerp(0.32, 0.45, peck), lerp(-0.78, -0.35, peck)]
+    const black = this.paint(BLACK)
+    const rise = bob(g.phase) * g.go * 0.015
+    const legs = { fore: 0.25, hind: 0.27, top: 0.42 - rise, w: 0.08, a: 0.21, b: 0.21, reach: 0.15, lift: 0.08, r: [0.07, 0.036, 0.03] as [number, number, number], paw: [0.03, this.paint([0.25, 0.2, 0.17])] as [number, RGB] }
+    this.shape(quadruped(P, g, true, { ...legs, color: this.paint([0.66, 0.64, 0.6]) }), this.lighting, 0.7)
+    const gz = smoothstep(0, 1, c.graze)
+    const nod = Math.cos(TAU * 2 * g.phase - 1) * 0.02 * g.go
+    const poll: [number, number] = [lerp(0.47, 0.54, gz), lerp(-0.6, -0.26, gz) + nod - rise]
+    const muzzle: [number, number] = [poll[0] + lerp(0.15, 0.05, gz), poll[1] + lerp(0.11, 0.2, gz)]
+    const swish = Math.sin(this.creatureTime * 2.3 + c.x * 17) * 0.05 - g.lag * 0.06
+    const tail = (t: number) => P(-0.43 - t * 0.03 + swish * t * t, -0.6 - rise + t * 0.36)
     this.shape(
       [
-        cap(...P(0.05, -0.25), ...P(0.05, 0), 0.03 * S, 0.025 * S, leg),
-        cap(...P(-0.08, -0.25), ...P(-0.08, 0), 0.03 * S, 0.025 * S, leg),
-        cap(...P(-0.25, -0.5), ...P(-0.45, -0.85), 0.14 * S, 0.06 * S, feather),
-        ell(...P(0, -0.48), 0.35 * S, 0.27 * S, 0, feather),
-        cap(...P(0.2, -0.55), ...P(hu, hv), 0.12 * S, 0.1 * S, feather),
-        ell(...P(hu, hv), 0.14 * S, 0.13 * S, 0, feather),
-        ell(...P(hu, hv - 0.15), 0.06 * S, 0.06 * S, 0, this.paint([0.85, 0.08, 0.06])),
-        cap(...P(hu + 0.1, hv), ...P(hu + 0.24, hv + 0.03), 0.04 * S, 0.01 * S, leg),
+        ...quadruped(P, g, false, { ...legs, color: hide }),
+        ell(...P(0.01, -0.47 - rise), P.len(0.34, 0.15), 0.17 * S, 0, hide),
+        ell(...P(-0.25, -0.5 - rise), P.len(0.16, 0.14), 0.15 * S, 0, hide),
+        ell(...P(0.24, -0.47 - rise), P.len(0.15, 0.14), 0.16 * S, 0, hide),
+        ell(...P(-0.12, -0.31 - rise), P.len(0.07, 0.05), 0.045 * S, 0, this.paint([0.9, 0.6, 0.6])),
+        cap(...P(0.28, -0.5 - rise), ...P(...poll), 0.13 * S, 0.085 * S, hide),
+        cap(...P(...poll), ...P(...muzzle), 0.085 * S, 0.068 * S, hide),
+        ell(...P(...muzzle), 0.06 * S, 0.055 * S, 0, this.paint([0.88, 0.62, 0.58])),
+        ...[-1, 1].map((s) => ell(...P(poll[0] - 0.04, poll[1] - 0.01, s * 0.1), 0.075 * S, 0.026 * S, (-0.2 - g.lag * 0.15) * P.along, hide)),
+        ...chain(tail, 3, 0.02 * S, 0.012 * S, hide),
+        ell(...tail(1.1), 0.025 * S, 0.045 * S, 0, black),
+      ],
+      this.lighting,
+      0.7,
+    )
+    this.shape(
+      [
+        ell(...P(-0.15, -0.5 - rise), P.len(0.12, 0.06), 0.08 * S, 0.3 * P.along, black),
+        ell(...P(0.13, -0.4 - rise), P.len(0.1, 0.05), 0.07 * S, -0.4 * P.along, black),
+        ell(...P(-0.3, -0.38 - rise), P.len(0.06, 0.03), 0.05 * S, 0, black),
+        ell(...P(poll[0] + 0.02, poll[1] + 0.02), 0.05 * S, 0.045 * S, 0, black),
+      ],
+      this.lighting,
+      0.4,
+    )
+  }
+
+  // A hen high-stepping on jointed legs, her head holding still in the air and darting forward at each step, and
+  // pecking at the ground when she stops.
+  private drawChicken(h: Walker) {
+    const H = this.H
+    const g = h.g
+    const P = body(h.x * H, h.y * H, 0.05 * H * this.depthScale(h.y), g.turn)
+    const S = P.S
+    const peck = Math.max(h.graze, Math.pow(Math.max(0, Math.sin(h.phase * 2)), 6) * (1 - g.go))
+    const feather = this.paint(h.x % 0.3 > 0.15 ? [0.6, 0.35, 0.15] : [0.92, 0.9, 0.82])
+    const leg = this.paint([0.95, 0.6, 0.15])
+    const red = this.paint([0.85, 0.08, 0.06])
+    const rise = bob(g.phase) * g.go * 0.03
+    const f = (g.phase * 2) % 1
+    const thrust = g.go * 0.09 * (f < 0.75 ? 1 - (2 * f) / 0.75 : -1 + 2 * smoothstep(0.75, 1, f))
+    const [hu, hv] = [lerp(0.3, 0.48, peck) + thrust, lerp(-0.84, -0.3, peck) - rise]
+    const legs = [-1, 1].flatMap((w) => {
+      const [reach, raise] = stride(g.phase, w > 0 ? 0 : 0.5)
+      const fu = reach * 0.15 * g.go
+      const fv = -raise * 0.12 * g.go - 0.02
+      const Q = (u: number, v: number) => P(u, v, w * 0.06)
+      return [...limb(Q, 0, -0.4 - rise, fu, fv, 0.2, 0.22, 1, 0.07 * S, 0.03 * S, 0.025 * S, leg), cap(...Q(fu - 0.06, fv), ...Q(fu + 0.1, fv + 0.01), 0.025 * S, 0.015 * S, leg)]
+    })
+    this.shape(
+      [
+        ...legs,
+        cap(...P(-0.2, -0.55 - rise), ...P(-0.36 - g.lag * 0.03, -0.88 - rise), 0.13 * S, 0.05 * S, feather),
+        cap(...P(-0.2, -0.52 - rise), ...P(-0.42 - g.lag * 0.04, -0.72 - rise), 0.1 * S, 0.04 * S, feather),
+        ell(...P(0, -0.52 - rise), P.len(0.3, 0.18), 0.21 * S, 0.25 * P.along, feather),
+        ell(...P(0.14, -0.55 - rise), P.len(0.17, 0.16), 0.18 * S, 0, feather),
+        cap(...P(0.16, -0.62 - rise), ...P(hu, hv), 0.1 * S, 0.075 * S, feather),
+        ell(...P(hu, hv), 0.1 * S, 0.1 * S, 0, feather),
+        ell(...P(hu - 0.01, hv - 0.1), P.len(0.07, 0.02), 0.045 * S, 0, red),
+        ell(...P(hu + 0.05, hv + 0.09), 0.03 * S, 0.045 * S, 0, red),
+        cap(...P(hu + 0.07, hv), ...P(hu + 0.18, hv + 0.03), 0.035 * S, 0.008 * S, leg),
       ],
       this.lighting,
       0.6,
     )
   }
 
-  // A round pink pig, rooting in the mud.
+  // A round pink pig trotting on short legs, floppy ears bouncing and curly tail up, rooting in the mud.
   private drawPig(p: Walker) {
     const H = this.H
-    const S = 0.08 * H * this.depthScale(p.y)
-    const x = p.x * H
-    const y = p.y * H
-    const P = (u: number, v: number): [number, number] => [x + u * p.face * S, y + v * S]
+    const g = p.g
+    const P = body(p.x * H, p.y * H, 0.08 * H * this.depthScale(p.y), g.turn)
+    const S = P.S
     const pink = this.paint([0.95, 0.66, 0.66])
-    const swing = p.moving ? Math.sin(p.phase) * 0.04 : 0
-    const dip = p.graze * 0.12
+    const snout = this.paint([0.88, 0.5, 0.52])
+    const rise = bob(g.phase) * g.go * 0.015
+    const legs = { fore: 0.2, hind: 0.21, top: 0.22 - rise, w: 0.1, a: 0.1, b: 0.1, reach: 0.13, lift: 0.06, r: [0.07, 0.045, 0.04] as [number, number, number], paw: [0.025, this.paint([0.5, 0.32, 0.3])] as [number, RGB] }
+    this.shape(quadruped(P, g, true, { ...legs, color: this.paint([0.75, 0.5, 0.5]) }), this.lighting, 0.7)
+    const dip = p.graze * 0.14 + Math.cos(TAU * 2 * g.phase - 1) * 0.015 * g.go - rise
+    const flop = g.lag * 0.03 + Math.sin(TAU * 2 * g.phase - 2) * 0.015 * g.go
+    const curl = (t: number) => P(-0.4 - 0.05 * Math.sin(t * 5), -0.44 - rise + 0.05 * Math.cos(t * 5) - 0.03 * t)
     this.shape(
       [
-        ...[[0.22, 1], [0.28, -1], [-0.2, -1], [-0.26, 1]].map(([u, s]) => cap(...P(u, -0.15), ...P(u + swing * s, 0), 0.05 * S, 0.045 * S, pink)),
-        ell(...P(0, -0.32), 0.38 * S, 0.24 * S, 0, pink),
-        ell(...P(0.36, -0.36 + dip), 0.15 * S, 0.14 * S, 0, pink),
-        ell(...P(0.5, -0.33 + dip), 0.06 * S, 0.07 * S, 0, this.paint([0.88, 0.5, 0.52])),
-        cap(...P(0.3, -0.46 + dip), ...P(0.38, -0.58 + dip), 0.05 * S, 0.01 * S, pink),
-        cap(...P(-0.36, -0.36), ...P(-0.44, -0.44), 0.02 * S, 0.015 * S, pink),
+        ...quadruped(P, g, false, { ...legs, color: pink }),
+        ell(...P(-0.04, -0.34 - rise), P.len(0.38, 0.2), 0.21 * S, -0.06 * P.along, pink),
+        ell(...P(0.34, -0.37 + dip), 0.15 * S, 0.15 * S, 0, pink),
+        cap(...P(0.4, -0.35 + dip), ...P(0.52, -0.31 + dip), 0.1 * S, 0.075 * S, pink),
+        ell(...P(0.54, -0.31 + dip), P.len(0.025, 0.065), 0.065 * S, 0, snout),
+        ...[-1, 1].map((s) => cap(...P(0.3, -0.46 + dip, s * 0.08), ...P(0.42, -0.4 + dip + flop, s * 0.11), 0.055 * S, 0.02 * S, pink)),
+        ...chain(curl, 3, 0.02 * S, 0.015 * S, pink),
       ],
       this.lighting,
       0.7,
     )
   }
 
-  // The farmer strolls along the fence in a straw hat, now and then stopping to wave.
+  // The farmer strolls along the fence in a straw hat, turning round at each end and now and then stopping to wave.
   private stepFarmer(dt: number) {
     const f = this.farmer
     if (f.wave >= 0) {
       f.wave += dt
       if (f.wave > 3) f.wave = -1
+      stepGait(f.g, 0, dt, f.dir)
       return
     }
     f.next -= dt
@@ -699,8 +844,8 @@ class Farm extends Canvas {
       f.next = rand(20, 35)
       return
     }
-    f.phase += dt * 5
     f.x += f.dir * 0.03 * dt
+    stepGait(f.g, (0.03 * dt) / 0.079, dt, f.dir)
     if (f.x > 0.95 * this.A) f.dir = -1
     if (f.x < 0.42 * this.A) f.dir = 1
   }
@@ -708,30 +853,43 @@ class Farm extends Canvas {
   private drawFarmer() {
     const H = this.H
     const f = this.farmer
-    const S = 0.15 * H
-    const x = f.x * H
-    const y = 0.738 * H
-    const P = (u: number, v: number): [number, number] => [x + u * f.dir * S, y + v * S]
-    const walking = f.wave < 0
-    const swing = walking ? Math.sin(f.phase) * 0.12 : 0
+    const g = f.g
+    const rise = bob(g.phase) * g.go * 0.015
+    const P = body(f.x * H, 0.738 * H, 0.105 * H, g.turn)
+    const S = P.S
     const denim = this.paint([0.2, 0.3, 0.6])
     const shirt = this.paint([0.75, 0.15, 0.12])
     const skin = this.paint([0.85, 0.65, 0.5])
     const straw = this.paint([0.9, 0.78, 0.4])
-    const waveArm: [number, number] = f.wave >= 0 ? [0.14 + Math.sin(f.wave * 8) * 0.04, -1.02] : [swing * 0.6, -0.5]
+    const boot = this.paint([0.3, 0.2, 0.12])
+    // Each side's leg and the opposite arm swing together; the near arm waves.
+    const side = (w: number, far: boolean): Part[] => {
+      const [reach, raise] = stride(g.phase, w > 0 ? 0 : 0.5)
+      const fu = reach * 0.24 * g.go
+      const fv = -raise * 0.07 * g.go - 0.03
+      const Q = (u: number, v: number) => P(u, v, w * 0.05)
+      const A = (u: number, v: number) => P(u, v, w * 0.1)
+      const waving = f.wave >= 0 && !far
+      const hand: [number, number] = waving ? [0.12 + Math.sin(f.wave * 8) * 0.04, -1.1] : [-reach * 0.14 * g.go + 0.02, -0.42 - rise]
+      const pants = far ? this.paint([0.13, 0.2, 0.42]) : denim
+      return [
+        ...limb(Q, 0, -0.48 - rise, fu, fv, 0.25, 0.25, -1, 0.055 * S, 0.045 * S, 0.04 * S, pants),
+        cap(...Q(fu - 0.02, fv), ...Q(fu + 0.06, fv + 0.005), 0.035 * S, 0.03 * S, boot),
+        ...limb(A, 0.01, -0.78 - rise, ...hand, 0.19, 0.19, waving ? -1 : 1, 0.04 * S, 0.033 * S, 0.03 * S, far ? this.paint([0.5, 0.1, 0.08]) : shirt),
+        ell(...A(...hand), 0.03 * S, 0.03 * S, 0, skin),
+      ]
+    }
+    const near = P.along >= 0 ? 1 : -1
+    this.shape(side(-near, true), this.lighting, 0.7)
     this.shape(
       [
-        cap(...P(0.01, -0.75), ...P(-swing * 0.6, -0.5), 0.035 * S, 0.03 * S, shirt),
-        cap(...P(0, -0.45), ...P(-swing, 0), 0.05 * S, 0.045 * S, denim),
-        ell(...P(-swing + 0.03, -0.01), 0.05 * S, 0.02 * S, 0, this.paint([0.3, 0.2, 0.12])),
-        cap(...P(0, -0.45), ...P(swing, 0), 0.05 * S, 0.045 * S, denim),
-        ell(...P(swing + 0.03, -0.01), 0.05 * S, 0.02 * S, 0, this.paint([0.3, 0.2, 0.12])),
-        cap(...P(0, -0.42), ...P(0.02, -0.78), 0.085 * S, 0.075 * S, denim),
-        cap(...P(0.02, -0.78), ...P(0.02, -0.66), 0.07 * S, 0.06 * S, shirt),
-        cap(...P(0.03, -0.75), ...P(...waveArm), 0.035 * S, 0.03 * S, shirt),
-        ell(...P(0.04, -0.87), 0.065 * S, 0.07 * S, 0, skin),
-        ell(...P(0.04, -0.93), 0.15 * S, 0.028 * S, 0, straw),
-        ell(...P(0.04, -0.97), 0.075 * S, 0.05 * S, 0, straw),
+        ...side(near, false),
+        cap(...P(0, -0.45 - rise), ...P(0.02, -0.78 - rise), 0.1 * S, 0.085 * S, denim),
+        cap(...P(0.02, -0.8 - rise, -0.06), ...P(0.02, -0.8 - rise, 0.06), 0.06 * S, 0.06 * S, shirt),
+        ell(...P(0.04, -0.89 - rise), 0.065 * S, 0.07 * S, 0, skin),
+        cap(...P(0.08, -0.89 - rise), ...P(0.115, -0.87 - rise), 0.02 * S, 0.015 * S, skin),
+        ell(...P(0.04, -0.95 - rise), 0.15 * S, 0.028 * S, 0, straw),
+        ell(...P(0.03, -0.99 - rise), 0.075 * S, 0.05 * S, 0, straw),
       ],
       this.lighting,
       0.7,
@@ -744,7 +902,7 @@ class Farm extends Canvas {
     for (let i = 0; i < 3; i++) {
       const a = this.creatureTime * (0.5 + i * 0.1) + i * 2.1
       const x = (0.17 * this.A + Math.cos(a) * (0.08 + i * 0.03)) * H
-      const y = (0.42 + Math.sin(a) * 0.03) * H
+      const y = (0.3 + Math.sin(a) * 0.03) * H
       const flap = Math.sin(this.time * 6 + i * 2)
       const s = 0.03 * H
       const c = this.paint(BLACK)
@@ -816,13 +974,13 @@ class Farm extends Canvas {
     if (!c) {
       e.wait -= dt
       if (e.wait > 0) return
-      e.cow = { x: this.A + 0.15, y: 0.83, wx: 0, wy: 0, wanderT: 0, face: -1, phase: 0, graze: 0, rest: 0, look: 0, moving: true }
+      e.cow = { x: this.A + 0.15, y: 0.83, wx: 0, wy: 0, wanderT: 0, face: -1, phase: 0, graze: 0, rest: 0, look: 0, moving: true, g: gait(-1) }
       e.t = -1
       return
     }
     if (e.t < 0) {
-      c.phase += cdt * 6
       c.x -= 0.03 * cdt
+      stepGait(c.g, (0.03 * cdt) / (0.055 * this.depthScale(c.y)), cdt, -1)
       if (c.x > 0.9 * this.A) return
       c.moving = false
       e.t = 0
@@ -830,6 +988,7 @@ class Farm extends Canvas {
     }
     e.t += dt
     c.phase += cdt * 1.5
+    stepGait(c.g, 0, cdt, -1)
     // Grazing until the beam comes on, then head up in surprise.
     c.graze = e.t < 11 ? Math.min(1, c.graze + cdt * 0.8) : Math.max(0, c.graze - dt * 2)
     if (e.t < 36) return
@@ -884,6 +1043,7 @@ class Farm extends Canvas {
     for (const f of this.fireflies) {
       const k = Math.pow(Math.max(0, Math.sin(this.time * 1.3 + f.phase * 7)), 6)
       if (k < 0.02) continue
+      fireflyLight(this.hdr, this.W, H, f.x * H, f.y * H, k)
       this.disc(f.x * H, f.y * H, 1.3, 1.8 * k, 2.4 * k, 0.6 * k, 0.6)
       this.add(f.x * H, f.y * H, 0.9 * k, 1.2 * k, 0.3 * k)
     }
@@ -892,6 +1052,21 @@ class Farm extends Canvas {
 
 function lerpRGB(a: RGB, b: RGB, t: number): RGB {
   return [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)]
+}
+
+// A gust flattens the grass as it passes, turning up the paler side of the blades in soft streaks.
+function lightenGrass(hdr: Float32Array, W: number, H: number, pasture: Int32Array, gusts: Float32Array) {
+  for (let k = 0; k < pasture.length; k++) {
+    const p = pasture[k]
+    const x = p % W
+    const g = gusts[x]
+    if (g < 0.01) continue
+    const y = (p - x) / W
+    const m = 1 + 0.1 * g * (0.4 + 0.6 * Math.sin(((x - y * 1.4) / H) * 55) ** 2)
+    hdr[p * 3] *= m
+    hdr[p * 3 + 1] *= m
+    hdr[p * 3 + 2] *= m
+  }
 }
 
 export const farm: Wallpaper = {
@@ -910,9 +1085,9 @@ export const farm: Wallpaper = {
       [14, 28, 10],
     ],
     sunset: [
-      [30, 14, 26],
-      [36, 16, 16],
-      [10, 6, 6],
+      [16, 18, 34],
+      [40, 28, 14],
+      [14, 12, 6],
     ],
     night: [
       [4, 6, 16],

@@ -1,5 +1,6 @@
-import type { AgentEvent } from "./wallpaper"
-import { clamp, type RGB } from "./math"
+import type { AgentEvent, TextMap } from "./wallpaper"
+import { clamp, rand, smoothstep, type RGB } from "./math"
+import { clearShadows, keepShadows } from "./shadow"
 
 // Bloom is computed at 1/BLOOM resolution, then again at half that for the wide halo.
 const BLOOM = 4
@@ -71,6 +72,9 @@ export abstract class Canvas {
   // clouds by it.
   protected gloom = 0
   private gloomy = false
+  // Extra darkening toward the bottom corners (0 to 1), folded into the vignette: set it in the constructor to frame
+  // a bright daytime foreground.
+  protected frame = 0
 
   abstract step(dt: number): void
   abstract render(): void
@@ -85,6 +89,57 @@ export abstract class Canvas {
 
   protected stepGloom(dt: number) {
     this.gloom = clamp(this.gloom + (this.gloomy ? dt : -dt) * 0.3, 0, 1)
+  }
+
+  // Where OpenCode's text sits; unknown until the engine says, and in dev/snap.ts.
+  protected text: TextMap | undefined
+
+  textMap(map: TextMap) {
+    this.text = map
+  }
+
+  // How hidden by text the point (x, y) in screen heights is, from 0 (open) to 1.
+  protected covered(x: number, y: number) {
+    const t = this.text
+    if (!t) return 0
+    return t.cover[clamp(Math.floor(y * t.rows), 0, t.rows - 1) * t.cols + clamp(Math.floor((x / this.A) * t.cols), 0, t.cols - 1)]
+  }
+
+  // A random point in the box from (x0, y0) to (x1, y1) in screen heights, the most open of a few tries once the
+  // engine has said where text is: creatures wander toward open ground and visitors come on where they'll be seen.
+  protected openSpot(x0: number, x1: number, y0: number, y1: number): [number, number] {
+    let best: [number, number] = [rand(x0, x1), rand(y0, y1)]
+    let least = this.covered(best[0], best[1])
+    for (let i = 0; i < 5 && least > 0.05; i++) {
+      const spot: [number, number] = [rand(x0, x1), rand(y0, y1)]
+      const c = this.covered(spot[0], spot[1])
+      if (c >= least) continue
+      best = spot
+      least = c
+    }
+    return best
+  }
+
+  // A height between y0 and y1 for a visitor crossing the whole screen: the least covered row of a few tries.
+  protected openRow(y0: number, y1: number) {
+    let best = rand(y0, y1)
+    const t = this.text
+    if (!t) return best
+    const cover = (y: number) => {
+      const row = clamp(Math.floor(y * t.rows), 0, t.rows - 1) * t.cols
+      let sum = 0
+      for (let c = 0; c < t.cols; c++) sum += t.cover[row + c]
+      return sum
+    }
+    let least = cover(best)
+    for (let i = 0; i < 4; i++) {
+      const y = rand(y0, y1)
+      const c = cover(y)
+      if (c >= least) continue
+      best = y
+      least = c
+    }
+    return best
   }
 
   // Called after every size change, once the buffers match the new size.
@@ -115,7 +170,8 @@ export abstract class Canvas {
       for (let x = 0; x < W; x++) {
         const dx = (x - W / 2) * invR
         const dy = (y - H / 2) * invR
-        this.vignette[y * W + x] = 1 - 0.62 * Math.pow(dx * dx + dy * dy, 1.25)
+        const corner = this.frame * smoothstep(0.45, 1, y / H) * (0.35 + 0.65 * (2 * Math.abs(x / W - 0.5)) ** 2)
+        this.vignette[y * W + x] = (1 - 0.62 * Math.pow(dx * dx + dy * dy, 1.25)) * (1 - corner)
       }
     // Bilinear lookup from full-resolution rows and columns into the bloom grid.
     this.rowA = new Int32Array(H)
@@ -139,6 +195,7 @@ export abstract class Canvas {
       this.colF[x] = clamp(bx - i, 0, 1)
     }
     this.layout()
+    keepShadows(this.hdr)
   }
 
   // A stroke radius in screen heights, in pixels; on terminal cells never under min, since thinner strokes break up
@@ -192,6 +249,7 @@ export abstract class Canvas {
   protected finish(exposure = 1.25) {
     bloom(this.hdr, this.W, this.H, this.bw, this.bh, this.bloomA, this.bloomB, this.bw2, this.bh2, this.bloom2A, this.bloom2B, this.bloomUp)
     toneMap(this.hdr, this.pixels, this.W, this.H, this.bloomUp, this.vignette, this.rowA, this.rowB, this.rowF, this.colA, this.colB, this.colF, exposure)
+    clearShadows(this.hdr)
   }
 }
 

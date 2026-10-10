@@ -1,10 +1,16 @@
 import { Canvas, blade, cap, ell, type Lighting, type Part } from "../src/canvas"
+import { limb, stride } from "../src/creature"
 import { eggWait } from "../src/egg"
+import { haze, mottle } from "../src/grade"
 import { bird, flyAway, startle, type Flier } from "../src/flock"
-import { TAU, clamp, fbm1, hash, hash2, lerp, rand, smoothstep, type RGB } from "../src/math"
-import { driftClouds, makeClouds, makeStars, makeStorm, paintClouds, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
+import { campfire, lightPool } from "../src/light"
+import { TAU, clamp, fbm1, hash, hash2, lerp, noise1, rand, smoothstep, type RGB } from "../src/math"
+import { groundShadow, sunShade, type Shade } from "../src/shadow"
+import { driftClouds, makeClouds, makeShadows, makeStars, makeStorm, paintClouds, paintShadows, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
 import type { Activity, Season, Settings, Time, Wallpaper } from "../src/wallpaper"
+import { reflect } from "../src/water"
 import { WeatherLayer } from "../src/weather"
+import { sway } from "../src/wind"
 
 // The scene runs slower than real time, which keeps it calm behind text.
 const TIME_SCALE = 0.35
@@ -13,6 +19,9 @@ const CREATURE_SPEED = 0.25
 const HORIZON = 0.5
 // How long the message in a bottle stays, in scene seconds.
 const BOTTLE = 95
+// How long a ring on the water and a dolphin's glowing wake under it last, in scene seconds.
+const RING = 4
+const WAKE = 7
 
 // What changes with the time of day. Sea, sand and foam get their own colors; at night the foam glows with
 // bioluminescence instead of turning white. Objects and animals have one daytime color each, darkened by tint.
@@ -22,11 +31,13 @@ interface Look {
   sky: [number, RGB][]
   orb: Orb
   stars: number
-  clouds: { puffy: boolean; top: RGB; bottom: RGB; alpha: number }
+  clouds: { top: RGB; bottom: RGB; alpha: number }
   sea: [far: RGB, near: RGB]
   sand: [dry: RGB, wet: RGB]
   foam: RGB
   glitter: number
+  // The tint of what the sea mirrors.
+  mirror: RGB
   tint: RGB
   night: boolean
 }
@@ -42,58 +53,62 @@ const LOOKS: Record<Time, Look> = {
     ],
     orb: { x: 0.18, y: 0.14, r: 0.035, core: [5, 4.6, 3.8], glow: [1, 0.95, 0.8], near: 0.45, wide: 0.12 },
     stars: 0,
-    clouds: { puffy: true, top: [1.1, 1.1, 1.1], bottom: [0.6, 0.68, 0.8], alpha: 0.9 },
+    clouds: { top: [1.1, 1.1, 1.1], bottom: [0.6, 0.68, 0.8], alpha: 0.9 },
     sea: [
-      [0.12, 0.42, 0.62],
-      [0.08, 0.6, 0.62],
+      [0.04, 0.26, 0.56],
+      [0.03, 0.54, 0.6],
     ],
     sand: [
-      [0.86, 0.76, 0.55],
-      [0.62, 0.52, 0.36],
+      [0.8, 0.65, 0.43],
+      [0.5, 0.4, 0.27],
     ],
     foam: [0.92, 0.96, 1],
     glitter: 0.15,
+    mirror: [0.82, 0.9, 0.95],
     tint: [1, 1, 1],
     night: false,
   },
   sunset: {
     style: "rim",
-    light: [1, 0.5, 0.2],
+    // Pastel: a teal sky blushing pink toward the horizon, and a sea lit pink far out, teal near the shore.
+    light: [1, 0.6, 0.62],
     sky: [
-      [0, [0.03, 0.02, 0.08]],
-      [0.22, [0.12, 0.04, 0.12]],
-      [0.38, [0.45, 0.14, 0.14]],
-      [HORIZON, [1, 0.5, 0.18]],
+      [0, [0.03, 0.1, 0.14]],
+      [0.2, [0.1, 0.24, 0.3]],
+      [0.36, [0.6, 0.32, 0.5]],
+      [HORIZON, [1, 0.5, 0.55]],
     ],
-    orb: { x: 0.55, y: 0.475, r: 0.055, core: [3.2, 1.7, 0.6], glow: [1, 0.42, 0.14], near: 0.5, wide: 0.25 },
-    stars: 25,
-    clouds: { puffy: false, top: [0.1, 0.035, 0.09], bottom: [0.8, 0.3, 0.2], alpha: 0.55 },
+    orb: { x: 0.55, y: 0.465, r: 0.05, core: [2.6, 1.4, 1.2], glow: [1, 0.5, 0.58], near: 0.45, wide: 0.22 },
+    stars: 12,
+    clouds: { top: [0.2, 0.2, 0.3], bottom: [1, 0.5, 0.62], alpha: 0.8 },
     sea: [
-      [0.55, 0.25, 0.18],
-      [0.12, 0.07, 0.12],
+      [0.8, 0.36, 0.5],
+      [0.04, 0.24, 0.27],
     ],
     sand: [
-      [0.4, 0.22, 0.15],
-      [0.25, 0.13, 0.1],
+      [0.4, 0.22, 0.27],
+      [0.2, 0.13, 0.19],
     ],
-    foam: [1, 0.62, 0.42],
+    foam: [1, 0.76, 0.8],
     glitter: 1,
-    tint: [0.22, 0.13, 0.1],
+    mirror: [0.9, 0.78, 0.72],
+    tint: [0.2, 0.16, 0.22],
     night: false,
   },
   night: {
     style: "rim",
-    light: [0.2, 0.45, 1],
+    light: [0.3, 0.62, 1.5],
     sky: [
       [0, [0.004, 0.008, 0.03]],
-      [0.3, [0.012, 0.02, 0.06]],
-      [HORIZON, [0.04, 0.06, 0.15]],
+      [0.25, [0.014, 0.024, 0.07]],
+      [0.4, [0.035, 0.055, 0.14]],
+      [HORIZON, [0.07, 0.1, 0.24]],
     ],
     orb: { x: 0.7, y: 0.16, r: 0.03, core: [1, 0.72, 0.3], glow: [0.45, 0.3, 0.12], near: 0.2, wide: 0.08, moon: true },
     stars: 140,
-    clouds: { puffy: false, top: [0.015, 0.02, 0.05], bottom: [0.06, 0.1, 0.3], alpha: 0.4 },
+    clouds: { top: [0.015, 0.02, 0.05], bottom: [0.06, 0.1, 0.3], alpha: 0.7 },
     sea: [
-      [0.03, 0.06, 0.15],
+      [0.045, 0.085, 0.2],
       [0.01, 0.03, 0.07],
     ],
     sand: [
@@ -102,7 +117,8 @@ const LOOKS: Record<Time, Look> = {
     ],
     foam: [0.1, 0.85, 1.1],
     glitter: 0.7,
-    tint: [0.025, 0.04, 0.09],
+    mirror: [0.75, 0.9, 1],
+    tint: [0.02, 0.032, 0.075],
     night: true,
   },
 }
@@ -155,6 +171,8 @@ interface Dolphin {
   y: number
   dir: number
   wait: number
+  // Scene seconds since it dived back in, while it swims on under the surface; negative once out of sight.
+  under: number
 }
 
 class Beach extends Canvas {
@@ -163,14 +181,23 @@ class Beach extends Canvas {
   private readonly activity: Activity
   private readonly look: Look
   private lighting: Lighting = { style: "front", dir: DAYLIGHT }
+  private readonly shade: Shade
   private background = new Float32Array(0)
   private stars: Star[]
   private clouds: Cloud[]
+  // Towering cumulus far out on the sea horizon, painted into the background, and shadows of the near clouds.
+  private towers = makeClouds(3, "towering", HORIZON, HORIZON)
+  private shadows = makeShadows(3, HORIZON + 0.06, 0.95)
   private storm = makeStorm()
   private palms: Palm[] = []
   private boat = { x: -9, dir: 1, next: 14 }
   private dolphins: Dolphin[] = []
   private splashes: { x: number; y: number; vx: number; vy: number; age: number }[] = []
+  // Rings spreading on the water where a dolphin broke the surface.
+  private rings: { x: number; y: number; age: number }[] = []
+  // The sea's rows (from the horizon to the highest swash): which row each one mirrors, how far its ripples wobble the
+  // reflection, how much reflection each pixel takes this frame, and the rows as the sea was drawn.
+  private sea = { y0: 0, y1: 0, rows: new Float32Array(0), amp: new Float32Array(0), gloss: new Float32Array(0), still: new Float32Array(0) }
   private crab = { x: 0.5, dir: 1, rest: 0, phase: 0 }
   private surfer = { x: -0.2, phase: 0 }
   private startled: Flier[] = []
@@ -190,10 +217,13 @@ class Beach extends Canvas {
     const look = offSeason && settings.time === "day" ? { ...LOOKS.day, ...OFF_SEASON } : LOOKS[settings.time]
     // With the sun or moon behind cloud, only a trace of the glitter path is left.
     this.look = this.weather.covered ? { ...look, glitter: look.glitter * 0.15 } : look
+    if (settings.time === "day") this.frame = 0.4
+    this.shade = sunShade(settings.time, look.orb, this.weather.covered)
     if (this.season === "summer" && !this.look.night) this.swimmers = Array.from({ length: { calm: 1, lively: 3, teeming: 5 }[settings.activity] }, (_, i) => ({ x: 0.25 + i * 0.13 + hash(i) * 0.05, y: 0.69 + hash(i * 3.3) * 0.03, phase: i * 1.9 }))
     this.stars = makeStars(this.look.stars, 0.45)
-    this.clouds = makeClouds(this.look.clouds.puffy ? 4 : 5, this.look.clouds.puffy, 0.08, 0.3)
-    if (settings.activity !== "calm") this.dolphins = [0, 1].map((i) => ({ t: -1, x: 0, y: 0, dir: 1, wait: 4 + i * 9 }))
+    // Long thin streaks catch the low sun better than heaps of cumulus.
+    this.clouds = settings.time === "sunset" ? makeClouds(4, "cirrus", 0.08, 0.3) : makeClouds(4, "cumulus", 0.07, 0.24)
+    if (settings.activity !== "calm") this.dolphins = [0, 1].map((i) => ({ t: -1, x: 0, y: 0, dir: 1, wait: 4 + i * 9, under: -1 }))
   }
 
   step(dt: number) {
@@ -202,6 +232,7 @@ class Beach extends Canvas {
     const cdt = dt * CREATURE_SPEED
     this.creatureTime += cdt
     driftClouds(this.clouds, this.A, dt)
+    driftClouds(this.shadows, this.A, dt)
     driftClouds(this.storm, this.A, dt)
     this.stepGloom(dt)
     this.weather.step(dt)
@@ -214,6 +245,8 @@ class Beach extends Canvas {
       s.y += s.vy * dt
     }
     this.splashes = this.splashes.filter((s) => s.age < 1.2)
+    for (const r of this.rings) r.age += dt
+    this.rings = this.rings.filter((r) => r.age < RING)
     this.startled = flyAway(this.startled, dt, this.A)
     const b = this.bottle
     if (b.t >= 0) b.t += dt
@@ -227,10 +260,10 @@ class Beach extends Canvas {
     }
     if (this.activity === "teeming") {
       const c = this.crab
-      c.phase += cdt * 10
       if (c.rest > 0) c.rest -= cdt
       else {
         c.x += c.dir * 0.04 * cdt
+        c.phase += (0.04 * cdt) / 0.02
         if (Math.random() < cdt * 0.3) c.rest = rand(2, 5)
         if (c.x > 0.75 * this.A) c.dir = -1
         if (c.x < 0.3 * this.A) c.dir = 1
@@ -250,9 +283,13 @@ class Beach extends Canvas {
     this.hdr.set(this.background)
     if (!this.weather.covered) paintStars(this.hdr, this.W, this.H, this.stars, this.time, 0.45, this.look.stars > 50 ? 0.5 : 0.3)
     const [top, bottom] = this.weather.scud ?? [this.look.clouds.top, this.look.clouds.bottom]
-    paintClouds(this.hdr, this.W, this.H, this.clouds, top, bottom, this.look.clouds.alpha, this.look.clouds.puffy)
+    const orb = this.weather.covered ? undefined : this.look.orb
+    paintClouds(this.hdr, this.W, this.H, this.clouds, top, bottom, this.look.clouds.alpha, orb)
     paintStorm(this.hdr, this.W, this.H, this.storm, this.look.clouds.top, this.look.clouds.bottom, this.gloom)
     this.drawSea()
+    paintShadows(this.hdr, this.W, this.H, this.shadows, HORIZON + 0.01, orb)
+    this.sea.still.set(this.hdr.subarray(this.sea.y0 * this.W * 3, this.sea.y1 * this.W * 3))
+    this.drawWakes()
     for (const s of this.swimmers) this.drawSwimmer(s)
     this.drawBoat()
     for (const d of this.dolphins) this.drawDolphin(d)
@@ -262,6 +299,11 @@ class Beach extends Canvas {
     if (this.activity !== "calm" && !this.look.night) this.drawGulls()
     if (this.activity === "teeming") this.drawCrab()
     for (const b of this.startled) this.shape(bird(b, this.H, 0.03 * this.H, this.paint([0.75, 0.78, 0.82])), this.lighting, 0.5)
+    if (this.look.night) this.drawBonfire()
+    // Once the boat and birds are up: the sky and all of them mirrored in the open water. The palms stand on the sand,
+    // not at the water's edge, so they go in after it.
+    const s = this.sea
+    reflect(this.hdr, this.W, this.H, s.y0, s.y1, s.rows, s.amp, s.gloss, this.look.mirror, this.time, s.still)
     // Trunks are drawn each frame, over the sea, since they cross the water.
     for (const p of this.palms) {
       this.drawTrunk(p)
@@ -282,6 +324,8 @@ class Beach extends Canvas {
     this.lighting = look.style === "front" ? { style: "front", dir: DAYLIGHT } : { style: "rim", color: look.light, x: look.orb.x * W, y: look.orb.y * H }
     paintSky(this.hdr, W, H, look.sky, look.orb)
     this.weather.cover(this.hdr, W, H)
+    const sky = this.hdr.slice()
+    if (!this.weather.covered) paintClouds(this.hdr, W, H, this.towers, look.clouds.top, look.clouds.bottom, look.clouds.alpha, look.orb)
     // A small island on the horizon.
     const ix = 0.16 * A
     this.polygon(Array.from({ length: 21 }, (_, i) => [(ix + Math.cos((i / 20) * Math.PI) * 0.08) * H, (HORIZON - Math.sin((i / 20) * Math.PI) * 0.025) * H] as const), this.paint([0.2, 0.35, 0.22]))
@@ -300,16 +344,40 @@ class Beach extends Canvas {
         this.hdr[o + 1] = dry[1] * ripple
         this.hdr[o + 2] = dry[2] * ripple
       }
+    // By day the island fades into the sky, and the sand drifts between warm and cool.
+    if (look.style === "front") {
+      haze(this.hdr, sky, W, H, HORIZON, HORIZON + 0.01, 0.4)
+      mottle(this.hdr, W, H, HORIZON, 1, 0.6, [1.12, 1, 0.8], [0.72, 0.78, 0.92])
+    }
     // Summer brings a crowd of umbrellas and sunbathers; out of season the beach is empty but for driftwood.
     const season = this.season
     if (season === "summer") for (const [i, [x, y, stripe]] of UMBRELLAS.slice(0, { calm: 2, lively: 4, teeming: 6 }[this.activity]).entries()) this.drawUmbrella(x * A, y, stripe, i % 3 === 2 ? undefined : SKIN[i % SKIN.length])
     if (season === "autumn" || season === "winter") this.drawDriftwood(0.56 * A, 0.9)
     if (this.activity === "teeming" && season !== "autumn" && season !== "winter") this.drawBeachThings()
+    // The palms lean in from the edges, their crowns high and to the sides of the text in the middle.
     this.palms = [
-      { base: [0.07 * A, 1.03], crown: [0.2 * A, 0.36], lean: 1 },
-      { base: [0.94 * A, 1.0], crown: [0.85 * A, 0.44], lean: -1 },
+      { base: [0.12, 1.03], crown: [0.35, 0.33], lean: 1 },
+      { base: [A - 0.1, 1.0], crown: [A - 0.27, 0.39], lean: -1 },
     ]
     this.background = this.hdr.slice()
+    // Each row of sea mirrors the sky about the horizon, stretched a little as rough water does, its ripples wobbling
+    // wider toward the shore.
+    const y0 = Math.floor(HORIZON * H)
+    const y1 = Math.min(H, Math.ceil(0.77 * H) + 3)
+    const n = y1 - y0
+    this.sea = {
+      y0,
+      y1,
+      rows: Float32Array.from({ length: n }, (_, r) => y0 - 1 - r * 0.85),
+      amp: Float32Array.from({ length: n }, (_, r) => (0.3 + (r / (0.24 * H)) * 2.6) * (H / 180)),
+      gloss: new Float32Array(n * W),
+      still: new Float32Array(n * W * 3),
+    }
+  }
+
+  private ground(x: number, y: number, w: number, h: number, tip?: number, lift?: number) {
+    const H = this.H
+    groundShadow(this.hdr, this.W, H, this.shade, x * H, y * H, w * H, h * H, tip, lift)
   }
 
   private paint(c: RGB): RGB {
@@ -322,70 +390,99 @@ class Beach extends Canvas {
     return 0.74 + 0.01 * Math.sin(u * 2.3 + 1) + 0.012 * Math.sin(this.time * 0.5)
   }
 
-  // The sea: deepening toward the shore, with drifting wave streaks, a glittering path under the sun or moon, a wave
-  // rolling in now and then, wet sand above the waterline, and foam along its edge.
+  // The sea: deepening toward the shore, with highlights on the wave crests drifting in (brightest along the path under
+  // the sun or moon), a wave rolling in now and then, wet sand above the waterline, and foam along its edge. It notes
+  // how much each pixel mirrors the sky, more toward the horizon as on real water; the reflection goes in at the end of
+  // render(), once everything it mirrors is drawn.
   private drawSea() {
-    const { W, H, hdr, look } = this
+    const { W, H, hdr, look, sea } = this
     const t = this.time
     const [far, near] = look.sea
     const [, wet] = look.sand
+    const sky = look.sky[look.sky.length - 1][1]
     const ox = look.orb.x * W
     const roll = (t * 0.08) % 1
+    const thin = H / 180
+    sea.gloss.fill(0)
     for (let x = 0; x < W; x++) {
       const u = x / H
       const edge = this.shore(u) * H
       const reach = (0.74 + 0.01 * Math.sin(u * 2.3 + 1) + 0.014) * H
       const wave = lerp(0.62, edge / H - 0.005, roll) * H
-      for (let y = Math.floor(HORIZON * H); y < Math.min(H, reach + 2); y++) {
+      const broken = smoothstep(0.42, 0.6, fbm1(u * 6 + t * 0.1, 4))
+      const bend = 1.4 * Math.sin(u * 2.7 + t * 0.05) + 0.7 * Math.sin(u * 7.3 - t * 0.08)
+      for (let y = sea.y0; y < Math.min(H, reach + 2); y++) {
         const o = (y * W + x) * 3
+        const gi = (y - sea.y0) * W + x
         if (y > edge) {
-          // Wet sand the swash has just left.
+          // Wet sand the swash has just left, faintly glossy.
           const k = clamp((reach - y) / (reach - edge + 1), 0, 1) * 0.8
           hdr[o] += (wet[0] - hdr[o]) * k
           hdr[o + 1] += (wet[1] - hdr[o + 1]) * k
           hdr[o + 2] += (wet[2] - hdr[o + 2]) * k
+          sea.gloss[gi] = k * 0.3
           continue
         }
-        const depth = clamp((y / H - HORIZON) / (edge / H - HORIZON), 0, 1)
-        let r = lerp(far[0], near[0], depth)
-        let g = lerp(far[1], near[1], depth)
-        let b = lerp(far[2], near[2], depth)
-        const streak = Math.sin(u * (30 - depth * 18) + y * 0.9 + t * 0.6 + Math.sin(y * 0.37) * 3)
-        const shine = streak > 0.9 ? (streak - 0.9) * 2 * (0.4 + depth) : 0
-        r += look.light[0] * shine * 0.25
-        g += look.light[1] * shine * 0.25
-        b += look.light[2] * shine * 0.25
-        // The glitter path widens toward the shore.
-        const spread = (0.02 + depth * 0.12) * H
-        const along = Math.abs(x - ox) / spread
-        if (along < 1 && hash2(x, Math.floor(y * 0.5) + Math.floor(t * 3) * 131) > 0.86 + along * 0.1) {
-          const k = (1 - along) * look.glitter * 1.2
-          r += look.light[0] * k
-          g += look.light[1] * k
-          b += look.light[2] * k
+        const d = y / H - HORIZON
+        const depth = clamp(d / (edge / H - HORIZON), 0, 1)
+        // Rows of swell rolling in toward the shore, closer together toward the horizon, though never closer than a
+        // terminal cell.
+        const phase = 51 * Math.log(d + 0.15) - t * 0.6 + bend
+        const n = phase / TAU - Math.round(phase / TAU)
+        const swell = 0.94 + 0.06 * Math.cos(phase)
+        // By day the far water pales into the haze along the horizon.
+        const mist = look.style === "front" ? (1 - depth) ** 4 * 0.5 : 0
+        let r = lerp(lerp(far[0], near[0], depth) * swell, sky[0], mist)
+        let g = lerp(lerp(far[1], near[1], depth) * swell, sky[1], mist)
+        let b = lerp(lerp(far[2], near[2], depth) * swell, sky[2], mist)
+        // Each crest catches the light in dashes along its length, long enough to read in a terminal cell.
+        const across = Math.abs(n) * ((TAU * (d + 0.15) * H) / 51)
+        const crest = Math.max(0, 1 - across / ((0.7 + depth * 1.2) * thin)) * smoothstep(0.008, 0.03, d)
+        let shine = 0
+        if (crest > 0) {
+          // Under the sun or moon the dashes crowd together into a glittering path.
+          const path = Math.max(0, 1 - Math.abs(x - ox) / ((0.03 + depth * 0.14) * H)) ** 1.5
+          const dash = smoothstep(0.45 - path * 0.25, 0.72 - path * 0.25, noise1((u * 2.4) / (d + 0.02) + Math.round(phase / TAU) * 17.3, 5))
+          const glint = crest * dash * 0.14 * (1 - path)
+          const sun = crest * dash * path * look.glitter * 1.6
+          shine = glint + sun
+          r += look.light[0] * glint + look.orb.glow[0] * sun
+          g += look.light[1] * glint + look.orb.glow[1] * sun
+          b += look.light[2] * glint + look.orb.glow[2] * sun
         }
         // Foam: the incoming wave's crest and the edge of the water.
-        const broken = smoothstep(0.42, 0.6, fbm1(u * 6 + t * 0.1, 4))
-        const crest = Math.max(0, 1 - Math.abs(y - wave) / 1.2) * (0.5 + 0.5 * Math.sin(u * 40 + t)) * (1 - roll) * broken
+        const breaker = Math.max(0, 1 - Math.abs(y - wave) / 1.2) * (0.5 + 0.5 * Math.sin(u * 40 + t)) * (1 - roll) * broken
         const lap = Math.max(0, 1 - (edge - y) / 2.2) * (0.7 + 0.3 * Math.sin(u * 30 - t * 2))
-        const foam = Math.max(crest, lap)
+        const foam = Math.max(breaker, lap)
         r += (look.foam[0] - r) * foam
         g += (look.foam[1] - g) * foam
         b += (look.foam[2] - b) * foam
         hdr[o] = r
         hdr[o + 1] = g
         hdr[o + 2] = b
+        sea.gloss[gi] = (0.1 + 0.7 * Math.exp(-d * 12)) * (1 - foam) * (1 - Math.min(1, shine * 1.5))
       }
       // At night the glowing foam lights the wet sand just beyond it.
       if (look.night)
-        for (let y = Math.floor(edge); y < Math.min(H, edge + 0.02 * H); y++) {
-          const k = Math.exp(-(y - edge) / 2.5) * 0.15
+        for (let y = Math.floor(edge); y < Math.min(H, edge + 0.05 * H); y++) {
+          const k = Math.exp(-(y - edge) / (0.012 * H)) * 0.2
           const o = (y * W + x) * 3
           hdr[o] += look.foam[0] * k
           hdr[o + 1] += look.foam[1] * k
           hdr[o + 2] += look.foam[2] * k
         }
     }
+  }
+
+  // A bonfire on the sand at night, lighting the beach, the crab and the palm beside it.
+  private drawBonfire() {
+    const H = this.H
+    const x = 0.17 * this.A * H
+    const gy = 0.92 * H
+    const fire = campfire(x, gy, H * 1.2, this.time)
+    lightPool(this.hdr, this.W, H, x, gy - 0.03 * H, 0.36 * H, 0.13 * H, [1, 0.4, 0.07], 2.6 * fire.flicker, 0.04 * fire.flicker)
+    this.shape(fire.logs, { style: "rim", color: [1.4, 0.5, 0.1], x, y: gy - 0.03 * H })
+    for (const flame of fire.flames) this.shape(flame, { style: "front", dir: [0, 0, 1] }, 0)
   }
 
   // A palm trunk curving from its base to the crown, ringed with old leaf scars, with coconuts at the top.
@@ -418,13 +515,14 @@ class Beach extends Canvas {
     const [cx, cy] = [p.crown[0] * H, p.crown[1] * H]
     for (let i = 0; i < 8; i++) {
       const base = -Math.PI / 2 + ((i / 7) * 2 - 1) * 1.6 + p.lean * 0.15
-      const sway = Math.sin(this.time * 0.8 + i * 1.3 + p.lean) * 0.06
+      // Turned whichever way carries the tip downwind.
+      const bend = sway(p.crown[0], this.time, i * 1.3 + p.lean, 0.8) * 0.06 * (Math.sin(base) > 0 ? -1 : 1)
       const length = (0.17 + hash(i * 3.1 + p.lean) * 0.05) * H
       const parts: Part[] = []
       let [x, y] = [cx, cy]
       const spine: [number, number][] = [[x, y]]
       const widths = [this.thick(0.005)]
-      let angle = base + sway
+      let angle = base + bend
       for (let s = 0; s < 8; s++) {
         const q = s / 8
         // Fronds pointing sideways droop more.
@@ -459,6 +557,8 @@ class Beach extends Canvas {
       this.shape([cap(...P(-0.035, 0.06), ...P(0.045, 0.056), 0.009 * s * H, 0.006 * s * H, c), ell(...P(-0.048, 0.059), 0.01 * s * H, 0.009 * s * H, 0, c)], this.lighting, 0.6)
       this.shape([cap(...P(-0.012, 0.06), ...P(0.012, 0.059), 0.0095 * s * H, 0.0095 * s * H, this.paint(stripe))], this.lighting, 0.4)
     }
+    // The canopy shades whoever lies under it.
+    this.ground(ux, uy + 0.05 * s, 0.18 * s, 0.17 * s, 1.2)
     this.shape([cap(...P(0, 0.05), ...P(0, -0.12), 0.003 * s * H, 0.003 * s * H, this.paint([0.85, 0.85, 0.82]))], this.lighting, 0.4)
     for (let k = 0; k < 6; k++) {
       const a0 = Math.PI + (k / 6) * Math.PI
@@ -472,6 +572,7 @@ class Beach extends Canvas {
   private drawDriftwood(x: number, y: number) {
     const H = this.H
     const wood = this.paint([0.62, 0.55, 0.45])
+    this.ground(x, y + 0.006, 0.13, 0.02, 1)
     this.shape([cap((x - 0.07) * H, y * H, (x + 0.06) * H, (y - 0.008) * H, 0.009 * H, 0.006 * H, wood, 2), cap((x + 0.02) * H, (y - 0.005) * H, (x + 0.05) * H, (y - 0.03) * H, 0.004 * H, 0.002 * H, wood)], this.lighting, 0.7)
   }
 
@@ -491,6 +592,8 @@ class Beach extends Canvas {
     if (this.season !== "summer") this.drawUmbrella(0.64 * A, 0.86, [0.85, 0.15, 0.12])
     const [sx, sy] = [0.42 * A, 0.92]
     const sand = this.paint([0.78, 0.66, 0.42])
+    this.ground(sx, sy, 0.1, 0.09, 0.5)
+    this.ground(0.53 * A, 0.95, 0.028, 0.032)
     const box = (x0: number, y0: number, x1: number, y1: number) => [[x0 * H, y0 * H], [x1 * H, y0 * H], [x1 * H, y1 * H], [x0 * H, y1 * H]] as const
     this.polygon(box(sx - 0.05, sy - 0.03, sx + 0.05, sy), sand)
     for (const [dx, h] of [[-0.04, 0.06], [0, 0.08], [0.04, 0.06]] as const) {
@@ -531,17 +634,22 @@ class Beach extends Canvas {
     this.polygon([[x - s * 0.6, y - s * 0.12], [x + s * 0.6, y - s * 0.12], [x + s * 0.42, y + s * 0.05], [x - s * 0.42, y + s * 0.05]], this.paint([0.3, 0.2, 0.15]))
     this.polygon([[x - s * 0.05, y - s * 0.15], [x - s * 0.05, y - s * 1.1], [x + s * 0.55 * b.dir, y - s * 0.15]], this.paint([0.92, 0.9, 0.84]))
     this.polygon([[x - s * 0.12, y - s * 0.15], [x - s * 0.12, y - s * 0.85], [x - s * 0.5 * b.dir, y - s * 0.15]], this.paint([0.85, 0.82, 0.76]))
+    // At night a lantern hangs at the stern, lighting the sails and the water around the boat.
+    if (!this.look.night) return
+    const lx = x - s * 0.45 * b.dir
+    lightPool(this.hdr, this.W, H, lx, y, s * 1.4, s * 0.9, [1, 0.55, 0.15], 2.5, 0.03)
+    this.disc(lx, y - s * 0.25, Math.max(1, s * 0.07), 1.6, 0.85, 0.2, 1)
   }
 
   // Each dolphin waits underwater, then arcs out of the sea and splashes back in.
   private stepDolphin(d: Dolphin, dt: number, cdt: number) {
+    if (d.under >= 0) d.under = d.under + dt > WAKE ? -1 : d.under + dt
     if (d.t < 0) {
       d.wait -= cdt
       if (d.wait > 0) return
       d.t = 0
       d.dir = Math.random() < 0.5 ? 1 : -1
-      d.x = rand(0.3 * this.A, 0.7 * this.A)
-      d.y = rand(0.56, 0.66)
+      ;[d.x, d.y] = this.openSpot(0.2 * this.A, 0.8 * this.A, 0.56, 0.66)
       this.splash(d.x, d.y)
       return
     }
@@ -550,11 +658,70 @@ class Beach extends Canvas {
       this.splash(d.x + d.dir * 0.16, d.y)
       d.t = -1
       d.wait = rand(10, 25)
+      d.under = 0
     }
   }
 
   private splash(x: number, y: number) {
     for (let i = 0; i < 10; i++) this.splashes.push({ x, y, vx: (Math.random() - 0.5) * 0.06, vy: -(0.03 + Math.random() * 0.05), age: 0 })
+    this.rings.push({ x, y, age: 0 })
+  }
+
+  // Wakes in the water: rings where dolphins broke the surface, the dolphin's path as it swims on under it, and the
+  // surfer's trail. At night they glow with the plankton the foam glows with; by day they are faint foam.
+  private drawWakes() {
+    const { H, look } = this
+    for (const r of this.rings) {
+      const f = r.age / RING
+      this.ring(r.x * H, r.y * H, (0.012 + f * 0.05) * H, (1 - f) ** 2 * (look.night ? 0.5 : 0.2))
+    }
+    for (const d of this.dolphins) {
+      if (d.under < 0) continue
+      // The wake leads off from where it dived back in, growing as it swims on and fading as it goes deeper.
+      const x0 = d.x + d.dir * 0.16
+      const head = x0 + d.dir * (0.02 + 0.03 * d.under)
+      this.trail(head * H, x0 * H, d.y * H, (1 - d.under / WAKE) ** 1.5 * (look.night ? 0.7 : 0.15))
+    }
+    if (this.activity === "teeming") {
+      const s = this.surfer
+      this.trail((s.x - 0.04) * H, (s.x - 0.3) * H, (0.65 + Math.sin(s.phase * 1.5) * 0.004) * H, look.night ? 0.8 : 0.35)
+    }
+  }
+
+  // A ring spreading on the water, flattened by perspective.
+  private ring(cx: number, cy: number, R: number, k: number) {
+    const { W, H, hdr, look } = this
+    const glow = look.night
+    for (let y = Math.max(0, Math.floor(cy - R * 0.25 - 2)); y <= Math.min(H - 1, Math.ceil(cy + R * 0.25 + 2)); y++)
+      for (let x = Math.max(0, Math.floor(cx - R - 2)); x <= Math.min(W - 1, Math.ceil(cx + R + 2)); x++) {
+        const d = Math.hypot(x + 0.5 - cx, (y + 0.5 - cy) / 0.25)
+        const a = Math.max(0, 1 - Math.abs(d - R) / (1.6 * (H / 180) + 0.6)) * k
+        if (a <= 0) continue
+        const o = (y * W + x) * 3
+        for (let c = 0; c < 3; c++) hdr[o + c] += glow ? look.foam[c] * a : (look.foam[c] - hdr[o + c]) * a
+      }
+  }
+
+  // A wake from head back to tail along row y, widening and fading toward the tail, sparkling where the water churns.
+  private trail(head: number, tail: number, cy: number, k: number) {
+    const { W, H, hdr, look } = this
+    const glow = look.night
+    const len = Math.abs(head - tail)
+    const w = 0.02 * H
+    for (let x = Math.max(0, Math.floor(Math.min(head, tail))); x <= Math.min(W - 1, Math.ceil(Math.max(head, tail))); x++) {
+      const f = Math.abs(x - head) / len
+      if (f > 1) continue
+      const half = (0.15 + 0.85 * f) * w
+      const fade = (1 - f) ** 1.5 * k
+      for (let y = Math.max(0, Math.floor(cy - half - 1)); y <= Math.min(H - 1, Math.ceil(cy + half + 1)); y++) {
+        // Brightest along the two arms of the wake, spreading apart behind the head.
+        const v = Math.abs(y + 0.5 - cy) / half
+        const a = Math.max(0, 1 - Math.abs(v - 0.7) * 2.2) * fade * (0.6 + 0.4 * hash2(x >> 1, y))
+        if (a <= 0) continue
+        const o = (y * W + x) * 3
+        for (let c = 0; c < 3; c++) hdr[o + c] += glow ? look.foam[c] * a : (look.foam[c] - hdr[o + c]) * a
+      }
+    }
   }
 
   private drawSplashes() {
@@ -565,6 +732,8 @@ class Beach extends Canvas {
     }
   }
 
+  // A bottlenose dolphin: a tapering body with a rounded melon and short beak, a swept dorsal fin and flukes. Its tail
+  // trails the turn of the leap, flexing down as it rises and up as it dives.
   private drawDolphin(d: Dolphin) {
     if (d.t < 0) return
     const H = this.H
@@ -574,21 +743,26 @@ class Beach extends Canvas {
     const angle = Math.atan2(-Math.cos(Math.PI * d.t) * 0.08 * Math.PI, d.dir * 0.16)
     const ca = Math.cos(angle)
     const sa = Math.sin(angle)
-    const P = (u: number, v: number): [number, number] => [x + (u * ca - v * sa) * S, y + (u * sa + v * ca) * S]
+    const f = Math.sign(ca || 1)
+    const bend = 0.35 * Math.cos(Math.PI * d.t) * f
+    const P = (u: number, v: number): [number, number] => {
+      const w = v + bend * Math.min(0, u) ** 2
+      return [x + (u * ca - w * sa) * S, y + (u * sa + w * ca) * S]
+    }
     const back = this.paint([0.42, 0.52, 0.62])
-    this.shape(
-      [
-        cap(...P(-0.4, 0), ...P(0.35, 0), 0.08 * S, 0.11 * S, back),
-        cap(...P(0.35, 0.02), ...P(0.52, 0.04), 0.05 * S, 0.025 * S, back),
-        cap(...P(0, -0.1), ...P(-0.1 * Math.sign(ca || 1), -0.24), 0.05 * S, 0.01 * S, back),
-        cap(...P(-0.4, 0), ...P(-0.55, -0.1), 0.04 * S, 0.02 * S, back),
-        cap(...P(-0.4, 0), ...P(-0.55, 0.1), 0.04 * S, 0.02 * S, back),
-        cap(...P(0.1, 0.06), ...P(-0.02, 0.18), 0.035 * S, 0.01 * S, back),
-      ],
-      this.lighting,
-      0.7,
+    const spine: [number, number][] = [[0.52, 0.018], [0.42, 0.03], [0.36, 0.07], [0.26, 0.1], [0.08, 0.115], [-0.12, 0.1], [-0.3, 0.06], [-0.46, 0.026]]
+    const parts: Part[] = spine.slice(1).map(([u, r], i) => cap(...P(spine[i][0], i < 2 ? 0.02 : 0), ...P(u, i < 1 ? 0.02 : 0), spine[i][1] * S, r * S, back))
+    const beat = Math.sin(d.t * TAU * 1.5) * 0.04
+    parts.push(
+      cap(...P(-0.46, 0), ...P(-0.62, -0.05 + beat), 0.03 * S, 0.012 * S, back),
+      cap(...P(-0.46, 0), ...P(-0.6, 0.06 + beat), 0.03 * S, 0.012 * S, back),
+      cap(...P(0.02, -0.1), ...P(-0.06, -0.22), 0.055 * S, 0.012 * S, back),
+      cap(...P(-0.06, -0.22), ...P(-0.12, -0.24), 0.012 * S, 0.006 * S, back),
+      cap(...P(0.18, 0.07), ...P(0.06, 0.17), 0.035 * S, 0.01 * S, back),
     )
-    this.shape([cap(...P(-0.25, 0.04), ...P(0.3, 0.05), 0.04 * S, 0.06 * S, this.paint([0.75, 0.78, 0.8]))], this.lighting, 0.5)
+    this.shape(parts, this.lighting, 0.7)
+    this.shape([cap(...P(-0.2, 0.06), ...P(0.3, 0.065), 0.03 * S, 0.045 * S, this.paint([0.68, 0.72, 0.76]))], this.lighting, 0.5)
+    this.add(...P(0.36, -0.01), 0.02, 0.02, 0.02)
   }
 
   // Gulls wheeling over the water, wings flexing.
@@ -632,6 +806,7 @@ class Beach extends Canvas {
     const y = lerp(lerp(0.62, beached, come), 0.66, smoothstep(52, 62, t)) + Math.sin(this.time * 1.4) * 0.004 * clamp(afloat, 0, 1)
     const tilt = 0.35 + Math.sin(this.time * 1.1) * 0.25 * clamp(afloat, 0, 1)
     const S = 0.09 * H
+    if (afloat < 1) this.ground(x, y + 0.012, 0.07, 0.025, 1, clamp(afloat, 0, 1) * 0.03 * H)
     const ca = Math.cos(tilt)
     const sa = Math.sin(tilt)
     const P = (u: number, v: number): [number, number] => [x * H + (u * ca - v * sa) * S, y * H + (u * sa + v * ca) * S]
@@ -648,27 +823,42 @@ class Beach extends Canvas {
     this.add(...P(-0.1, -0.1), this.look.light[0] * 0.5, this.look.light[1] * 0.5, this.look.light[2] * 0.5)
   }
 
-  // A red crab scuttling sideways across the sand, claws up, pausing now and then.
+  // A red crab scuttling sideways across the sand on jointed legs, four to a side stepping in two alternating sets,
+  // eyes up on stalks and claws raised; pausing, it waves a claw.
   private drawCrab() {
     const H = this.H
     const c = this.crab
-    const S = 0.05 * H
-    const x = c.x * H
+    const S = 0.065 * H
+    const going = c.rest > 0 ? 0 : 1
+    const x = (c.x + Math.sin(c.phase * TAU * 2) * 0.006 * going) * H
     const y = 0.97 * H
     const red = this.paint([0.85, 0.25, 0.12])
-    const step = c.rest > 0 ? 0 : Math.sin(c.phase) * 0.06
-    const parts: Part[] = [ell(x, y - 0.25 * S, 0.4 * S, 0.22 * S, 0, red)]
+    const dark = this.paint([0.55, 0.13, 0.07])
+    const wave = (1 - going) * Math.max(0, Math.sin(this.creatureTime * 2.5)) ** 2
+    this.ground(c.x, 0.97, 0.07, 0.045)
+    const parts: Part[] = []
     for (const side of [-1, 1])
-      for (let k = 0; k < 3; k++) {
-        const kx = x + side * (0.25 + k * 0.1) * S
-        parts.push(cap(kx, y - 0.2 * S, kx + side * 0.25 * S, y + (k % 2 ? step : -step) * S, 0.035 * S, 0.025 * S, red))
+      for (let k = 0; k < 4; k++) {
+        const [reach, lift] = stride(c.phase, ((k + (side > 0 ? 1 : 0)) % 2) * 0.5)
+        const hx = x + side * (0.2 + k * 0.05) * S
+        const fx = x + (side * (0.5 + k * 0.1) + reach * c.dir * 0.08 * going) * S
+        const fy = y - (lift * 0.08 * going + 0.02) * S
+        parts.push(...limb((u, v) => [u, v], hx, y - 0.25 * S, fx, fy, 0.22 * S, 0.28 * S, -side, 0.05 * S, 0.04 * S, 0.02 * S, k % 2 ? red : dark))
       }
+    parts.push(ell(x, y - 0.3 * S, 0.38 * S, 0.2 * S, 0, red))
     for (const side of [-1, 1]) {
-      parts.push(cap(x + side * 0.3 * S, y - 0.35 * S, x + side * 0.45 * S, y - 0.6 * S, 0.04 * S, 0.035 * S, red))
-      parts.push(ell(x + side * 0.48 * S, y - 0.68 * S, 0.12 * S, 0.09 * S, side * 0.5, red))
+      parts.push(cap(x + side * 0.08 * S, y - 0.42 * S, x + side * 0.1 * S, y - 0.56 * S, 0.025 * S, 0.02 * S, red))
+      const lift = side > 0 ? wave * 0.25 : 0
+      const [cx, cy] = [x + side * 0.5 * S, y - (0.66 + lift) * S]
+      parts.push(
+        cap(x + side * 0.28 * S, y - 0.34 * S, x + side * 0.4 * S, y - (0.5 + lift * 0.6) * S, 0.045 * S, 0.035 * S, red),
+        ell(cx, cy, 0.13 * S, 0.1 * S, side * 0.5, red),
+        cap(cx + side * 0.04 * S, cy - 0.06 * S, cx + side * 0.06 * S, cy - (0.2 + wave * 0.05) * S, 0.05 * S, 0.012 * S, red),
+        cap(cx + side * 0.09 * S, cy - 0.02 * S, cx + side * 0.16 * S, cy - 0.14 * S, 0.035 * S, 0.01 * S, red),
+      )
     }
     this.shape(parts, this.lighting, 0.6)
-    for (const side of [-1, 1]) this.add(x + side * 0.1 * S, y - 0.45 * S, 0.02, 0.02, 0.02)
+    for (const side of [-1, 1]) this.disc(x + side * 0.1 * S, y - 0.58 * S, 0.03 * S, 0.02, 0.02, 0.02, 1)
   }
 
   // A surfer standing on a board, riding the swell along the shore and bobbing.
@@ -713,9 +903,9 @@ export const beach: Wallpaper = {
       [44, 38, 26],
     ],
     sunset: [
-      [30, 14, 26],
-      [36, 16, 22],
-      [14, 8, 8],
+      [8, 22, 28],
+      [36, 20, 30],
+      [16, 12, 14],
     ],
     night: [
       [3, 6, 16],
