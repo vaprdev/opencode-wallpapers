@@ -481,7 +481,7 @@ class Zen extends Canvas {
         this.blend((y * W + x) * 3, c[0], c[1], c[2], clamp(y + 1 - top, 0, 1))
       }
     }
-    this.drawPagoda(0.71 * A, 0.482)
+    this.drawPagoda(A - 0.4, 0.482)
   }
 
   // A three-tiered pagoda on the far ridge, hazed by distance.
@@ -1192,8 +1192,7 @@ class Zen extends Canvas {
     const l = Math.hypot(dx, dy)
     if (l < 0.004) {
       d.rest = rand(2, 5)
-      d.tx = this.pond.x + rand(-0.9, 0.9) * this.pond.rx
-      d.ty = rand(0.6, 0.82)
+      ;[d.tx, d.ty] = this.openSpot(this.pond.x - 0.9 * this.pond.rx, this.pond.x + 0.9 * this.pond.rx, 0.6, 0.82)
       return
     }
     if (Math.abs(dx) > 0.002) d.face = Math.sign(dx)

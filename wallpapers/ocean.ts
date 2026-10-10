@@ -133,7 +133,8 @@ class Ocean extends Canvas {
   private sub = { x: -9, y: 0.4, dir: 1, wait: eggWait() * TIME_SCALE, spin: 0 }
 
   // Each creature keeps to its own home area so they never pile up: shark along the top, fish lower left, octopus
-  // lower right, diver upper left, turtle along the bottom. Areas are laid out before the first resize, at A = 1.
+  // lower right, diver upper left, turtle along the bottom, which leaves the middle, where text sits, to open water.
+  // Within its area each heads for the spots least covered by text. Areas are laid out before the first resize, at A = 1.
   private readonly activity: Activity
   private readonly timeOfDay: Time
 
@@ -144,8 +145,8 @@ class Ocean extends Canvas {
     this.timeOfDay = settings.time
     if (activity === "teeming") this.fish.push(this.makeFish("ambient:shark", "shark", [0.3, 1, 0.17, 0.33], { len: 0.64, z: 0.55 }))
     if (activity !== "calm") {
-      this.fish.push(this.makeFish("ambient:fish", "fish", [0, 0.44, 0.48, 0.72], { len: 0.26, z: 0.35, hue: 0.07, sat: 0.85 }))
-      const zone: Zone = [0.58, 1, 0.46, 0.7]
+      this.fish.push(this.makeFish("ambient:fish", "fish", [0, 0.36, 0.5, 0.76], { len: 0.26, z: 0.35, hue: 0.07, sat: 0.85 }))
+      const zone: Zone = [0.68, 1, 0.5, 0.74]
       const ox = ((zone[0] + zone[1]) / 2) * this.A
       this.octopus = { x: ox, y: 0.58, z: 0.4, vx: 0, vy: 0, size: 0.1, hue: 0.02, phase: 0, pulse: 0, next: 2, dir: -Math.PI / 2, wx: ox, wy: 0.58, zone }
     }
@@ -213,8 +214,7 @@ class Ocean extends Canvas {
       tu.wanderT -= dt
       if (tu.wanderT <= 0 || Math.hypot(tu.wx - tu.x, tu.wy - tu.y) < 0.04) {
         tu.wanderT = rand(8, 14)
-        tu.wx = rand(zx0, zx1)
-        tu.wy = rand(tu.zone[2], tu.zone[3])
+        ;[tu.wx, tu.wy] = this.openSpot(zx0, zx1, tu.zone[2], tu.zone[3])
       }
       tu.phase += dt * 1.5
       const dx = tu.wx - tu.x
@@ -235,8 +235,7 @@ class Ocean extends Canvas {
       dv.wanderT -= dt
       if (dv.wanderT <= 0 || Math.hypot(dv.wx - dv.x, dv.wy - dv.y) < 0.03) {
         dv.wanderT = rand(5, 10)
-        dv.wx = rand(zx0, zx1)
-        dv.wy = rand(dv.zone[2], dv.zone[3])
+        ;[dv.wx, dv.wy] = this.openSpot(zx0, zx1, dv.zone[2], dv.zone[3])
       }
       const dx = dv.wx - dv.x
       const dy = dv.wy - dv.y
@@ -262,8 +261,7 @@ class Ocean extends Canvas {
       o.next -= dt
       if (o.next <= 0) {
         if (Math.hypot(o.wx - o.x, o.wy - o.y) < 0.12 || Math.random() < 0.3) {
-          o.wx = rand(o.zone[0] * this.A + 0.12, o.zone[1] * this.A - 0.12)
-          o.wy = rand(o.zone[2] + 0.04, o.zone[3] - 0.04)
+          ;[o.wx, o.wy] = this.openSpot(o.zone[0] * this.A + 0.12, o.zone[1] * this.A - 0.12, o.zone[2] + 0.04, o.zone[3] - 0.04)
         }
         const dx = o.wx - o.x
         const dy = o.wy - o.y
@@ -423,8 +421,7 @@ class Ocean extends Canvas {
     if (f.wanderT <= 0 || Math.hypot(f.wx - f.x, f.wy - f.y) < 0.05) {
       f.wanderT = rand(3, 8)
       const m = f.len * this.zScale(f) * 0.5
-      f.wx = rand(f.zone[0] * this.A + m, Math.max(f.zone[0] * this.A + m, f.zone[1] * this.A - m))
-      f.wy = rand(f.zone[2], f.zone[3])
+      ;[f.wx, f.wy] = this.openSpot(f.zone[0] * this.A + m, Math.max(f.zone[0] * this.A + m, f.zone[1] * this.A - m), f.zone[2], f.zone[3])
     }
     const dx = tx - f.x
     const dy = ty - f.y
@@ -474,7 +471,7 @@ class Ocean extends Canvas {
       if (w.next > 0) return
       w.dir = Math.random() < 0.5 ? 1 : -1
       w.x = w.dir > 0 ? -0.9 : this.A + 0.9
-      w.y = rand(0.3, 0.48)
+      w.y = this.openRow(0.22, 0.48)
       return
     }
     w.x += w.dir * 0.055 * dt
@@ -491,7 +488,7 @@ class Ocean extends Canvas {
       if (s.wait > 0) return
       s.dir = Math.random() < 0.5 ? 1 : -1
       s.x = s.dir > 0 ? -0.3 : this.A + 0.3
-      s.y = rand(0.32, 0.42)
+      s.y = this.openRow(0.28, 0.44)
       return
     }
     s.x += s.dir * 0.1 * cdt

@@ -142,8 +142,6 @@ const CROWN: Record<Season, [crown: RGB, specks: RGB[]]> = {
   autumn: [[0.85, 0.42, 0.1], [[0.95, 0.68, 0.15], [0.7, 0.16, 0.06], [0.55, 0.3, 0.08]]],
   winter: [[0, 0, 0], []],
 }
-// Where the two trees stand, as fractions of the width.
-const TREES = [0.42, 0.95]
 const WOOD: RGB = [0.45, 0.3, 0.16]
 const BLACK: RGB = [0.05, 0.05, 0.05]
 
@@ -188,6 +186,9 @@ class Farm extends Canvas {
   private readonly weather: WeatherLayer
   private hills: [far: RGB, near: RGB]
   private treeTops: [number, number][] = []
+  // The barn and windmill stand toward the edges, in screen heights from the left, clear of the text in the middle.
+  private barnX = 0
+  private millX = 0.25
   // Blossom petals in spring and leaves in autumn, drifting down on the breeze.
   private leaves: { x: number; y: number; phase: number; color: RGB }[] = []
 
@@ -244,7 +245,7 @@ class Farm extends Canvas {
     this.stepTractor(dt)
     const A = this.A
     for (const c of this.cows) this.wander(c, cdt, [0.4 * A, 0.95 * A, 0.76, 0.87], 0.03, [6, 14])
-    for (const c of this.chickens) this.wander(c, cdt, [0.62 * A, 0.84 * A, 0.672, 0.712], 0.025, [2, 5])
+    for (const c of this.chickens) this.wander(c, cdt, [this.barnX - 0.21, this.barnX + 0.18, 0.672, 0.712], 0.025, [2, 5])
     for (const p of this.pigs) this.wander(p, cdt, [0.44 * A, 0.6 * A, 0.88, 0.94], 0.02, [5, 10])
     if (this.activity === "teeming") this.stepFarmer(cdt)
     this.stepEgg(dt, cdt)
@@ -326,19 +327,20 @@ class Farm extends Canvas {
       }
     }
     if (season === "spring") this.drawWildflowers()
-    this.treeTops = TREES.map((t) => {
-      const base = this.nearTop[clamp(Math.round(t * W), 0, W - 1)] / H + 0.012
-      this.drawTree(t * A, base)
-      return [t * A, base - 0.12]
+    this.barnX = A - 0.24
+    this.treeTops = [0.5, A - 0.04].map((x) => {
+      const base = this.nearTop[clamp(Math.round(x * H), 0, W - 1)] / H + 0.012
+      this.drawTree(x, base)
+      return [x, base - 0.12]
     })
-    this.drawFarmhouse(0.5 * A, this.nearTop[clamp(Math.round(0.5 * W), 0, W - 1)] / H + 0.006)
-    this.drawWindmillTower(0.3 * A, 0.65)
-    this.drawBarn(0.74 * A, 0.655)
-    for (const [bx, by] of [[0.58, 0.705], [0.625, 0.712]]) this.shape([ell(bx * A * H, by * H, 0.022 * H, 0.02 * H, 0, this.paint([0.78, 0.62, 0.3]), 3)], this.lighting, 0.8)
+    this.drawFarmhouse(0.08, this.nearTop[clamp(Math.round(0.08 * H), 0, W - 1)] / H + 0.006)
+    this.drawWindmillTower(this.millX, 0.65)
+    this.drawBarn(this.barnX, 0.655)
+    for (const [dx, by] of [[-0.28, 0.705], [-0.2, 0.712]]) this.shape([ell((this.barnX + dx) * H, by * H, 0.022 * H, 0.02 * H, 0, this.paint([0.78, 0.62, 0.3]), 3)], this.lighting, 0.8)
     // Pumpkins in front of the barn in autumn.
     if (season === "autumn")
       for (const [dx, r] of [[-0.062, 0.011], [-0.046, 0.008], [0.056, 0.01]]) {
-        const [px, py] = [(0.74 * A + dx) * H, 0.664 * H]
+        const [px, py] = [(this.barnX + dx) * H, 0.664 * H]
         this.shape([ell(px, py - r * H, r * 1.25 * H, r * H, 0, this.paint([0.92, 0.45, 0.06]), 3), cap(px, py - r * 1.9 * H, px + 0.003 * H, py - r * 2.4 * H, 0.0018 * H, 0.0012 * H, this.paint([0.3, 0.35, 0.1]))], this.lighting, 0.7)
       }
     // A fence along the front of the pasture.
@@ -461,7 +463,7 @@ class Farm extends Canvas {
 
   private drawFan() {
     const H = this.H
-    const x = 0.3 * this.A * H
+    const x = this.millX * H
     const y = (0.65 - 0.21) * H
     const metal = this.paint([0.75, 0.75, 0.72])
     const turn = this.time * 0.8
@@ -570,8 +572,7 @@ class Farm extends Canvas {
     w.wanderT -= dt
     if (w.wanderT <= 0) {
       w.wanderT = rand(6, 14)
-      w.wx = rand(zone[0], zone[1])
-      w.wy = rand(zone[2], zone[3])
+      ;[w.wx, w.wy] = this.openSpot(...zone)
     }
     const dx = w.wx - w.x
     const dy = w.wy - w.y
@@ -731,7 +732,7 @@ class Farm extends Canvas {
     for (let i = 0; i < 3; i++) {
       const a = this.creatureTime * (0.5 + i * 0.1) + i * 2.1
       const x = (0.17 * this.A + Math.cos(a) * (0.08 + i * 0.03)) * H
-      const y = (0.42 + Math.sin(a) * 0.03) * H
+      const y = (0.3 + Math.sin(a) * 0.03) * H
       const flap = Math.sin(this.time * 6 + i * 2)
       const s = 0.03 * H
       const c = this.paint(BLACK)

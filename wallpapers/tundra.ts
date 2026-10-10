@@ -201,7 +201,7 @@ class Tundra extends Canvas {
       y.wait -= dt
       if (y.wait > 0) return
       y.t = 0
-      y.x = rand(0.56, 0.6) * this.A
+      y.x = this.openSpot(0.15 * this.A, 0.8 * this.A, 0.6, 0.6)[0]
       return
     }
     y.t += cdt
@@ -261,9 +261,11 @@ class Tundra extends Canvas {
         this.blend((y * W + x) * 3, c[0] + look.light[0] * edge, c[1] + look.light[1] * edge, c[2] + look.light[2] * edge, clamp(y + 1 - drift[x], 0, 1))
       }
     this.drawLake(0.5 * A, 0.72, 0.3, 0.045)
-    for (const [fx, h] of [[0.3, 0.1], [0.36, 0.08], [0.7, 0.09], [0.76, 0.11]] as const) this.drawPine(fx * A, 0.625, h, 0.5)
-    this.drawIgloo(0.86 * A, 0.7, 0.055)
-    this.drawIgloo(0.2 * A, 0.75, 0.075)
+    // The pines and igloos keep to the sides, clear of the text in the middle.
+    for (const [x, h] of [[0.3, 0.1], [0.37, 0.08], [A - 0.36, 0.09], [A - 0.29, 0.11]]) this.drawPine(x, 0.625, h, 0.5)
+    this.drawIgloo(A - 0.2, 0.7, 0.055)
+    this.drawIgloo(A - 0.36, 0.77, 0.08)
+    this.drawIgloo(0.42, 0.79, 0.075)
     if (this.activity === "teeming") this.drawSnowman(0.3 * A, 0.85, 0.75, [0.2, 0.35, 0.8], false)
     this.drawSnowman(0.62 * A, 0.87, 1, [0.8, 0.12, 0.1], true)
     for (const [fx, h] of [[0.04, 0.46], [0.11, 0.34], [0.955, 0.42], [0.995, 0.3]] as const) this.drawPine(fx * A, 1.02, h, 0)
@@ -450,8 +452,7 @@ class Tundra extends Canvas {
     w.wanderT -= dt
     if (w.wanderT <= 0) {
       w.wanderT = rand(6, 14)
-      w.wx = rand(zone[0], zone[1])
-      w.wy = rand(zone[2], zone[3])
+      ;[w.wx, w.wy] = this.openSpot(...zone)
     }
     const dx = w.wx - w.x
     const dy = w.wy - w.y
@@ -621,7 +622,7 @@ class Tundra extends Canvas {
       if (o.next > 0) return
       o.dir = Math.random() < 0.5 ? 1 : -1
       o.x = o.dir > 0 ? -0.15 : this.A + 0.15
-      o.y = rand(0.2, 0.35)
+      o.y = this.openRow(0.18, 0.35)
       return
     }
     o.x += o.dir * 0.07 * dt

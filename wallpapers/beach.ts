@@ -305,9 +305,10 @@ class Beach extends Canvas {
     if (season === "summer") for (const [i, [x, y, stripe]] of UMBRELLAS.slice(0, { calm: 2, lively: 4, teeming: 6 }[this.activity]).entries()) this.drawUmbrella(x * A, y, stripe, i % 3 === 2 ? undefined : SKIN[i % SKIN.length])
     if (season === "autumn" || season === "winter") this.drawDriftwood(0.56 * A, 0.9)
     if (this.activity === "teeming" && season !== "autumn" && season !== "winter") this.drawBeachThings()
+    // The palms lean in from the edges, their crowns high and to the sides of the text in the middle.
     this.palms = [
-      { base: [0.07 * A, 1.03], crown: [0.2 * A, 0.36], lean: 1 },
-      { base: [0.94 * A, 1.0], crown: [0.85 * A, 0.44], lean: -1 },
+      { base: [0.12, 1.03], crown: [0.35, 0.33], lean: 1 },
+      { base: [A - 0.1, 1.0], crown: [A - 0.27, 0.39], lean: -1 },
     ]
     this.background = this.hdr.slice()
   }
@@ -534,8 +535,7 @@ class Beach extends Canvas {
       if (d.wait > 0) return
       d.t = 0
       d.dir = Math.random() < 0.5 ? 1 : -1
-      d.x = rand(0.3 * this.A, 0.7 * this.A)
-      d.y = rand(0.56, 0.66)
+      ;[d.x, d.y] = this.openSpot(0.2 * this.A, 0.8 * this.A, 0.56, 0.66)
       this.splash(d.x, d.y)
       return
     }
