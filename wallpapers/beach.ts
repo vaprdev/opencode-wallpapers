@@ -393,7 +393,7 @@ class Beach extends Canvas {
         const depth = clamp(d / (edge / H - HORIZON), 0, 1)
         // Rows of swell rolling in toward the shore, closer together toward the horizon, though never closer than a
         // terminal cell.
-        const phase = 51 * Math.log(d + 0.15) - t * 1.2 + bend
+        const phase = 51 * Math.log(d + 0.15) - t * 0.6 + bend
         const n = phase / TAU - Math.round(phase / TAU)
         const swell = 0.94 + 0.06 * Math.cos(phase)
         let r = lerp(far[0], near[0], depth) * swell
