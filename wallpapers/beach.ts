@@ -407,10 +407,12 @@ class Beach extends Canvas {
           // Under the sun or moon the dashes crowd together into a glittering path.
           const path = Math.max(0, 1 - Math.abs(x - ox) / ((0.03 + depth * 0.14) * H)) ** 1.5
           const dash = smoothstep(0.45 - path * 0.25, 0.72 - path * 0.25, noise1((u * 2.4) / (d + 0.02) + Math.round(phase / TAU) * 17.3, 5))
-          shine = crest * dash * (0.14 + path * look.glitter * 1.6)
-          r += lerp(look.light[0], look.orb.glow[0], path) * shine
-          g += lerp(look.light[1], look.orb.glow[1], path) * shine
-          b += lerp(look.light[2], look.orb.glow[2], path) * shine
+          const sky = crest * dash * 0.14 * (1 - path)
+          const sun = crest * dash * path * look.glitter * 1.6
+          shine = sky + sun
+          r += look.light[0] * sky + look.orb.glow[0] * sun
+          g += look.light[1] * sky + look.orb.glow[1] * sun
+          b += look.light[2] * sky + look.orb.glow[2] * sun
         }
         // Foam: the incoming wave's crest and the edge of the water.
         const breaker = Math.max(0, 1 - Math.abs(y - wave) / 1.2) * (0.5 + 0.5 * Math.sin(u * 40 + t)) * (1 - roll) * broken
