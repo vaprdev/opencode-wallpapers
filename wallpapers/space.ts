@@ -1,5 +1,6 @@
 import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
 import { eggWait } from "../src/egg"
+import { lightPool } from "../src/light"
 import { TAU, clamp, fbm1, fbm2, hash, hash2, lerp, rand, smoothstep, type RGB } from "../src/math"
 import type { Activity, Settings, Time, Wallpaper } from "../src/wallpaper"
 
@@ -73,10 +74,10 @@ const LOOKS: Record<Time, Look> = {
     sun: normalize(0.6, 0.6, -0.5),
     starK: 1,
     nebula: [
-      [0.06, 0.02, 0.1],
-      [0.02, 0.04, 0.09],
+      [0.08, 0.025, 0.14],
+      [0.025, 0.055, 0.12],
     ],
-    milkyWay: 1,
+    milkyWay: 1.3,
     atmosphere: [0.2, 0.35, 0.8],
     ring: 0.12,
     lighting: "night",
@@ -246,7 +247,7 @@ class Space extends Canvas {
         ? { style: "front", dir: look.sun }
         : look.lighting === "limb"
           ? { style: "rim", color: [1, 0.6, 0.3], x: this.starPos[0], y: this.starPos[1] }
-          : { style: "rim", color: [0.2, 0.4, 1], x: cx, y: cy }
+          : { style: "rim", color: [0.3, 0.6, 1.5], x: cx, y: cy }
     const [n1, n2] = look.nebula
     for (let y = 0; y < H; y++)
       for (let x = 0; x < W; x++) {
@@ -344,7 +345,8 @@ class Space extends Canvas {
         const facing = (dx * lsx + dy * lsy) / (r || 1)
         const glowLit = look.lighting === "night" ? 0.25 : look.lighting === "limb" ? 0.2 + 1.6 * Math.max(0, facing) ** 4 : 0.3 + 0.7 * Math.max(0, facing)
         if (r > 1) {
-          const halo = Math.exp(-(r - 1) / 0.025) * glowLit * 0.6
+          // At night a wide band of airglow rises off the limb, so whatever passes in front of it reads dark.
+          const halo = Math.exp(-(r - 1) / 0.025) * glowLit * 0.6 + (look.lighting === "night" ? Math.exp(-(r - 1) / 0.09) * 0.07 : 0)
           hdr[o] += look.atmosphere[0] * halo
           hdr[o + 1] += look.atmosphere[1] * halo
           hdr[o + 2] += look.atmosphere[2] * halo
@@ -435,7 +437,9 @@ class Space extends Canvas {
         const lit = Math.max(0, dx * look.sun[0] + dy * look.sun[1] + nz * look.sun[2])
         const craters = 0.75 + 0.35 * fbm2(dx * 3 + 5, dy * 3 + 2, 4)
         const k = (0.015 + lit * 0.9) * craters
-        this.blend((y * W + x) * 3, k * 0.9, k * 0.9, k * 0.95, clamp((1 - Math.sqrt(r2)) * R + 0.5, 0, 1))
+        // Cobalt rather than grey at night.
+        const [mr, mg, mb] = look.lighting === "night" ? look.rockColor : [0.9, 0.9, 0.95]
+        this.blend((y * W + x) * 3, k * mr, k * mg, k * mb, clamp((1 - Math.sqrt(r2)) * R + 0.5, 0, 1))
       }
   }
 
@@ -558,6 +562,11 @@ class Space extends Canvas {
     for (const u of [-0.42, -0.27, 0.27, 0.42]) parts.push(cap(...P(u, -0.22), ...P(u, -0.04), 0.055 * S, 0.055 * S, panel, 4), cap(...P(u, 0.04), ...P(u, 0.22), 0.055 * S, 0.055 * S, panel, 4))
     parts.push(cap(...P(-0.13, 0), ...P(0.13, 0), 0.045 * S, 0.045 * S, white), cap(...P(0, -0.12), ...P(0, 0.1), 0.035 * S, 0.035 * S, white), cap(...P(0.13, 0.02), ...P(0.2, 0.08), 0.02 * S, 0.02 * S, white))
     this.shape(parts, this.lighting, 0.8)
+    // At night the modules' windows glow amber and light the panels beside them.
+    if (this.look.lighting === "night") {
+      lightPool(this.hdr, this.W, H, ...P(0, 0), 0.4 * S, 0.25 * S, [1, 0.6, 0.15], 3, 0.008)
+      for (const u of [-0.08, 0, 0.08]) this.disc(...P(u, 0), 0.018 * S, 1.6, 0.85, 0.2, 0.9)
+    }
     const blink = Math.sin(this.time * 4) > 0.6 ? 1.5 : 0
     this.add(...P(0.5, 0), blink, 0.1 * blink, 0.1 * blink)
     this.add(...P(-0.5, 0), 0.1 * blink, blink, 0.2 * blink)
@@ -595,7 +604,9 @@ class Space extends Canvas {
         const lit = Math.max(0, (dx / edge) * look.sun[0] + (dy / edge) * look.sun[1] + nz * look.sun[2])
         const pits = 0.7 + 0.45 * fbm2(dx * 2.5 + Math.cos(r.angle) * 2 + r.seed, dy * 2.5 + Math.sin(r.angle) * 2, 4)
         const ambient = look.lighting === "night" ? 0.01 : 0.02
-        const k = (ambient + lit * 0.7) * pits
+        // At night the planet's glow below rims the side of the rock facing it.
+        const rim = look.lighting === "night" ? Math.pow(1 - nz, 2) * Math.max(0, ((dx / edge) * (PLANET.x * W - cx) + (dy / edge) * (PLANET.y * H - cy)) / Math.hypot(PLANET.x * W - cx, PLANET.y * H - cy)) * 0.6 : 0
+        const k = (ambient + lit * 0.7 + rim) * pits
         this.blend((y * W + x) * 3, k * look.rockColor[0], k * look.rockColor[1], k * look.rockColor[2], clamp((1.05 - rr) * R, 0, 1))
       }
   }
@@ -628,6 +639,10 @@ class Space extends Canvas {
       0.8,
     )
     if (this.look.lighting !== "night") this.add(...P(0.14, -0.36), 1.2, 1.1, 0.9)
+    // At night the helmet lamp lights the suit and the dark around it amber.
+    if (this.look.lighting !== "night") return
+    lightPool(this.hdr, this.W, H, ...P(0.2, -0.33), 0.6 * S, 0.6 * S, [1, 0.6, 0.15], 2.5, 0.01)
+    this.disc(...P(0.12, -0.33), 0.06 * S, 1.2, 0.6, 0.12, 0.8)
   }
 
   // Now and then a flying saucer glides across the top of the sky, its rim lights chasing round.
