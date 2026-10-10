@@ -1,4 +1,5 @@
 import { Canvas, cap, ell, type Lighting, type Part } from "../src/canvas"
+import { limb, stride } from "../src/creature"
 import { eggWait } from "../src/egg"
 import { bird, flyAway, startle, type Flier } from "../src/flock"
 import { TAU, clamp, fbm1, hash, hash2, lerp, rand, smoothstep, type RGB } from "../src/math"
@@ -227,10 +228,10 @@ class Beach extends Canvas {
     }
     if (this.activity === "teeming") {
       const c = this.crab
-      c.phase += cdt * 10
       if (c.rest > 0) c.rest -= cdt
       else {
         c.x += c.dir * 0.04 * cdt
+        c.phase += (0.04 * cdt) / 0.02
         if (Math.random() < cdt * 0.3) c.rest = rand(2, 5)
         if (c.x > 0.75 * this.A) c.dir = -1
         if (c.x < 0.3 * this.A) c.dir = 1
@@ -559,6 +560,8 @@ class Beach extends Canvas {
     }
   }
 
+  // A bottlenose dolphin: a tapering body with a rounded melon and short beak, a swept dorsal fin and flukes. Its tail
+  // trails the turn of the leap, flexing down as it rises and up as it dives.
   private drawDolphin(d: Dolphin) {
     if (d.t < 0) return
     const H = this.H
@@ -568,21 +571,26 @@ class Beach extends Canvas {
     const angle = Math.atan2(-Math.cos(Math.PI * d.t) * 0.08 * Math.PI, d.dir * 0.16)
     const ca = Math.cos(angle)
     const sa = Math.sin(angle)
-    const P = (u: number, v: number): [number, number] => [x + (u * ca - v * sa) * S, y + (u * sa + v * ca) * S]
+    const f = Math.sign(ca || 1)
+    const bend = 0.35 * Math.cos(Math.PI * d.t) * f
+    const P = (u: number, v: number): [number, number] => {
+      const w = v + bend * Math.min(0, u) ** 2
+      return [x + (u * ca - w * sa) * S, y + (u * sa + w * ca) * S]
+    }
     const back = this.paint([0.42, 0.52, 0.62])
-    this.shape(
-      [
-        cap(...P(-0.4, 0), ...P(0.35, 0), 0.08 * S, 0.11 * S, back),
-        cap(...P(0.35, 0.02), ...P(0.52, 0.04), 0.05 * S, 0.025 * S, back),
-        cap(...P(0, -0.1), ...P(-0.1 * Math.sign(ca || 1), -0.24), 0.05 * S, 0.01 * S, back),
-        cap(...P(-0.4, 0), ...P(-0.55, -0.1), 0.04 * S, 0.02 * S, back),
-        cap(...P(-0.4, 0), ...P(-0.55, 0.1), 0.04 * S, 0.02 * S, back),
-        cap(...P(0.1, 0.06), ...P(-0.02, 0.18), 0.035 * S, 0.01 * S, back),
-      ],
-      this.lighting,
-      0.7,
+    const spine: [number, number][] = [[0.52, 0.018], [0.42, 0.03], [0.36, 0.07], [0.26, 0.1], [0.08, 0.115], [-0.12, 0.1], [-0.3, 0.06], [-0.46, 0.026]]
+    const parts: Part[] = spine.slice(1).map(([u, r], i) => cap(...P(spine[i][0], i < 2 ? 0.02 : 0), ...P(u, i < 1 ? 0.02 : 0), spine[i][1] * S, r * S, back))
+    const beat = Math.sin(d.t * TAU * 1.5) * 0.04
+    parts.push(
+      cap(...P(-0.46, 0), ...P(-0.62, -0.05 + beat), 0.03 * S, 0.012 * S, back),
+      cap(...P(-0.46, 0), ...P(-0.6, 0.06 + beat), 0.03 * S, 0.012 * S, back),
+      cap(...P(0.02, -0.1), ...P(-0.06, -0.22), 0.055 * S, 0.012 * S, back),
+      cap(...P(-0.06, -0.22), ...P(-0.12, -0.24), 0.012 * S, 0.006 * S, back),
+      cap(...P(0.18, 0.07), ...P(0.06, 0.17), 0.035 * S, 0.01 * S, back),
     )
-    this.shape([cap(...P(-0.25, 0.04), ...P(0.3, 0.05), 0.04 * S, 0.06 * S, this.paint([0.75, 0.78, 0.8]))], this.lighting, 0.5)
+    this.shape(parts, this.lighting, 0.7)
+    this.shape([cap(...P(-0.2, 0.06), ...P(0.3, 0.065), 0.03 * S, 0.045 * S, this.paint([0.68, 0.72, 0.76]))], this.lighting, 0.5)
+    this.add(...P(0.36, -0.01), 0.02, 0.02, 0.02)
   }
 
   // Gulls wheeling over the water, wings flexing.
@@ -642,27 +650,41 @@ class Beach extends Canvas {
     this.add(...P(-0.1, -0.1), this.look.light[0] * 0.5, this.look.light[1] * 0.5, this.look.light[2] * 0.5)
   }
 
-  // A red crab scuttling sideways across the sand, claws up, pausing now and then.
+  // A red crab scuttling sideways across the sand on jointed legs, four to a side stepping in two alternating sets,
+  // eyes up on stalks and claws raised; pausing, it waves a claw.
   private drawCrab() {
     const H = this.H
     const c = this.crab
-    const S = 0.05 * H
-    const x = c.x * H
+    const S = 0.065 * H
+    const going = c.rest > 0 ? 0 : 1
+    const x = (c.x + Math.sin(c.phase * TAU * 2) * 0.006 * going) * H
     const y = 0.97 * H
     const red = this.paint([0.85, 0.25, 0.12])
-    const step = c.rest > 0 ? 0 : Math.sin(c.phase) * 0.06
-    const parts: Part[] = [ell(x, y - 0.25 * S, 0.4 * S, 0.22 * S, 0, red)]
+    const dark = this.paint([0.55, 0.13, 0.07])
+    const wave = (1 - going) * Math.max(0, Math.sin(this.creatureTime * 2.5)) ** 2
+    const parts: Part[] = []
     for (const side of [-1, 1])
-      for (let k = 0; k < 3; k++) {
-        const kx = x + side * (0.25 + k * 0.1) * S
-        parts.push(cap(kx, y - 0.2 * S, kx + side * 0.25 * S, y + (k % 2 ? step : -step) * S, 0.035 * S, 0.025 * S, red))
+      for (let k = 0; k < 4; k++) {
+        const [reach, lift] = stride(c.phase, ((k + (side > 0 ? 1 : 0)) % 2) * 0.5)
+        const hx = x + side * (0.2 + k * 0.05) * S
+        const fx = x + (side * (0.5 + k * 0.1) + reach * c.dir * 0.08 * going) * S
+        const fy = y - (lift * 0.08 * going + 0.02) * S
+        parts.push(...limb((u, v) => [u, v], hx, y - 0.25 * S, fx, fy, 0.22 * S, 0.28 * S, -side, 0.05 * S, 0.04 * S, 0.02 * S, k % 2 ? red : dark))
       }
+    parts.push(ell(x, y - 0.3 * S, 0.38 * S, 0.2 * S, 0, red))
     for (const side of [-1, 1]) {
-      parts.push(cap(x + side * 0.3 * S, y - 0.35 * S, x + side * 0.45 * S, y - 0.6 * S, 0.04 * S, 0.035 * S, red))
-      parts.push(ell(x + side * 0.48 * S, y - 0.68 * S, 0.12 * S, 0.09 * S, side * 0.5, red))
+      parts.push(cap(x + side * 0.08 * S, y - 0.42 * S, x + side * 0.1 * S, y - 0.56 * S, 0.025 * S, 0.02 * S, red))
+      const lift = side > 0 ? wave * 0.25 : 0
+      const [cx, cy] = [x + side * 0.5 * S, y - (0.66 + lift) * S]
+      parts.push(
+        cap(x + side * 0.28 * S, y - 0.34 * S, x + side * 0.4 * S, y - (0.5 + lift * 0.6) * S, 0.045 * S, 0.035 * S, red),
+        ell(cx, cy, 0.13 * S, 0.1 * S, side * 0.5, red),
+        cap(cx + side * 0.04 * S, cy - 0.06 * S, cx + side * 0.06 * S, cy - (0.2 + wave * 0.05) * S, 0.05 * S, 0.012 * S, red),
+        cap(cx + side * 0.09 * S, cy - 0.02 * S, cx + side * 0.16 * S, cy - 0.14 * S, 0.035 * S, 0.01 * S, red),
+      )
     }
     this.shape(parts, this.lighting, 0.6)
-    for (const side of [-1, 1]) this.add(x + side * 0.1 * S, y - 0.45 * S, 0.02, 0.02, 0.02)
+    for (const side of [-1, 1]) this.disc(x + side * 0.1 * S, y - 0.58 * S, 0.03 * S, 0.02, 0.02, 0.02, 1)
   }
 
   // A surfer standing on a board, riding the swell along the shore and bobbing.
