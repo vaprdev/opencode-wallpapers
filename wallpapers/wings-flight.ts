@@ -649,9 +649,10 @@ class WingsFlight extends Canvas {
     const dy = (0.004 * Math.sin(t * 5.3) + shake * (noise1(this.time * 4, 3) - 0.5)) * H
     const wing = this.activity === "teeming" ? [-1, 1] : this.activity === "lively" ? [1] : []
     for (const side of wing) {
-      const off = Math.min(0.6, A / 2 - 0.2)
+      // Clear of the lead's wingtips, and a little higher on narrow screens where they sit closer in.
+      const off = Math.min(0.6, A / 2 - 0.12)
       const x = (A / 2 + side * off + 0.01 * Math.sin(t * 2.3 + side)) * H
-      const y = (JET_Y - 0.07 + 0.006 * Math.sin(t * 3.7 + side * 2)) * H
+      const y = (JET_Y - 0.07 - Math.max(0, 0.5 - off) * 0.4 + 0.006 * Math.sin(t * 3.7 + side * 2)) * H
       this.drawJet(x, y, 0.42 * SPAN * H, this.roll + 0.03 * Math.sin(t * 2.9 + side), 0.8)
     }
     this.drawJet((A / 2) * H + dx, JET_Y * H + dy, SPAN * H, this.roll + barrel, 1 + 0.9 * surge)
