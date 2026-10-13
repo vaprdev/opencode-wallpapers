@@ -252,19 +252,20 @@ interface Mover {
   fired: number
 }
 
-// How long each kind waits between appearances at lively and teeming, in scene seconds, and how many fly at once.
+// How long each kind waits between appearances at lively and teeming, in scene seconds, and how many fly at once at
+// teeming; lively has about half as many at once.
 const SCHEDULE: Record<Kind, { lively?: readonly [number, number]; teeming: readonly [number, number]; most: number }> = {
-  cross: { lively: [5, 10], teeming: [2.5, 6], most: 5 },
-  four: { lively: [40, 70], teeming: [15, 30], most: 2 },
-  tanker: { lively: [90, 140], teeming: [40, 70], most: 1 },
-  e2: { lively: [50, 90], teeming: [30, 55], most: 1 },
-  b2: { lively: [110, 170], teeming: [55, 90], most: 1 },
-  a10: { lively: [40, 70], teeming: [20, 40], most: 1 },
-  dogfight: { lively: [35, 60], teeming: [10, 22], most: 1 },
-  overtake: { lively: [14, 24], teeming: [6, 12], most: 2 },
-  oncoming: { lively: [18, 32], teeming: [7, 12], most: 3 },
-  helo: { lively: [18, 32], teeming: [8, 14], most: 3 },
-  flock: { lively: [20, 35], teeming: [10, 18], most: 3 },
+  cross: { lively: [4, 8], teeming: [2.5, 6], most: 5 },
+  four: { lively: [30, 50], teeming: [15, 30], most: 2 },
+  tanker: { lively: [65, 100], teeming: [40, 70], most: 1 },
+  e2: { lively: [35, 65], teeming: [30, 55], most: 1 },
+  b2: { lively: [80, 120], teeming: [55, 90], most: 1 },
+  a10: { lively: [30, 50], teeming: [20, 40], most: 1 },
+  dogfight: { lively: [25, 42], teeming: [10, 22], most: 1 },
+  overtake: { lively: [10, 17], teeming: [6, 12], most: 2 },
+  oncoming: { lively: [13, 22], teeming: [7, 12], most: 3 },
+  helo: { lively: [13, 22], teeming: [8, 14], most: 3 },
+  flock: { lively: [14, 25], teeming: [10, 18], most: 3 },
 }
 // World kinds' distance at the start and end of their run.
 const RUN: Partial<Record<Kind, readonly [number, number]>> = { overtake: [2.8, 45], oncoming: [70, 3], helo: [40, 2.2], flock: [26, 1.15] }
@@ -352,7 +353,7 @@ class WingsFlight extends Canvas {
     ]
     this.nextIsland = rand(30, 50)
     this.nextShip = rand(5, 20)
-    this.wingmen = (settings.activity === "teeming" ? [0, 1, 3] : settings.activity === "lively" ? [1, 2] : []).map((slot) => ({ from: slot, to: slot, t: 1 }))
+    this.wingmen = (settings.activity === "teeming" ? [0, 1, 2, 5] : settings.activity === "lively" ? [1, 2] : []).map((slot) => ({ from: slot, to: slot, t: 1 }))
     // Traffic already underway when the scene starts, so a fresh screen isn't empty.
     if (settings.activity !== "calm") this.ships.push(makeShip(rand(15, 40)))
     if (settings.activity !== "calm")
@@ -748,8 +749,8 @@ class WingsFlight extends Canvas {
     })
     // Farther slots first, so nearer jets draw over them.
     for (const w of wing.sort((a, b) => a.size - b.size)) {
-      const x = (A / 2 + w.x * off + 0.01 * Math.sin(t * 2.3 + w.i)) * H
-      const y = (JET_Y - w.y - lift + 0.006 * Math.sin(t * 3.7 + w.i * 2)) * H
+      const x = (A / 2 + w.x * off + 0.025 * Math.sin(t * 2.3 + w.i * 1.7)) * H
+      const y = (JET_Y - w.y - lift + 0.012 * Math.sin(t * 3.1 + w.i * 2)) * H
       this.drawJet(x, y, w.size * SPAN * H, this.roll + w.bank + 0.03 * Math.sin(t * 2.9 + w.i), 0.8)
     }
     this.drawJet((A / 2) * H + dx, JET_Y * H + dy, SPAN * H, this.roll + barrel, 1 + 0.9 * surge)
@@ -840,7 +841,8 @@ class WingsFlight extends Canvas {
       if (!range) continue
       const wait = (this.waits[kind] ?? 0) - dt
       this.waits[kind] = wait
-      if (wait > 0 || this.movers.filter((m) => m.kind === kind).length >= SCHEDULE[kind].most) continue
+      const most = level === "lively" ? Math.ceil(SCHEDULE[kind].most / 2) : SCHEDULE[kind].most
+      if (wait > 0 || this.movers.filter((m) => m.kind === kind).length >= most) continue
       this.movers.push(this.spawn(kind))
       this.waits[kind] = rand(range[0], range[1])
     }
@@ -1110,8 +1112,9 @@ class WingsFlight extends Canvas {
     const c = (k: number) => this.craft([def.color[0] * k, def.color[1] * k, def.color[2] * k])
     const foam = look.night ? 0.04 : 0.16
     const back = ship.kind === "boat" ? -3 : -1.2
-    face([[-1, 0, 0], [1, 0, 0], [5, back, 0], [-5, back, 0]], look.foam, foam * 0.6)
-    face([[-0.6, 0, 0], [0.6, 0, 0], [1.4, back * 0.6, 0], [-1.4, back * 0.6, 0]], look.foam, foam)
+    // Two arms of a V spreading back from the stern, and churned water between them.
+    for (const m of [-1, 1]) face([[m * 0.5, 0, 0], [m, 0, 0], [m * 5.5, back, 0], [m * 4.5, back, 0]], look.foam, foam)
+    face([[-0.6, 0, 0], [0.6, 0, 0], [1, back * 0.6, 0], [-1, back * 0.6, 0]], look.foam, foam * 0.7)
     const d = def.deck
     const side = ship.x - this.lateral > 0 ? -1 : 1
     face([[-1, 0, d], [1, 0, d], [0.8, 0, 0], [-0.8, 0, 0]], c(0.7))
