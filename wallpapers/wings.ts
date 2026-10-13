@@ -17,14 +17,18 @@ const CAMERA = 1
 const FOCAL = 1
 // The carrier's deck in its own perspective: the stern's screen row and half-width, the bow's distance relative to the
 // stern's, and the row everything on it vanishes toward.
-const STERN = 0.95
-const BEAM = 0.12
+const STERN = 0.87
+const BEAM = 0.115
 const BOW = 0.45
 const VANISH = 0.02
 // How long a jet launch, a landing, the A-10 and B-2 passes and the flyover last, in scene seconds.
 const LAUNCH = 7
 const LANDING = 8
 const SPARKLE = 2.2
+// How many of the sea's rows slide toward the viewer per scene second.
+const ROW_RATE = 0.16
+// The hull's waterline below the deck, in deck heights.
+const WATERLINE = -0.42
 
 type Point = readonly [number, number]
 
@@ -47,6 +51,8 @@ interface Look {
   key: RGB
   lamp: number
   trail: RGB
+  // The wake's churned water: pale by day, tinted teal at night.
+  foam: RGB
   storm: RGB
   night: boolean
 }
@@ -76,6 +82,7 @@ const LOOKS: Record<Time, Look> = {
     key: [1, 0.97, 0.88],
     lamp: 0.25,
     trail: [0.95, 0.97, 1],
+    foam: [0.85, 0.95, 1],
     storm: [0.1, 0.16, 0.15],
     night: false,
   },
@@ -105,6 +112,7 @@ const LOOKS: Record<Time, Look> = {
     key: [1, 0.55, 0.45],
     lamp: 0.6,
     trail: [1.1, 0.62, 0.6],
+    foam: [1, 0.78, 0.82],
     storm: [0.12, 0.1, 0.14],
     night: false,
   },
@@ -132,6 +140,7 @@ const LOOKS: Record<Time, Look> = {
     key: [0.35, 0.5, 1.1],
     lamp: 1,
     trail: [0.2, 0.42, 0.8],
+    foam: [0.1, 0.5, 0.75],
     storm: [0.02, 0.055, 0.05],
     night: true,
   },
@@ -168,6 +177,15 @@ interface Sprite {
   rgba: Float32Array
 }
 
+// A premultiplied RGBA sprite cropped to a box at (x, y) on screen.
+interface Hull {
+  x: number
+  y: number
+  w: number
+  h: number
+  rgba: Float32Array
+}
+
 interface Jet {
   kind: "launch" | "landing"
   t: number
@@ -195,11 +213,11 @@ class Wings extends Canvas {
   // The sea: a mesh of rows of jittered vertices between the horizon and the bottom, stitched into triangles; each
   // vertex's ground position, wave amplitude and rate; and, per pixel of the sea's rows, the two triangles under its
   // corners, how much of the second, and how much sea shows past the islands and the carrier.
-  private mesh = { X: new Float32Array(0), Z: new Float32Array(0), amp: new Float32Array(0), rate: new Float32Array(0), phase: new Float32Array(0), height: new Float32Array(0), tris: new Int32Array(0), colors: new Float32Array(0) }
-  private sea: { y0: number; idA: Int32Array; idB: Int32Array; mix: Float32Array; open: Float32Array; glow: Float32Array; sky: Float32Array } = { y0: 0, idA: new Int32Array(0), idB: new Int32Array(0), mix: new Float32Array(0), open: new Float32Array(0), glow: new Float32Array(0), sky: new Float32Array(0) }
+  private mesh = { X: new Float32Array(0), Z: new Float32Array(0), height: new Float32Array(0), tris: new Int32Array(0), colors: new Float32Array(0) }
+  private sea: { y0: number; rows: Float64Array; ids: Int32Array; idA: Int32Array; idB: Int32Array; mix: Float32Array; open: Float32Array; glow: Float32Array; sky: Float32Array } = { y0: 0, rows: new Float64Array(0), ids: new Int32Array(0), idA: new Int32Array(0), idB: new Int32Array(0), mix: new Float32Array(0), open: new Float32Array(0), glow: new Float32Array(0), sky: new Float32Array(0) }
   private jets: Jet[] = []
   private nextLaunch: number
-  private nextLanding = 20
+  private nextLanding = 12
   private warthog: Flier = { t: -1, wait: 11, span: 13, y: 0.57, dir: 1 }
   private spirit: Flier = { t: -1, wait: 3, span: 40, y: 0.11, dir: -1 }
   private flyover = { t: -1, dir: 1, y: 0.16 }
@@ -208,6 +226,12 @@ class Wings extends Canvas {
   private drops = new Float32Array(160 * 3)
   // Deck and island lights: positions in pixels, colors, and which blink.
   private lamps: { x: number; y: number; color: RGB; blink: number; size: number }[] = []
+  // The carrier, painted once per size into a sprite that each frame bobs, rolls and pitches about its middle and
+  // drifts slowly side to side as it steers. hull is from the supersampled pass, waiting for the real one.
+  private hull: Hull | undefined
+  private hullFine: Hull | undefined
+  private ship = { x: 0, y: 0, dx: 0, dy: 0, roll: 0, pitch: 0 }
+  private crosser: Flier = { t: -1, wait: 6, span: 22, y: 0.2, dir: 1 }
 
   constructor(settings: Settings) {
     super()
@@ -219,7 +243,7 @@ class Wings extends Canvas {
     if (settings.time === "day") this.frame = 0.3
     this.stars = makeStars(look.stars, HORIZON - 0.04)
     this.clouds = makeLowPolyClouds(settings.time === "day" ? 8 : 7)
-    this.nextLaunch = settings.activity === "teeming" ? 6 : 14
+    this.nextLaunch = settings.activity === "teeming" ? 5 : 9
     for (let i = 0; i < this.drops.length; i += 3) {
       this.drops[i] = Math.random()
       this.drops[i + 1] = Math.random()
@@ -237,9 +261,11 @@ class Wings extends Canvas {
     if (this.gloom > 0) driftClouds(this.storm, this.A, dt)
     this.stepGloom(dt)
     this.weather.step(dt)
+    this.stepShip()
     this.stepJets(dt)
-    this.stepFlier(this.warthog, dt, this.activity === "teeming", 40, 70, () => this.openRow(0.53, 0.6))
-    this.stepFlier(this.spirit, dt, this.activity === "teeming", 70, 110, () => rand(0.07, 0.14))
+    this.stepFlier(this.warthog, dt, this.activity === "teeming", 30, 50, () => this.openRow(0.53, 0.6))
+    this.stepFlier(this.spirit, dt, this.activity === "teeming", 50, 80, () => rand(0.07, 0.14))
+    this.stepFlier(this.crosser, dt, this.activity === "teeming", 25, 40, () => rand(0.05, 0.12))
     if (this.flyover.t >= 0) this.flyover.t = this.flyover.t + dt > 14 ? -1 : this.flyover.t + dt
     const e = this.egg
     if (e.t >= 0) e.t = e.t + dt > 12 ? -1 : e.t + dt
@@ -282,13 +308,17 @@ class Wings extends Canvas {
     if (!this.weather.covered && look.stars) paintStars(this.hdr, W, H, this.stars, this.time, HORIZON - 0.04, look.night ? 0.55 : 0.25, this.points)
     this.drawClouds()
     paintStorm(this.hdr, W, H, this.storm, look.cloud[0], look.cloud[1], this.gloom)
-    if (this.activity === "teeming") this.drawCircling()
+    if (this.activity !== "calm") this.drawCircling()
+    if (this.crosser.t >= 0) this.drawCrosser(this.crosser)
     if (this.spirit.t >= 0) this.drawSpirit(this.spirit)
     if (this.flyover.t >= 0) this.drawFlyover()
     this.drawSea()
+    this.drawWake()
     this.drawSparkles()
     if (this.warthog.t >= 0) this.drawWarthog(this.warthog)
+    this.drawHull()
     this.drawLamps()
+    if (this.activity === "teeming") this.drawHelicopter()
     for (const j of this.jets) this.drawJet(j)
     if (this.egg.t >= 0) this.drawEgg()
     if (this.gloom > 0) this.drawRain()
@@ -296,8 +326,8 @@ class Wings extends Canvas {
     this.finish()
   }
 
-  // The sky, islands and carrier never move, so they're painted once per size; the sea is drawn over them each frame
-  // wherever it shows.
+  // The sky and islands never move, so they're painted once per size; the sea is drawn over them each frame wherever it
+  // shows, and the carrier, painted once into a sprite, over the sea.
   protected override layout() {
     const { W, H, A, look } = this
     this.orb = { ...look.orb, x: (A / 2 + look.orbX) / A }
@@ -313,14 +343,13 @@ class Wings extends Canvas {
     fillSea(this.hdr, W, this.sea.y0, this.sea.idA, this.sea.idB, this.sea.mix, undefined, this.mesh.colors, undefined)
     this.drawIslands()
     if (this.activity === "teeming") this.drawEscorts()
-    this.drawCarrier()
-    if (this.activity !== "calm") this.drawParked()
+    this.paintHull()
+    this.placeLamps()
     // How much sea shows in each pixel: everything above drawn again, flat, into a blank buffer.
     const hdr = this.hdr
     this.hdr = new Float32Array(W * H * 3)
     this.drawIslands(true)
     if (this.activity === "teeming") this.drawEscorts(true)
-    this.drawCarrier(true)
     const open = new Float32Array(this.sea.idA.length)
     for (let i = 0; i < open.length; i++) open[i] = 1 - clamp(this.hdr[(this.sea.y0 * W + i) * 3], 0, 1)
     this.hdr = hdr
@@ -332,7 +361,7 @@ class Wings extends Canvas {
       for (let i = 0; i < open.length; i++) {
         const x = i % W
         const y = this.sea.y0 + Math.floor(i / W)
-        const d = ((x - cx) / (0.3 * H)) ** 2 + ((y - 0.83 * H) / (0.17 * H)) ** 2
+        const d = ((x - cx) / (0.3 * H)) ** 2 + ((y - (STERN - 0.1) * H) / (0.17 * H)) ** 2
         const k = Math.max(0, 1 - d) ** 2 * 0.05 * look.lamp
         glow[i * 3] = AMBER[0] * k
         glow[i * 3 + 1] = AMBER[1] * k
@@ -349,80 +378,83 @@ class Wings extends Canvas {
     return [c[0] * t[0], c[1] * t[1], c[2] * t[2]]
   }
 
-  // Rows of vertices from the horizon down, growing toward the viewer, each row's vertices spaced wider than the row is
-  // tall and jittered so the facets read as hand-cut. Neighboring rows are zipped into triangles.
+  // The sea's rows: from the horizon down, each row a little taller than the last, as a table of row heights below the
+  // horizon (d) and the pixel buffers the facets are drawn through.
   private buildSea(sky: Float32Array) {
-    const { H, A } = this
+    const { W, H } = this
+    const rows = [0]
+    while (rows[rows.length - 1] < 1.1 - HORIZON) rows.push(rows[rows.length - 1] + rowHeight(rows[rows.length - 1]))
+    const y0 = Math.floor(HORIZON * H)
+    const n = W * (H - y0)
+    this.sea = { ...this.sea, y0, rows: Float64Array.from(rows), ids: new Int32Array(n * 4), idA: new Int32Array(n), idB: new Int32Array(n), mix: new Float32Array(n), sky }
+  }
+
+  // The mesh this frame. Rows of jittered vertices slide down the table of rows toward the viewer, a row at a time, as
+  // the carrier sails on: each vertex keeps its identity (column, and row counted from when it rose at the horizon), so
+  // its jitter and swell travel with it, and its columns spread apart as it nears, as on water seen in perspective.
+  // Neighboring rows are zipped into triangles and rasterized at two samples a pixel each way; each pixel keeps its two
+  // commonest triangles.
+  private meshSea() {
+    const { W, H, A } = this
+    const sea = this.sea
+    const m = this.mesh
+    const phase = this.time * ROW_RATE
+    const base = Math.floor(phase)
+    const f = phase - base
+    const table = sea.rows
     const xs: number[] = []
     const ys: number[] = []
+    const ds: number[] = []
+    const ids: number[] = []
     const rows: number[][] = []
-    const amp: number[] = []
-    let d = 0
-    for (let k = 0; HORIZON + d < 1.08; k++) {
-      const h = Math.max(0.0035, d * 0.17 + 0.003)
+    for (let r = 0; r + 1 < table.length; r++) {
+      const d = table[r] + (table[r + 1] - table[r]) * f
+      const q = r - base
+      const h = rowHeight(d)
       const w = Math.max(0.018, h * 2.3)
       const row: number[] = []
-      const n = Math.ceil((A + 0.4) / w)
-      for (let i = 0; i <= n; i++) {
-        const jx = k ? (hash2(i, k) - 0.5) * 0.7 : 0
-        const jy = k ? (hash2(i + 71, k) - 0.5) * 0.3 * h : 0
+      const i0 = Math.floor((-0.25 - A / 2) / w)
+      const i1 = Math.ceil((A / 2 + 0.25) / w)
+      for (let i = i0; i <= i1; i++) {
         row.push(xs.length)
-        xs.push(-0.2 + (i + jx) * w)
-        ys.push(HORIZON + d + jy)
-        // Calmer toward the horizon, where the facets get smaller than a cell.
-        amp.push(w * 0.45 * smoothstep(0.004, 0.08, d))
+        xs.push(A / 2 + (i + (hash2(i, q) - 0.5) * 0.7) * w)
+        ys.push(HORIZON + d + (hash2(i + 71, q) - 0.5) * 0.3 * h)
+        ds.push(d)
+        ids.push(i * 7919 + q * 104729)
       }
       rows.push(row)
-      d += h
     }
     const tris: number[] = []
     for (let k = 0; k + 1 < rows.length; k++) stitch(rows[k], rows[k + 1], xs, tris)
     const n = xs.length
-    const m = this.mesh
-    m.X = new Float32Array(n)
-    m.Z = new Float32Array(n)
-    m.amp = Float32Array.from(amp)
-    m.rate = new Float32Array(n)
-    m.phase = new Float32Array(n)
-    m.height = new Float32Array(n)
+    if (m.X.length < n) {
+      m.X = new Float32Array(n * 2)
+      m.Z = new Float32Array(n * 2)
+      m.height = new Float32Array(n * 2)
+    }
+    const t = this.time
     for (let i = 0; i < n; i++) {
       const z = (FOCAL * CAMERA) / Math.max(0.002, ys[i] - HORIZON)
       m.Z[i] = z
       m.X[i] = ((xs[i] - A / 2) * z) / FOCAL
-      m.rate[i] = 0.5 + hash(i * 1.7) * 0.6
-      m.phase[i] = hash(i * 3.3) * TAU
+      // Calmer toward the horizon, where the facets get smaller than a cell.
+      const amp = Math.max(0.018, rowHeight(ds[i]) * 2.3) * 0.45 * smoothstep(0.004, 0.08, ds[i])
+      const id = ids[i]
+      m.height[i] = amp * ((hash(id) - 0.5) * 1.6 + 0.3 * Math.sin(t * (0.5 + hash(id + 0.5) * 0.6) + hash(id + 0.3) * TAU))
     }
     m.tris = Int32Array.from(tris)
-    m.colors = new Float32Array((tris.length / 3) * 3)
-    // Two samples a pixel each way; each pixel keeps its two commonest triangles.
-    const y0 = Math.floor(HORIZON * H)
-    const W = this.W
-    const rowsPx = H - y0
+    if (m.colors.length < tris.length) m.colors = new Float32Array(tris.length * 2)
+    const y0 = sea.y0
     const SW = W * 2
-    const ids = new Int32Array(SW * rowsPx * 2).fill(-1)
-    for (let t = 0; t < tris.length; t += 3) {
-      const a = tris[t]
-      const b = tris[t + 1]
-      const c = tris[t + 2]
-      rasterTri(ids, SW, rowsPx * 2, xs[a] * H * 2, (ys[a] * H - y0) * 2, xs[b] * H * 2, (ys[b] * H - y0) * 2, xs[c] * H * 2, (ys[c] * H - y0) * 2, t / 3)
+    const SH = (H - y0) * 2
+    sea.ids.fill(-1)
+    for (let k = 0; k < tris.length; k += 3) {
+      const a = tris[k]
+      const b = tris[k + 1]
+      const c = tris[k + 2]
+      rasterTri(sea.ids, SW, SH, xs[a] * H * 2, (ys[a] * H - y0) * 2, xs[b] * H * 2, (ys[b] * H - y0) * 2, xs[c] * H * 2, (ys[c] * H - y0) * 2, k / 3)
     }
-    const idA = new Int32Array(W * rowsPx)
-    const idB = new Int32Array(W * rowsPx)
-    const mix = new Float32Array(W * rowsPx)
-    for (let y = 0; y < rowsPx; y++)
-      for (let x = 0; x < W; x++) {
-        const s = [ids[y * 2 * SW + x * 2], ids[y * 2 * SW + x * 2 + 1], ids[(y * 2 + 1) * SW + x * 2], ids[(y * 2 + 1) * SW + x * 2 + 1]].map((v) => (v < 0 ? 0 : v))
-        const first = s[0]
-        const others = s.filter((v) => v !== first)
-        const second = others.length ? others[0] : first
-        const nFirst = s.filter((v) => v === first).length
-        const nSecond = s.filter((v) => v === second).length
-        const i = y * W + x
-        idA[i] = nFirst >= nSecond ? first : second
-        idB[i] = nFirst >= nSecond ? second : first
-        mix[i] = (first === second ? 0 : Math.min(nFirst, nSecond)) / 4
-      }
-    this.sea = { ...this.sea, y0, idA, idB, mix, sky }
+    resolveSamples(sea.ids, W, H - y0, sea.idA, sea.idB, sea.mix)
   }
 
   // Each facet's color this frame: the sea's own color lit from above, the sky it mirrors (more at grazing angles), the
@@ -430,8 +462,7 @@ class Wings extends Canvas {
   private shadeSea() {
     const { H, A, look } = this
     const m = this.mesh
-    const t = this.time
-    for (let i = 0; i < m.height.length; i++) m.height[i] = m.amp[i] * (0.6 * Math.sin(t * m.rate[i] + m.phase[i]) + 0.4 * Math.sin(Math.log(m.Z[i]) * 9 - t * 0.9 + m.X[i] * 0.15))
+    this.meshSea()
     shadeFacets(m.X, m.Z, m.height, m.tris, m.colors, this.sea.sky, H, this.orb.x * A - A / 2, this.orb.y, look.sea[0], look.sea[1], look.spec, look.glitter * (1 - 0.8 * this.gloom), look.spread, look.storm, smoothstep(0, 1, this.gloom) * 0.7)
   }
 
@@ -567,7 +598,17 @@ class Wings extends Canvas {
     // The stern's hangar opening.
     this.polygon([D(-0.25, 0, -0.08), D(0.25, 0, -0.08), D(0.25, 0, -0.2), D(-0.25, 0, -0.2)], this.look.night ? [0.25, 0.12, 0.03] : c([0.05, 0.05, 0.06]))
     this.drawIsland(false)
-    // Lights: amber edge lights down both sides, centerline lights, stern lights, the island's windows and mast beacons.
+    // At night the deck lights wash the deck.
+    if (this.look.lamp > 0.5) {
+      const [cx, cy] = D(0, 0.45)
+      lightPool(this.hdr, this.W, this.H, cx, cy, 0.18 * this.H, 0.12 * this.H, [1, 0.6, 0.25], 1.2, 0.01)
+    }
+  }
+
+  // Lights: amber edge lights down both sides, centerline lights, stern lights, the island's windows and mast beacons,
+  // in real pixels on the carrier at rest.
+  private placeLamps() {
+    const D = (u: number, v: number, h = 0) => this.deck(u, v, h)
     this.lamps = []
     const lamp = (p: Point, color: RGB, blink = 0, size = 1) => this.lamps.push({ x: p[0] / this.px, y: p[1] / this.px, color, blink, size })
     for (let v = 0.04; v < 0.99; v += 0.075) {
@@ -582,11 +623,104 @@ class Wings extends Canvas {
     lamp(D(0.74, 0.44, 0.6), AMBER, 0, 1)
     lamp(D(0.88, 0.44, 0.6), AMBER, 0, 1)
     if (this.activity !== "calm") lamp(D(-0.4, 0.26), [0.3, 1.8, 0.6], 1.5, 2)
-    // At night the deck lights wash the deck.
-    if (this.look.lamp > 0.5) {
-      const [cx, cy] = D(0, 0.45)
-      lightPool(this.hdr, this.W, this.H, cx, cy, 0.18 * this.H, 0.12 * this.H, [1, 0.6, 0.25], 1.2, 0.01)
+  }
+
+  // Paints the carrier, and the jets parked on it, into the hull sprite: colors over black, so they come out
+  // premultiplied, and the silhouette in white for coverage. The supersampled pass keeps its sprite, shrunk, for the
+  // real pass to use.
+  private paintHull() {
+    const { W, H } = this
+    if (this.px === 1 && this.hullFine) {
+      this.hull = this.hullFine
+      this.hullFine = undefined
+      return
     }
+    const hdr = this.hdr
+    this.hdr = new Float32Array(W * H * 3)
+    this.drawCarrier()
+    if (this.activity !== "calm") this.drawParked()
+    let color = this.hdr
+    this.hdr = new Float32Array(W * H * 3)
+    this.drawCarrier(true)
+    let cover = this.hdr
+    this.hdr = hdr
+    if (this.px > 1) {
+      color = this.shrink(color)
+      cover = this.shrink(cover)
+    }
+    const w = W / this.px
+    const h = H / this.px
+    let [x0, y0, x1, y1] = [w, h, -1, -1]
+    for (let y = 0; y < h; y++)
+      for (let x = 0; x < w; x++) {
+        const o = (y * w + x) * 3
+        if (cover[o] <= 0 && color[o] + color[o + 1] + color[o + 2] <= 0) continue
+        x0 = Math.min(x0, x)
+        y0 = Math.min(y0, y)
+        x1 = Math.max(x1, x)
+        y1 = Math.max(y1, y)
+      }
+    const sw = x1 - x0 + 1
+    const sh = y1 - y0 + 1
+    const rgba = new Float32Array(Math.max(0, sw * sh * 4))
+    for (let y = 0; y < sh; y++)
+      for (let x = 0; x < sw; x++) {
+        const o = ((y + y0) * w + x + x0) * 3
+        const d = (y * sw + x) * 4
+        rgba[d] = color[o]
+        rgba[d + 1] = color[o + 1]
+        rgba[d + 2] = color[o + 2]
+        rgba[d + 3] = clamp(cover[o], 0, 1)
+      }
+    const hull = { x: x0, y: y0, w: Math.max(0, sw), h: Math.max(0, sh), rgba }
+    if (this.px > 1) this.hullFine = hull
+    else this.hull = hull
+  }
+
+  // The carrier underway: a slow bob, roll and pitch on the swells, and a long, slow weave as it steers.
+  private stepShip() {
+    const t = this.time
+    const H = this.H
+    const [x, y] = this.deck(0, 0.45)
+    this.ship = {
+      x: x,
+      y: y,
+      dx: 0.008 * Math.sin(t * 0.04) * H,
+      dy: (0.0015 * Math.sin(t * 0.6) + 0.0008 * Math.sin(t * 1.03 + 2)) * H,
+      roll: 0.007 * Math.sin(t * 0.5 + 0.5),
+      pitch: 0.006 * Math.sin(t * 0.55 + 1.7),
+    }
+  }
+
+  // Where a point on the carrier at rest is now, as it rolls, pitches, bobs and weaves.
+  private onShip(p: Point): Point {
+    const s = this.ship
+    const qx = p[0] - s.x
+    const qy = (p[1] - s.y) * (1 + s.pitch)
+    const c = Math.cos(s.roll)
+    const n = Math.sin(s.roll)
+    return [s.x + qx * c - qy * n + s.dx, s.y + qx * n + qy * c + s.dy]
+  }
+
+  private drawHull() {
+    const h = this.hull
+    if (!h || !h.w) return
+    const s = this.ship
+    const box = blitHull(this.hdr, this.W, this.H, h, s.x, s.y, s.dx, s.dy, s.roll, 1 + s.pitch)
+    this.touch(box[0], box[1], box[2], box[3])
+  }
+
+  // The wake: water churned white (teal at night) along the hull, flaring off the bow, and trailing back from the
+  // stern toward the viewer, streaming past at the sea's pace.
+  private drawWake() {
+    const { W, H, A, look } = this
+    const s = this.ship
+    const [, bowY] = this.deck(0, 1.2, WATERLINE)
+    const x0 = Math.floor((A / 2) * H - 0.4 * H + s.dx)
+    const x1 = Math.ceil((A / 2) * H + 0.4 * H + s.dx)
+    const y0 = Math.floor(bowY + s.dy - 2)
+    const box = wake(this.hdr, W, H, A, x0, x1, y0, (A / 2) * H + s.dx, s.dy, this.time * ROW_RATE * 0.17, look.foam, look.night ? 0.6 : 0.55)
+    this.touch(box[0], box[1], box[2], box[3])
   }
 
   // The island superstructure: a block with its stern face and inboard side showing, a bridge window band, and a mast
@@ -627,8 +761,10 @@ class Wings extends Canvas {
       if (look.lamp < 0.5 && !l.blink) continue
       const pulse = l.blink ? 0.25 + 0.75 * Math.max(0, Math.sin(this.time * l.blink * 2 + i)) ** 4 : 0.85 + 0.15 * Math.sin(this.time * 0.6 + i * 1.3)
       const k = look.lamp * pulse * flicker * 0.55
-      if (this.cells) this.point(l.x, l.y, l.color[0] * k, l.color[1] * k, l.color[2] * k, l.size)
-      else this.disc(l.x, l.y, (0.0018 + l.size * 0.0007) * this.H, l.color[0] * k, l.color[1] * k, l.color[2] * k, 1)
+      const [x, y] = this.onShip([l.x, l.y])
+      // Lights glide with the carrier, so on cells they fade from cell to cell rather than hopping.
+      if (this.cells) this.point(x, y, l.color[0] * k, l.color[1] * k, l.color[2] * k, l.size, true)
+      else this.disc(x, y, (0.0018 + l.size * 0.0007) * this.H, l.color[0] * k, l.color[1] * k, l.color[2] * k, 1)
     }
   }
 
@@ -652,13 +788,13 @@ class Wings extends Canvas {
     this.nextLaunch -= dt
     if (this.nextLaunch <= 0 && !this.jets.some((j) => j.kind === "launch")) {
       this.jets.push({ kind: "launch", t: 0, side: Math.random() < 0.5 ? -1 : 1 })
-      this.nextLaunch = this.activity === "teeming" ? rand(14, 26) : rand(28, 50)
+      this.nextLaunch = this.activity === "teeming" ? rand(12, 20) : rand(20, 32)
     }
     if (this.activity !== "teeming") return
     this.nextLanding -= dt
     if (this.nextLanding <= 0 && !this.jets.some((j) => j.kind === "landing")) {
       this.jets.push({ kind: "landing", t: 0, side: 0 })
-      this.nextLanding = rand(22, 40)
+      this.nextLanding = rand(18, 30)
     }
   }
 
@@ -695,7 +831,7 @@ class Wings extends Canvas {
   private drawJet(j: Jet) {
     const p = this.jetPath(j)
     const z = 1 + BOW * p.v
-    const [x, y] = this.deck(p.u, p.v, p.h)
+    const [x, y] = this.onShip(this.deck(p.u, p.v, p.h))
     const s = (BEAM * this.H) / z
     if (p.alpha <= 0 || y < -s || y > this.H + s) return
     const H = this.H
@@ -710,7 +846,7 @@ class Wings extends Canvas {
     // Climbing, it leaves a short glowing exhaust streak behind it.
     if (j.kind === "launch" && j.t > 3) {
       const q = this.jetPath({ ...j, t: j.t - 0.35 })
-      const [tx, ty] = this.deck(q.u, q.v, q.h)
+      const [tx, ty] = this.onShip(this.deck(q.u, q.v, q.h))
       const sq = lerp(0.55, 0.3, clamp(p.h / 4, 0, 1))
       trail(this.hdr, this.W, H, x, y + 0.5 * sq * s, tx, ty + 0.5 * sq * s, Math.max(0.8, 0.05 * s), this.look.lamp > 0.5 ? BURNER : this.look.trail, 0.5 * p.alpha)
       this.touch(Math.min(x, tx) - s * 0.1 - 2, Math.min(y, ty) - 2, Math.max(x, tx) + s * 0.1 + 2, Math.max(y, ty) + s * 0.3 + 2)
@@ -755,21 +891,70 @@ class Wings extends Canvas {
       )
   }
 
-  // At teeming, two jets circle high over the volcano.
+  // Jets holding in wide, slow loops high in the sky, clear of the text in the middle: at lively a pair far off over
+  // the volcano, at teeming one more, nearer, over the islets on the left, each loop swinging nearer and farther.
   private drawCircling() {
-    const { A, H, look } = this
-    for (let i = 0; i < 2; i++) {
-      const a = this.time * 0.09 + i * Math.PI
-      const x = (volcanoX(A) + Math.cos(a) * 0.42) * H
-      const y = (0.23 + Math.sin(a) * 0.05 + i * 0.02) * H
-      const heading = Math.atan2(Math.cos(a) * 0.05, -Math.sin(a) * 0.42)
-      const s = (0.04 + 0.008 * Math.sin(a)) * H
-      this.planform(x, y, s, heading, 0.45, JETFORM, this.craft(JET))
-      if (look.lamp > 0.5) {
-        const blink = Math.sin(this.time * 4 + i) > 0.6 ? 1 : 0.2
-        this.splat(x, y, 1.6 * blink * 0.5, 0.25 * blink * 0.5, 0.15 * blink * 0.5)
-      }
+    const { A, H } = this
+    const loops = [
+      { cx: volcanoX(A), cy: 0.2, rx: 0.36, ry: 0.04, size: 0.032, rate: 0.08, phase: 0 },
+      { cx: volcanoX(A), cy: 0.22, rx: 0.36, ry: 0.04, size: 0.032, rate: 0.08, phase: Math.PI },
+      { cx: 0.32, cy: 0.15, rx: 0.24, ry: 0.05, size: 0.05, rate: -0.08, phase: 1 },
+      { cx: 0.32, cy: 0.14, rx: 0.24, ry: 0.05, size: 0.05, rate: -0.08, phase: 1.5 },
+    ].slice(0, this.activity === "teeming" ? 3 : 2)
+    for (const [i, l] of loops.entries()) {
+      const a = this.time * l.rate + l.phase
+      const x = (l.cx + Math.cos(a) * l.rx) * H
+      const y = (l.cy + Math.sin(a) * l.ry) * H
+      const heading = Math.atan2(Math.cos(a) * l.ry * l.rate, -Math.sin(a) * l.rx * l.rate)
+      const s = l.size * (1 + 0.25 * Math.sin(a)) * H
+      this.planform(x, y, s, heading, 0.45, JETFORM, this.craft(JET), 1, -Math.sign(l.rate) * 0.25)
+      this.navLights(x, y, s, heading, i)
     }
+  }
+
+  // Amber and red blinking lights on an aircraft at night, and a faint glow from its engines.
+  private navLights(x: number, y: number, s: number, heading: number, seed: number) {
+    const k = this.look.lamp
+    if (k < 0.5) return
+    const blink = Math.sin(this.time * 4 + seed * 1.7) > 0.6 ? 0.8 : 0.15
+    const bx = x - Math.cos(heading) * s * 0.5
+    const by = y - Math.sin(heading) * s * 0.2
+    this.splat(bx, by, BURNER[0] * 0.25, BURNER[1] * 0.25, BURNER[2] * 0.25)
+    this.splat(x, y, 1.6 * blink, 0.3 * blink, 0.12 * blink)
+  }
+
+  // At teeming a jet now and then crosses high and far off, small against the sky.
+  private drawCrosser(f: Flier) {
+    f.t = Math.min(f.t, 1)
+    const { A, H } = this
+    const u = f.dir > 0 ? f.t : 1 - f.t
+    const x = lerp(-0.1, A + 0.1, u) * H
+    const heading = f.dir > 0 ? 0.05 : Math.PI - 0.05
+    this.planform(x, f.y * H, 0.026 * H, heading, 0.4, JETFORM, this.craft(JET))
+    this.navLights(x, f.y * H, 0.026 * H, heading, 7)
+  }
+
+  // At teeming a helicopter hovers off the island, swaying gently, its rotor a faint disc.
+  private drawHelicopter() {
+    const { H, look } = this
+    const t = this.time
+    const [x, y] = this.onShip(this.deck(1.6 + 0.08 * Math.sin(t * 0.21), 0.35, 1.7 + 0.12 * Math.sin(t * 0.33)))
+    const s = 0.065 * H
+    const tilt = 0.06 * Math.sin(t * 0.21 + 1.2)
+    const body = this.craft([0.3, 0.34, 0.3])
+    const ca = Math.cos(tilt)
+    const sa = Math.sin(tilt)
+    const Q = (a: number, b: number): Point => [x + (a * ca - b * sa) * s, y + (a * sa + b * ca) * s]
+    // Side on, nose to the left: a rounded cabin, a tail boom with its fin, and skids.
+    this.ellipse(...Q(-0.05, 0), 0.22 * s, 0.12 * s, body[0], body[1], body[2], 1)
+    this.polygon([Q(0.1, -0.04), Q(0.55, -0.03), Q(0.55, 0.0), Q(0.1, 0.05)], body)
+    this.polygon([Q(0.5, -0.03), Q(0.58, -0.17), Q(0.62, -0.17), Q(0.58, 0.0)], body)
+    this.polygon([Q(-0.22, 0.17), Q(0.14, 0.17), Q(0.14, 0.19), Q(-0.22, 0.19)], body)
+    this.polygon([Q(-0.24, -0.15), Q(0.16, -0.15), Q(0.16, -0.13), Q(-0.24, -0.13)], body)
+    // The spinning rotor, a faint blur rather than blades, so it doesn't flicker.
+    const blur = look.night ? look.key : look.sky[look.sky.length - 1][1]
+    this.ellipse(...Q(-0.04, -0.15), 0.5 * s, 0.035 * s, blur[0] * 0.5 + body[0] * 0.5, blur[1] * 0.5 + body[1] * 0.5, blur[2] * 0.5 + body[2] * 0.5, 0.45)
+    this.navLights(...Q(0.6, -0.1), s, Math.PI, 3)
   }
 
   private stepFlier(f: Flier, dt: number, on: boolean, min: number, max: number, row: () => number) {
@@ -1027,6 +1212,172 @@ function blitSprite(hdr: Float32Array, W: number, H: number, s: Sprite, x: numbe
   }
 }
 
+// Composites the hull sprite turned by roll, stretched by pitch and moved by (dx, dy) about the pivot (px, py),
+// sampling it bilinearly so the carrier glides; returns the box it drew in.
+function blitHull(hdr: Float32Array, W: number, H: number, h: Hull, px: number, py: number, dx: number, dy: number, roll: number, sy: number) {
+  const c = Math.cos(roll)
+  const n = Math.sin(roll)
+  let x0 = Infinity
+  let y0 = Infinity
+  let x1 = -Infinity
+  let y1 = -Infinity
+  for (const [cx, cy] of [[h.x, h.y], [h.x + h.w, h.y], [h.x, h.y + h.h], [h.x + h.w, h.y + h.h]]) {
+    const qx = cx - px
+    const qy = (cy - py) * sy
+    const X = px + qx * c - qy * n + dx
+    const Y = py + qx * n + qy * c + dy
+    x0 = Math.min(x0, X)
+    y0 = Math.min(y0, Y)
+    x1 = Math.max(x1, X)
+    y1 = Math.max(y1, Y)
+  }
+  const bx0 = Math.max(0, Math.floor(x0) - 1)
+  const by0 = Math.max(0, Math.floor(y0) - 1)
+  const bx1 = Math.min(W - 1, Math.ceil(x1) + 1)
+  const by1 = Math.min(H - 1, Math.ceil(y1) + 1)
+  const d = h.rgba
+  for (let y = by0; y <= by1; y++)
+    for (let x = bx0; x <= bx1; x++) {
+      // Back from the screen to the sprite at rest.
+      const qx = x + 0.5 - px - dx
+      const qy = y + 0.5 - py - dy
+      const sx = px + qx * c + qy * n - h.x - 0.5
+      const sY = py + (-qx * n + qy * c) / sy - h.y - 0.5
+      const ix = Math.floor(sx)
+      const iy = Math.floor(sY)
+      if (ix < -1 || iy < -1 || ix >= h.w || iy >= h.h) continue
+      const fx = sx - ix
+      const fy = sY - iy
+      let r = 0
+      let g = 0
+      let b = 0
+      let a = 0
+      for (let q = 0; q < 4; q++) {
+        const u = ix + (q & 1)
+        const v = iy + (q >> 1)
+        if (u < 0 || v < 0 || u >= h.w || v >= h.h) continue
+        const k = (q & 1 ? fx : 1 - fx) * (q >> 1 ? fy : 1 - fy)
+        const o = (v * h.w + u) * 4
+        r += d[o] * k
+        g += d[o + 1] * k
+        b += d[o + 2] * k
+        a += d[o + 3] * k
+      }
+      if (a <= 0 && r + g + b <= 0) continue
+      const o = (y * W + x) * 3
+      hdr[o] = hdr[o] * (1 - a) + r
+      hdr[o + 1] = hdr[o + 1] * (1 - a) + g
+      hdr[o + 2] = hdr[o + 2] * (1 - a) + b
+    }
+  return [bx0, by0, bx1, by1]
+}
+
+// Churned water around the carrier, from row y0 down to the bottom between x0 and x1. Its shape comes from mapping each
+// pixel onto the water around the hull (u across, in half-beams from its middle at cx; v along, 0 at the stern and 1 at
+// the bow): foam runs out from under the deck edges, flares off the bow and spreads back from the stern in a churned
+// trail and two arms. Its texture is pinned to the sea's own ground (see buildSea), so it streams back past the ship at
+// the sea's pace. Returns the box it drew in.
+function wake(hdr: Float32Array, W: number, H: number, A: number, x0: number, x1: number, y0: number, cx: number, dy: number, flow: number, foam: RGB, strength: number) {
+  const bx0 = Math.max(0, x0)
+  const bx1 = Math.min(W - 1, x1)
+  const by0 = Math.max(0, y0)
+  const depth = STERN - VANISH - WATERLINE * BEAM
+  for (let y = by0; y < H; y++) {
+    const z = depth / Math.max(0.01, (y + 0.5 - dy) / H - VANISH)
+    const v = (z - 1) / BOW
+    if (v > 1.2) continue
+    // The sea's rows slide toward the viewer at a pace proportional to their distance, so the foam is pinned to the
+    // log of the distance, slid along by flow.
+    const ground = (CAMERA * FOCAL) / Math.max(0.01, (y + 0.5) / H - HORIZON)
+    const tv = (Math.log(ground) + flow) * 66
+    for (let x = bx0; x <= bx1; x++) {
+      const u = (((x + 0.5 - cx) / H) * z) / BEAM
+      const au = Math.abs(u)
+      // Along the sides, out past the deck's overhang, widening toward the stern.
+      const outer = 1.15 + 0.3 * clamp(1 - v, 0, 1.3)
+      const side = v < 1.02 ? smoothstep(0.84, 0.95, au) * smoothstep(outer, outer - 0.2, au) * (0.55 + 0.45 * smoothstep(0.6, 0, v)) : 0
+      // The bow wave curling out from the stem.
+      const bow = Math.exp(-(((v - 1.04) / 0.07) ** 2)) * smoothstep(0.3, 0.75, au) * smoothstep(1.55, 1.1, au)
+      // Behind the stern: churned water across the beam, and two arms spreading outward.
+      const churn = smoothstep(0.02, -0.04, v) * smoothstep(1 - v * 0.8, 0.5, au)
+      const arms = v < 0.1 ? Math.exp(-(((au - (1 - v * 1.8)) / 0.14) ** 2)) : 0
+      const f = Math.max(side, bow, churn, arms)
+      if (f <= 0.01) continue
+      const tex = foamAt(((x + 0.5) / H - A / 2) * ground * 90, tv)
+      const a = clamp(f * (0.15 + 1.4 * smoothstep(0.35, 0.6, tex)), 0, 1) * strength
+      const o = (y * W + x) * 3
+      hdr[o] += (foam[0] - hdr[o]) * a
+      hdr[o + 1] += (foam[1] - hdr[o + 1]) * a
+      hdr[o + 2] += (foam[2] - hdr[o + 2]) * a
+    }
+  }
+  return [bx0, by0, bx1, H - 1]
+}
+
+// A wrapping tile of foam blobs, sampled bilinearly.
+const FOAM_N = 64
+const FOAM = (() => {
+  const tex = new Float32Array(FOAM_N * FOAM_N)
+  // Soft blobs of many sizes, measured with wrapped distances so the tile repeats seamlessly.
+  for (let k = 0; k < 70; k++) {
+    const cx = hash(k * 3.7) * FOAM_N
+    const cy = hash(k * 5.3 + 1) * FOAM_N
+    const r = 2 + hash(k * 7.1 + 2) * 6
+    for (let y = 0; y < FOAM_N; y++)
+      for (let x = 0; x < FOAM_N; x++) {
+        const dx = Math.min(Math.abs(x - cx), FOAM_N - Math.abs(x - cx))
+        const dy = Math.min(Math.abs(y - cy), FOAM_N - Math.abs(y - cy))
+        tex[y * FOAM_N + x] += Math.exp(-(dx * dx + dy * dy) / (r * r))
+      }
+  }
+  let lo = Infinity
+  let hi = -Infinity
+  for (const v of tex) {
+    lo = Math.min(lo, v)
+    hi = Math.max(hi, v)
+  }
+  return tex.map((v) => (v - lo) / (hi - lo))
+})()
+
+function foamAt(x: number, y: number) {
+  const ix = Math.floor(x)
+  const iy = Math.floor(y)
+  const fx = x - ix
+  const fy = y - iy
+  const x0 = ix & (FOAM_N - 1)
+  const y0 = iy & (FOAM_N - 1)
+  const x1 = (x0 + 1) & (FOAM_N - 1)
+  const y1 = (y0 + 1) & (FOAM_N - 1)
+  const top = FOAM[y0 * FOAM_N + x0] + (FOAM[y0 * FOAM_N + x1] - FOAM[y0 * FOAM_N + x0]) * fx
+  const bottom = FOAM[y1 * FOAM_N + x0] + (FOAM[y1 * FOAM_N + x1] - FOAM[y1 * FOAM_N + x0]) * fx
+  return top + (bottom - top) * fy
+}
+
+// The height of the sea's row d below the horizon: rows grow toward the viewer, though never thinner than a sliver.
+function rowHeight(d: number) {
+  return Math.max(0.0035, d * 0.17 + 0.003)
+}
+
+// For each pixel of a W x H grid sampled two by two, its commonest triangle, the next, and how much of the next.
+function resolveSamples(ids: Int32Array, W: number, H: number, idA: Int32Array, idB: Int32Array, mix: Float32Array) {
+  const SW = W * 2
+  for (let y = 0; y < H; y++)
+    for (let x = 0; x < W; x++) {
+      const o = y * 2 * SW + x * 2
+      const s0 = Math.max(0, ids[o])
+      const s1 = Math.max(0, ids[o + 1])
+      const s2 = Math.max(0, ids[o + SW])
+      const s3 = Math.max(0, ids[o + SW + 1])
+      const second = s1 !== s0 ? s1 : s2 !== s0 ? s2 : s3
+      const n0 = 1 + (s1 === s0 ? 1 : 0) + (s2 === s0 ? 1 : 0) + (s3 === s0 ? 1 : 0)
+      const n1 = second === s0 ? 0 : (s1 === second ? 1 : 0) + (s2 === second ? 1 : 0) + (s3 === second ? 1 : 0)
+      const i = y * W + x
+      idA[i] = n0 >= n1 ? s0 : second
+      idB[i] = n0 >= n1 ? second : s0
+      mix[i] = Math.min(n0, n1) / 4
+    }
+}
+
 // Zips two rows of vertex indices, each sorted by x, into a strip of triangles.
 function stitch(a: number[], b: number[], xs: number[], tris: number[]) {
   let i = 0
@@ -1171,12 +1522,12 @@ function trail(hdr: Float32Array, W: number, H: number, hx: number, hy: number, 
 export const wings: Wallpaper = {
   id: "wings",
   name: "Wings",
-  description: "An aircraft carrier on a low-poly sea below a volcano island, from Anomaly Arcade's Wings",
+  description: "An aircraft carrier sailing a low-poly sea below a volcano island, from Anomaly Arcade's Wings",
   collection: "Arcade",
   activity: {
-    calm: "The carrier on rolling faceted swells, glittering water, deck lights and drifting clouds",
-    lively: "Adds jets launching off the deck now and then, and a deck crew light",
-    teeming: "Adds jets circling and landing, an A-10 skimming the water, a B-2 high overhead and escort ships",
+    calm: "The carrier underway on faceted swells, its wake, glittering water, deck lights and drifting clouds",
+    lively: "Adds jets launching off the deck now and then, a distant pair circling and a deck crew light",
+    teeming: "Adds another jet circling, landings, a helicopter, an A-10 skimming the water, a B-2 high overhead and escort ships",
   },
   scrim: {
     day: [
