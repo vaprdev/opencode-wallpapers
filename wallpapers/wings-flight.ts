@@ -62,6 +62,8 @@ interface Look {
   key: RGB
   lamp: number
   foam: RGB
+  // Contrails high up: pale by day, pink at sunset, teal-blue at night.
+  trail: RGB
   storm: RGB
   ambient: RGB
   light: RGB
@@ -95,6 +97,7 @@ const LOOKS: Record<Time, Look> = {
     key: [1, 0.97, 0.88],
     lamp: 0.25,
     foam: [0.85, 0.95, 1],
+    trail: [0.95, 0.97, 1],
     storm: [0.1, 0.16, 0.15],
     ambient: [0.42, 0.46, 0.55],
     light: [0.8, 0.77, 0.7],
@@ -128,6 +131,7 @@ const LOOKS: Record<Time, Look> = {
     key: [1, 0.55, 0.45],
     lamp: 0.6,
     foam: [1, 0.78, 0.82],
+    trail: [1.1, 0.62, 0.6],
     storm: [0.12, 0.1, 0.14],
     ambient: [0.2, 0.16, 0.3],
     light: [1.1, 0.55, 0.38],
@@ -159,6 +163,7 @@ const LOOKS: Record<Time, Look> = {
     key: [0.35, 0.5, 1.1],
     lamp: 1,
     foam: [0.1, 0.5, 0.75],
+    trail: [0.2, 0.42, 0.8],
     storm: [0.02, 0.055, 0.05],
     ambient: [0.05, 0.08, 0.22],
     light: [0.16, 0.24, 0.6],
@@ -174,6 +179,12 @@ const STRIPE: RGB = [0.85, 0.85, 0.8]
 const YELLOW: RGB = [0.85, 0.66, 0.12]
 const JET: RGB = [0.5, 0.53, 0.58]
 const SPIRIT: RGB = [0.13, 0.14, 0.17]
+const WARTHOG: RGB = [0.24, 0.28, 0.26]
+const HELO: RGB = [0.3, 0.34, 0.3]
+const BIRD: RGB = [0.82, 0.84, 0.86]
+const BOAT: RGB = [0.72, 0.72, 0.68]
+const RED: RGB = [1.6, 0.22, 0.12]
+const GREEN: RGB = [0.22, 1.4, 0.5]
 const FOREST: RGB = [0.1, 0.3, 0.1]
 const ROCK: RGB = [0.3, 0.27, 0.22]
 const AMBER: RGB = [2, 1.05, 0.3]
@@ -199,6 +210,9 @@ interface Cloud {
   x: number
   y: number
   size: number
+  // The nearness its sprite is drawn at, and how opaque it is: wisps the jet flies through are faint.
+  top: number
+  alpha: number
   lumps: { x: number; y: number; r: number; seed: number }[]
   mips: Sprite[]
 }
@@ -214,10 +228,70 @@ interface Sprite {
 interface Flare {
   x: number
   y: number
+  r: number
   vx: number
   vy: number
   age: number
 }
+
+// Air traffic. Sky kinds cross the screen at a fixed height (x, y in screen heights); world kinds fly through the sea
+// camera's world (x across, y their altitude, with the camera at 1) between two distances.
+type Kind = "cross" | "four" | "tanker" | "e2" | "b2" | "a10" | "dogfight" | "overtake" | "oncoming" | "helo" | "flock"
+
+interface Mover {
+  kind: Kind
+  // Progress from 0 to 1 over span scene seconds.
+  t: number
+  span: number
+  dir: number
+  x: number
+  y: number
+  size: number
+  seed: number
+  // How many flare bursts it has fired.
+  fired: number
+}
+
+// How long each kind waits between appearances at lively and teeming, in scene seconds, and how many fly at once.
+const SCHEDULE: Record<Kind, { lively?: readonly [number, number]; teeming: readonly [number, number]; most: number }> = {
+  cross: { lively: [5, 10], teeming: [2.5, 6], most: 5 },
+  four: { lively: [40, 70], teeming: [15, 30], most: 2 },
+  tanker: { lively: [90, 140], teeming: [40, 70], most: 1 },
+  e2: { lively: [50, 90], teeming: [30, 55], most: 1 },
+  b2: { lively: [110, 170], teeming: [55, 90], most: 1 },
+  a10: { lively: [40, 70], teeming: [20, 40], most: 1 },
+  dogfight: { lively: [35, 60], teeming: [10, 22], most: 1 },
+  overtake: { lively: [14, 24], teeming: [6, 12], most: 2 },
+  oncoming: { lively: [18, 32], teeming: [7, 12], most: 3 },
+  helo: { lively: [18, 32], teeming: [8, 14], most: 3 },
+  flock: { lively: [20, 35], teeming: [10, 18], most: 3 },
+}
+// World kinds' distance at the start and end of their run.
+const RUN: Partial<Record<Kind, readonly [number, number]>> = { overtake: [2.8, 45], oncoming: [70, 3], helo: [40, 2.2], flock: [26, 1.15] }
+
+interface Ship {
+  kind: "destroyer" | "supply" | "boat"
+  z: number
+  x: number
+}
+
+// Ships in the sea camera's world: length, half beam, deck height, how fast the camera closes on them (1 for still
+// water), and superstructure blocks across (u0, u1, in half beams), along (v0, v1, from stern to bow) and up to a height.
+const SHIPS: Record<Ship["kind"], { length: number; beam: number; deck: number; close: number; color: RGB; blocks: readonly (readonly [number, number, number, number, number])[] }> = {
+  destroyer: { length: 1.5, beam: 0.17, deck: 0.06, close: 0.6, color: HULL, blocks: [[-0.6, 0.6, 0.3, 0.62, 0.16], [-0.35, 0.35, 0.42, 0.55, 0.3], [-0.06, 0.06, 0.46, 0.5, 0.42]] },
+  supply: { length: 2.1, beam: 0.25, deck: 0.08, close: 0.72, color: [0.4, 0.38, 0.34], blocks: [[-0.8, 0.8, 0.04, 0.24, 0.24], [-0.15, 0.15, 0.4, 0.46, 0.2], [-0.15, 0.15, 0.66, 0.72, 0.2]] },
+  boat: { length: 0.28, beam: 0.07, deck: 0.025, close: 0.9, color: BOAT, blocks: [[-0.6, 0.6, 0.25, 0.6, 0.05]] },
+}
+
+// Formation slots for the wingmen: across (in fractions of the room beside the lead), up from the lead, and size.
+const SLOTS: readonly (readonly [number, number, number])[] = [
+  [-1, 0.07, 0.42],
+  [1, 0.07, 0.42],
+  [-0.55, 0.17, 0.3],
+  [0.55, 0.17, 0.3],
+  [-1.05, 0.21, 0.26],
+  [1.05, 0.21, 0.26],
+]
 
 class WingsFlight extends Canvas {
   private time = 0
@@ -237,7 +311,15 @@ class WingsFlight extends Canvas {
   private nextIsland: number
   // The carrier's stern distance in the sea camera's units, or negative while it's away.
   private carrier = { z: 60, wait: 0 }
-  private crosser = { t: -1, wait: 20, y: 0.33, dir: 1 }
+  private movers: Mover[] = []
+  private waits: Partial<Record<Kind, number>> = {}
+  private ships: Ship[] = []
+  private nextShip: number
+  private wisps: Cloud[] = []
+  private nextWisp = 0
+  // Each wingman's formation slot, the slot it's moving to, and how far it has got.
+  private wingmen: { from: number; to: number; t: number }[]
+  private nextShift = 40
   private egg = { wait: eggWait() * TIME_SCALE, t: -1 }
   private maneuver = { kind: "none" as "none" | "roll" | "barrel", t: 0, dir: 1 }
   private flares: Flare[] = []
@@ -269,6 +351,17 @@ class WingsFlight extends Canvas {
       { kind: "stacks", d: 0.012, x: 22 },
     ]
     this.nextIsland = rand(30, 50)
+    this.nextShip = rand(5, 20)
+    this.wingmen = (settings.activity === "teeming" ? [0, 1, 3] : settings.activity === "lively" ? [1, 2] : []).map((slot) => ({ from: slot, to: slot, t: 1 }))
+    // Traffic already underway when the scene starts, so a fresh screen isn't empty.
+    if (settings.activity !== "calm") this.ships.push(makeShip(rand(15, 40)))
+    if (settings.activity !== "calm")
+      for (const kind of Object.keys(SCHEDULE) as Kind[]) {
+        const range = SCHEDULE[kind][settings.activity]
+        if (!range) continue
+        this.waits[kind] = rand(0, range[0])
+        if (Math.random() < (settings.activity === "teeming" ? 0.5 : 0.25)) this.movers.push({ ...this.spawn(kind), t: rand(0.1, 0.6) })
+      }
     for (let i = 0; i < this.drops.length; i += 3) {
       this.drops[i] = Math.random() * TAU
       this.drops[i + 1] = rand(0.02, 1.2)
@@ -289,7 +382,7 @@ class WingsFlight extends Canvas {
       const kind = (["volcano", "islets", "stacks"] as const)[Math.floor(Math.random() * 3)]
       const side = Math.random() < 0.5 ? -1 : 1
       this.islands.push({ kind, d: 0.006, x: side * (kind === "stacks" ? rand(12, 22) : rand(5, 9)) })
-      this.nextIsland = this.activity === "calm" ? rand(70, 110) : rand(45, 80)
+      this.nextIsland = this.activity === "calm" ? rand(70, 110) : this.activity === "lively" ? rand(40, 65) : rand(28, 48)
     }
     for (const c of this.clouds) {
       c.e += rows * rowHeight(c.e)
@@ -300,11 +393,9 @@ class WingsFlight extends Canvas {
     const ship = this.carrier
     if (ship.z > 0) {
       ship.z -= dt * this.speed * 0.24 * Math.max(ship.z, 4) * 0.8
-      if (ship.z + LENGTH < 0.3) Object.assign(ship, { z: -1, wait: rand(150, 300) })
+      if (ship.z + LENGTH < 0.3) Object.assign(ship, { z: -1, wait: this.activity === "calm" ? rand(150, 300) : rand(60, 120) })
     } else if ((ship.wait -= dt) <= 0) ship.z = 120
-    const c = this.crosser
-    if (c.t >= 0) c.t = c.t + dt / 28 > 1 ? -1 : c.t + dt / 28
-    else if (this.activity === "teeming" && (c.wait -= dt) <= 0) Object.assign(c, { t: 0, wait: rand(40, 80), y: rand(0.3, 0.37), dir: Math.random() < 0.5 ? 1 : -1 })
+    this.stepTraffic(dt, rows)
     const m = this.maneuver
     if (m.kind !== "none" && (m.t += dt) > (m.kind === "roll" ? ROLL : BARREL)) m.kind = "none"
     const e = this.egg
@@ -340,7 +431,7 @@ class WingsFlight extends Canvas {
     if (this.maneuver.kind === "none") this.maneuver = { kind: "roll", t: 0, dir }
     for (let i = 0; i < 6; i++) {
       const side = i % 2 ? -1 : 1
-      this.flares.push({ x: this.A / 2 + side * 0.03, y: JET_Y + 0.02, vx: side * rand(0.03, 0.08), vy: rand(-0.005, 0.02), age: -Math.floor(i / 2) * 0.25 })
+      this.flares.push({ x: this.A / 2 + side * 0.03, y: JET_Y + 0.02, r: 0.012, vx: side * rand(0.03, 0.08), vy: rand(-0.005, 0.02), age: -Math.floor(i / 2) * 0.25 })
     }
   }
 
@@ -362,8 +453,12 @@ class WingsFlight extends Canvas {
       ...this.clouds.map((c) => ({ depth: c.e, draw: () => this.drawCloud(c) })),
     ]
     if (this.carrier.z > 0) far.push({ depth: 1 / Math.max(0.1, this.carrier.z), draw: () => this.drawCarrier() })
+    for (const ship of this.ships) far.push({ depth: 1 / Math.max(0.1, ship.z), draw: () => this.drawShip(ship) })
+    for (const m of this.movers) if (RUN[m.kind]) far.push({ depth: 1 / this.distance(m), draw: () => this.drawWorldMover(m) })
+    for (const w of this.wisps) far.push({ depth: w.e, draw: () => this.drawCloud(w) })
+    for (const m of this.movers) if (!RUN[m.kind] && m.kind !== "a10") this.drawSkyMover(m)
     for (const f of far.sort((a, b) => a.depth - b.depth)) f.draw()
-    if (this.crosser.t >= 0) this.drawCrosser()
+    for (const m of this.movers) if (m.kind === "a10") this.drawSkyMover(m)
     if (this.egg.t >= 0) this.drawEgg()
     this.drawJets()
     this.drawFlares()
@@ -388,7 +483,7 @@ class WingsFlight extends Canvas {
     const y0 = Math.max(0, Math.floor((HORIZON - (A / 2) * 0.06 - 0.01) * H))
     const n = W * (H - y0)
     this.sea = { y0, rows: Float64Array.from(rows), ids: new Int32Array(n * 4), idA: new Int32Array(n), idB: new Int32Array(n), mix: new Float32Array(n), cover: new Float32Array(n), sky }
-    for (const c of this.clouds) c.mips = []
+    for (const c of [...this.clouds, ...this.wisps]) c.mips = []
   }
 
   private paint(c: RGB): RGB {
@@ -503,6 +598,11 @@ class WingsFlight extends Canvas {
   // An island on the sea at its distance, sliding out to its side as it nears: the volcano on its forested island,
   // a pair of forested islets, or sea stacks on a reef. Shapes are in island units across and up from its middle.
   private drawIsland(island: Island) {
+    this.drawIslandShape(island)
+    this.drawGulls(island)
+  }
+
+  private drawIslandShape(island: Island) {
     const { A, H } = this
     const bx = A / 2 + (island.x - this.lateral) * island.d
     const by = HORIZON + island.d
@@ -565,7 +665,7 @@ class WingsFlight extends Canvas {
     const { A, H } = this
     if (!c.mips.length) c.mips = cloudMips(c, H, this.weather.scud ?? this.look.cloud, this.orb.x * A - A / 2 - c.x * 0.15)
     const [x, y] = this.turn((A / 2 + (c.x - this.lateral * 0.5) * c.e) * H, (HORIZON - c.y * c.e) * H)
-    const box = blitScaled(this.hdr, this.W, H, c.mips, x, y, c.e / CLOUD_E, smoothstep(0.02, 0.05, c.e))
+    const box = blitScaled(this.hdr, this.W, H, c.mips, x, y, c.e / c.top, smoothstep(0.02, 0.05, c.e) * c.alpha)
     if (box) this.touch(box[0], box[1], box[2], box[3])
   }
 
@@ -575,14 +675,10 @@ class WingsFlight extends Canvas {
     const { A, H, look } = this
     const zs = this.carrier.z
     const world = (u: number, v: number, h: number): V3 => [u * BEAMW - this.lateral, zs + v * LENGTH, DECK + h * BEAMW * RISE]
-    const face = (pts: (readonly [number, number, number])[], color: RGB, alpha = 1) => {
-      const clipped = clipNear(pts.map((p) => world(p[0], p[1], p[2])), 0.35)
-      if (clipped.length < 3) return
-      this.polygon(clipped.map((p) => this.turn((A / 2 + p[0] / p[1]) * H, (HORIZON + (CAMERA - p[2]) / p[1]) * H)), color, alpha)
-    }
+    const face = (pts: (readonly [number, number, number])[], color: RGB, alpha = 1) => this.face3(pts.map((p) => world(p[0], p[1], p[2])), color, alpha)
     const c = (color: RGB, k = 1): RGB => this.craft([color[0] * k, color[1] * k, color[2] * k])
     // Its wake trailing back toward the camera, and the hull's stern and flanks under the deck edge.
-    const foam = look.night ? 0.06 : 0.12
+    const foam = look.night ? 0.04 : 0.12
     face([[-0.9, 0, -0.42], [0.9, 0, -0.42], [1.8, -1.2, -0.42], [-1.8, -1.2, -0.42]], look.foam, foam)
     face([[-0.45, 0, -0.42], [0.45, 0, -0.42], [0.7, -0.7, -0.42], [-0.7, -0.7, -0.42]], look.foam, foam * 1.5)
     face([[-0.92, 0, 0], [0.92, 0, 0], [0.82, 0, -0.42], [-0.82, 0, -0.42]], c(HULL, 0.8))
@@ -616,13 +712,7 @@ class WingsFlight extends Canvas {
     face([[0.8, 0.57, top + 0.4], [0.84, 0.57, top + 0.4], [0.83, 0.57, 2.1], [0.81, 0.57, 2.1]], k(0.75))
     face([[0.74, 0.57, 1.82], [0.9, 0.57, 1.82], [0.9, 0.57, 1.76], [0.74, 0.57, 1.76]], k(0.75))
     // Deck lights at night, and its beacons always.
-    const lamp = (u: number, v: number, h: number, color: RGB, k: number, size: number) => {
-      const p = world(u, v, h)
-      if (p[1] < 0.6) return
-      const [x, y] = this.turn((A / 2 + p[0] / p[1]) * H, (HORIZON + (CAMERA - p[2]) / p[1]) * H)
-      if (this.cells) this.point(x, y, color[0] * k, color[1] * k, color[2] * k, size, true)
-      else this.disc(x, y, Math.max(0.6, (0.004 * H) / p[1]), color[0] * k, color[1] * k, color[2] * k, 1)
-    }
+    const lamp = (u: number, v: number, h: number, color: RGB, k: number, size: number) => this.lamp3(world(u, v, h), color, k, size)
     const glow = look.lamp * 0.5
     if (look.lamp > 0.5)
       for (let v = 0.04; v < 0.99; v += near ? 0.075 : 0.3) {
@@ -647,20 +737,27 @@ class WingsFlight extends Canvas {
     const shake = this.gloom * 0.008
     const dx = (-this.lateral * 0.05 + shake * (noise1(this.time * 4) - 0.5)) * H
     const dy = (0.004 * Math.sin(t * 5.3) + shake * (noise1(this.time * 4, 3) - 0.5)) * H
-    const wing = this.activity === "teeming" ? [-1, 1] : this.activity === "lively" ? [1] : []
-    for (const side of wing) {
-      // Clear of the lead's wingtips, and a little higher on narrow screens where they sit closer in.
-      const off = Math.min(0.6, A / 2 - 0.12)
-      const x = (A / 2 + side * off + 0.01 * Math.sin(t * 2.3 + side)) * H
-      const y = (JET_Y - 0.07 - Math.max(0, 0.5 - off) * 0.4 + 0.006 * Math.sin(t * 3.7 + side * 2)) * H
-      this.drawJet(x, y, 0.42 * SPAN * H, this.roll + 0.03 * Math.sin(t * 2.9 + side), 0.8)
+    // Clear of the lead's wingtips, and a little higher on narrow screens where they sit closer in.
+    const off = Math.min(0.6, A / 2 - 0.12)
+    const lift = Math.max(0, 0.5 - off) * 0.4
+    const wing = this.wingmen.map((w, i) => {
+      const k = smoothstep(0, 1, w.t)
+      const a = SLOTS[w.from]
+      const b = SLOTS[w.to]
+      return { i, x: lerp(a[0], b[0], k), y: lerp(a[1], b[1], k), size: lerp(a[2], b[2], k), bank: Math.sign(b[0] - a[0]) * 0.3 * Math.sin(Math.PI * k) }
+    })
+    // Farther slots first, so nearer jets draw over them.
+    for (const w of wing.sort((a, b) => a.size - b.size)) {
+      const x = (A / 2 + w.x * off + 0.01 * Math.sin(t * 2.3 + w.i)) * H
+      const y = (JET_Y - w.y - lift + 0.006 * Math.sin(t * 3.7 + w.i * 2)) * H
+      this.drawJet(x, y, w.size * SPAN * H, this.roll + w.bank + 0.03 * Math.sin(t * 2.9 + w.i), 0.8)
     }
     this.drawJet((A / 2) * H + dx, JET_Y * H + dy, SPAN * H, this.roll + barrel, 1 + 0.9 * surge)
   }
 
   // A jet from behind and a little above, banked by roll: faceted fuselage, swept wings, twin canted tails, and two
   // nozzles glowing amber with a slow afterburner flicker. s is its wingspan in pixels.
-  private drawJet(cx: number, cy: number, s: number, roll: number, burn: number) {
+  private drawJet(cx: number, cy: number, s: number, roll: number, burn: number, front = false) {
     const { look } = this
     const cr = Math.cos(roll)
     const sr = Math.sin(roll)
@@ -687,6 +784,15 @@ class WingsFlight extends Canvas {
       return [{ pts: pts.map(project), color, depth }]
     })
     for (const f of drawn.sort((a, b) => b.depth - a.depth)) this.polygon(f.pts, f.color)
+    if (s < 6) return
+    // Seen from the front, only its wingtip lights show, the other way round.
+    if (front) {
+      for (const side of [-1, 1]) {
+        const [wx, wy] = project(rot([side * 0.5, -0.005, -0.27]))
+        this.navLight(wx, wy, side > 0 ? RED : GREEN, Math.max(0.8, 0.011 * s))
+      }
+      return
+    }
     // The nozzles, a slow shimmer in their glow, and at night a warm pool around them.
     const flick = 1 + 0.12 * (noise1(this.time * 5 + cx) - 0.5)
     const k = burn * flick * (look.night ? 1 : 0.8)
@@ -699,8 +805,7 @@ class WingsFlight extends Canvas {
       this.touch(Math.min(x, tx) - 0.06 * s, Math.min(y, ty) - 0.06 * s, Math.max(x, tx) + 0.06 * s, Math.max(y, ty) + 0.06 * s)
       // Red to port, green to starboard.
       const [wx, wy] = project(rot([side * 0.5, -0.005, -0.27]))
-      const nav = look.night ? 0.8 : 0.35
-      this.disc(wx, wy, Math.max(0.8, 0.011 * s), side < 0 ? 1.8 * nav : 0.2 * nav, side < 0 ? 0.25 * nav : 1.6 * nav, side < 0 ? 0.15 * nav : 0.5 * nav, 1)
+      this.navLight(wx, wy, side < 0 ? RED : GREEN, Math.max(0.8, 0.011 * s))
     }
     if (look.night) {
       const [x, y] = project(rot([0, 0, -0.5]))
@@ -716,15 +821,314 @@ class WingsFlight extends Canvas {
     return [p[0] * k, p[1] * k, p[2] * k]
   }
 
-  // At teeming a jet now and then crosses far ahead, small against the sky above the horizon.
-  private drawCrosser() {
+  // Moves the air traffic, ships, wisps and wingmen along, and brings on new ones when their waits run out.
+  private stepTraffic(dt: number, rows: number) {
+    const level = this.activity
+    for (const m of this.movers) {
+      m.t += dt / m.span
+      this.fireFlares(m)
+    }
+    this.movers = this.movers.filter((m) => m.t < 1)
+    for (const ship of this.ships) ship.z -= rows * 0.24 * Math.max(ship.z, 4) * SHIPS[ship.kind].close
+    this.ships = this.ships.filter((ship) => ship.z + SHIPS[ship.kind].length > 0.4 && (ship.z > 20 || Math.abs((ship.x - this.lateral) / ship.z) < this.A / 2 + 0.6))
+    for (const w of this.wisps) w.e += 3 * rows * rowHeight(w.e)
+    this.wisps = this.wisps.filter((w) => w.e < w.top && Math.abs(w.x * w.e) < this.A / 2 + 0.7)
+    for (const w of this.wingmen) w.t = Math.min(1, w.t + dt / 8)
+    if (level === "calm") return
+    for (const kind of Object.keys(SCHEDULE) as Kind[]) {
+      const range = SCHEDULE[kind][level]
+      if (!range) continue
+      const wait = (this.waits[kind] ?? 0) - dt
+      this.waits[kind] = wait
+      if (wait > 0 || this.movers.filter((m) => m.kind === kind).length >= SCHEDULE[kind].most) continue
+      this.movers.push(this.spawn(kind))
+      this.waits[kind] = rand(range[0], range[1])
+    }
+    if ((this.nextShip -= dt) <= 0 && this.ships.length < 4) {
+      this.ships.push(makeShip(90))
+      this.nextShip = level === "lively" ? rand(25, 45) : rand(10, 20)
+    }
+    if ((this.nextWisp -= dt) <= 0 && this.wisps.length < 2) {
+      this.wisps.push(makeWisp())
+      this.nextWisp = level === "lively" ? rand(30, 60) : rand(14, 28)
+    }
+    // Now and then a wingman slides over to a free slot in the formation.
+    if ((this.nextShift -= dt) <= 0 && this.wingmen.every((w) => w.t >= 1)) {
+      const w = this.wingmen[Math.floor(Math.random() * this.wingmen.length)]
+      const free = SLOTS.map((_, i) => i).filter((i) => !this.wingmen.some((o) => o.to === i))
+      Object.assign(w, { from: w.to, to: free[Math.floor(Math.random() * free.length)], t: 0 })
+      this.nextShift = rand(30, 55)
+    }
+  }
+
+  private spawn(kind: Kind): Mover {
+    const dir = Math.random() < 0.5 ? -1 : 1
+    const base = { kind, t: 0, dir, x: 0, seed: Math.random() * 100, fired: 0 }
+    if (kind === "cross") {
+      const y = rand(0.05, 0.3)
+      const f = (y - 0.05) / 0.25
+      return { ...base, y, size: lerp(0.014, 0.034, f), span: lerp(36, 20, f) }
+    }
+    if (kind === "four") return { ...base, y: rand(0.1, 0.24), size: 0.016, span: 42 }
+    if (kind === "tanker") return { ...base, y: rand(0.07, 0.15), size: 0.07, span: 62 }
+    if (kind === "e2") return { ...base, y: rand(0.1, 0.2), size: 0.05, span: 52 }
+    if (kind === "b2") return { ...base, y: rand(0.04, 0.1), size: 0.075, span: 60 }
+    if (kind === "a10") return { ...base, y: rand(0.53, 0.57), size: 0.06, span: 24 }
+    if (kind === "dogfight") return { ...base, y: rand(0.11, 0.2), size: 0.02, span: 48 }
+    if (kind === "overtake") return { ...base, x: dir * rand(1.4, 2.1), y: rand(0.55, 1.45), size: 1, span: 20 }
+    if (kind === "oncoming") return { ...base, x: dir * rand(3, 6), y: rand(1.2, 1.7), size: 1, span: 18 }
+    if (kind === "helo") return { ...base, x: dir * rand(1.6, 3.2), y: rand(0.12, 0.25), size: 1, span: 46 }
+    return { ...base, x: dir * rand(0.45, 1.3), y: rand(0.35, 0.6), size: 9 + Math.floor(Math.random() * 6), span: 30 }
+  }
+
+  // A world kind's distance from the camera, closing or opening evenly in perspective.
+  private distance(m: Mover) {
+    const run = RUN[m.kind] ?? [1, 1]
+    return run[0] * (run[1] / run[0]) ** m.t
+  }
+
+  // A point in the sea camera's world (x across, z ahead, altitude with the camera at 1) on screen, in pixels.
+  private world(x: number, z: number, alt: number): Point {
+    return this.turn((this.A / 2 + (x - this.lateral) / z) * this.H, (HORIZON + (CAMERA - alt) / z) * this.H)
+  }
+
+  // A flat face in the camera's world, clipped against its near plane so it can pass under the camera.
+  private face3(pts: V3[], color: RGB, alpha = 1) {
+    const clipped = clipNear(pts, 0.35)
+    if (clipped.length < 3) return
+    this.polygon(clipped.map((p) => this.turn((this.A / 2 + p[0] / p[1]) * this.H, (HORIZON + (CAMERA - p[2]) / p[1]) * this.H)), color, alpha)
+  }
+
+  // A light on something in the camera's world, gliding from cell to cell as it moves.
+  private lamp3(p: V3, color: RGB, k: number, size: number) {
+    if (p[1] < 0.6) return
+    const [x, y] = this.turn((this.A / 2 + p[0] / p[1]) * this.H, (HORIZON + (CAMERA - p[2]) / p[1]) * this.H)
+    if (this.cells) this.point(x, y, color[0] * k, color[1] * k, color[2] * k, size, true)
+    else this.disc(x, y, Math.max(0.6, (0.004 * this.H) / p[1]), color[0] * k, color[1] * k, color[2] * k, 1)
+  }
+
+  // A wingtip light: bright at night, faint by day.
+  private navLight(x: number, y: number, color: RGB, r: number) {
+    const k = this.look.night ? 0.5 : this.look.lamp > 0.5 ? 0.35 : 0.2
+    this.disc(x, y, r, color[0] * k, color[1] * k, color[2] * k, 1)
+  }
+
+  // Wingtip lights and a blinking amber beacon on a small aircraft seen in planform, at sunset and night.
+  private navPlan(x: number, y: number, s: number, heading: number, squash: number, seed: number) {
+    if (this.look.lamp < 0.5) return
+    const k = this.look.night ? 0.6 : 0.35
+    for (const b of [-0.42, 0.42]) {
+      const px = x + (-0.19 * Math.cos(heading) - b * Math.sin(heading)) * s
+      const py = y + (-0.19 * Math.sin(heading) + b * Math.cos(heading)) * squash * s
+      const c = b < 0 ? RED : GREEN
+      this.splat(px, py, c[0] * k, c[1] * k, c[2] * k)
+    }
+    if (Math.sin(this.time * 3 + seed) > 0.75) this.splat(x, y, AMBER[0] * k, AMBER[1] * k, AMBER[2] * k)
+  }
+
+  // A dogfighting jet's place on its figure of eight, lag seconds behind the leader, and its heading.
+  private dogfighter(m: Mover, lag: number): readonly [number, number, number] {
+    const a = m.t * m.span * 0.3 - lag
+    const cx = m.dir < 0 ? 0.42 : this.A - 0.42
+    return [cx + 0.24 * Math.sin(a), m.y + 0.06 * Math.sin(2 * a), Math.atan2((0.12 * Math.cos(2 * a)) / 0.45, 0.24 * Math.cos(a))]
+  }
+
+  // The dogfighting leader pops flares every so often, and now and then a jet overtaking pops a pair.
+  private fireFlares(m: Mover) {
+    if (m.kind === "dogfight") {
+      const k = Math.floor((m.t * m.span) / 6)
+      if (k <= m.fired) return
+      m.fired = k
+      if (hash(m.seed + k) < 0.45) return
+      const [x, y] = this.dogfighter(m, 0)
+      for (let i = 0; i < 4; i++) this.flares.push({ x, y, r: 0.004, vx: rand(-0.02, 0.02), vy: rand(-0.004, 0.006), age: -i * 0.2 })
+      return
+    }
+    if (m.kind !== "overtake" || m.fired || m.t < 0.3) return
+    m.fired = 1
+    if (hash(m.seed) < 0.5) return
+    const z = this.distance(m)
+    const [x, y] = this.world(m.x, z, m.y)
+    for (let i = 0; i < 4; i++) this.flares.push({ x: x / this.H, y: y / this.H, r: 0.04 / z, vx: (i % 2 ? -1 : 1) * rand(0.01, 0.03), vy: rand(0, 0.01), age: -Math.floor(i / 2) * 0.3 })
+  }
+
+  // Aircraft crossing the sky at a fixed height: lone jets (with contrails when high), a formation of four, a tanker
+  // refueling two jets, an E-2 with its radar dish, a B-2, an A-10 low over the water, and a dogfighting pair.
+  private drawSkyMover(m: Mover) {
+    const { A, H, W, look } = this
+    const u = m.dir > 0 ? m.t : 1 - m.t
+    const heading = m.dir > 0 ? 0 : Math.PI
+    const s = m.size * H
+    const [x, y] = this.turn(lerp(-0.2, A + 0.2, u) * H, m.y * H)
+    const jet = this.craft(JET)
+    if (m.kind === "cross") {
+      if (m.y < 0.15) {
+        const [hx, hy] = this.turn(lerp(-0.2, A + 0.2, u) * H - m.dir * 0.45 * s, m.y * H)
+        const run = Math.min(0.8, m.t * (A + 0.4)) * H
+        const [tx, ty] = this.turn(lerp(-0.2, A + 0.2, u) * H - m.dir * (0.45 * s + run), m.y * H)
+        trail(this.hdr, W, H, hx, hy, tx, ty, Math.max(0.7, 0.0035 * H), look.trail, look.night ? 0.25 : 0.32)
+        this.touch(Math.min(hx, tx) - 3, Math.min(hy, ty) - 3, Math.max(hx, tx) + 3, Math.max(hy, ty) + 3)
+      }
+      this.planform(x, y, s, heading, 0.4, JETFORM, jet)
+      this.navPlan(x, y, s, heading, 0.4, m.seed)
+      return
+    }
+    if (m.kind === "four") {
+      for (const [a, b] of [[0, 0], [-1.4, -1], [-1.4, 1], [-2.8, 0]] as const) {
+        const px = x + m.dir * a * s
+        const py = y + b * s * 0.5
+        this.planform(px, py, s, heading, 0.4, JETFORM, jet)
+        this.navPlan(px, py, s, heading, 0.4, m.seed + a + b)
+      }
+      return
+    }
+    if (m.kind === "tanker") {
+      const receivers = [[-0.85, 0.16], [-1.05, -0.12]] as const
+      const [bx, by] = [x - m.dir * 0.48 * s, y + 0.02 * s]
+      trail(this.hdr, W, H, bx, by, x + m.dir * (receivers[0][0] + 0.12) * s, y + receivers[0][1] * s, Math.max(0.6, 0.012 * s), jet, 0.8)
+      this.touch(Math.min(bx, x - m.dir * s) - 2, by - 0.2 * s, Math.max(bx, x - m.dir * s) + 2, by + 0.25 * s)
+      this.planform(x, y, s, heading, 0.4, TANKERFORM, this.craft([0.46, 0.48, 0.5]))
+      this.navPlan(x, y, s, heading, 0.4, m.seed)
+      for (const [a, b] of receivers) {
+        this.planform(x + m.dir * a * s, y + b * s, 0.32 * s, heading, 0.4, JETFORM, jet)
+        this.navPlan(x + m.dir * a * s, y + b * s, 0.32 * s, heading, 0.4, m.seed + a)
+      }
+      return
+    }
+    if (m.kind === "e2") {
+      const c = this.craft([0.46, 0.48, 0.5])
+      this.planform(x, y, s, heading, 0.4, E2FORM, c)
+      this.ellipse(x - m.dir * 0.08 * s, y - 0.06 * s, 0.2 * s, 0.045 * s, c[0] * 0.7, c[1] * 0.7, c[2] * 0.7, 1)
+      this.navPlan(x, y, s, heading, 0.4, m.seed)
+      return
+    }
+    if (m.kind === "b2") {
+      this.planform(x, y, s, heading, 0.3, SPIRITFORM, this.craft(SPIRIT))
+      this.navPlan(x, y, s * 0.8, heading, 0.3, m.seed)
+      return
+    }
+    if (m.kind === "a10") {
+      this.ellipse(x, y + 0.035 * H, s * 0.4, s * 0.05, 0, 0, 0, look.night ? 0.12 : 0.22)
+      this.planform(x, y, s, heading, 0.38, WARTHOGFORM, this.craft(WARTHOG))
+      this.navPlan(x, y, s, heading, 0.38, m.seed)
+      return
+    }
+    const fade = smoothstep(0, 0.05, m.t) * (1 - smoothstep(0.95, 1, m.t))
+    for (const lag of [0, 0.5]) {
+      const [dx, dy, h] = this.dogfighter(m, lag)
+      const [px, py] = this.turn(dx * H, dy * H)
+      this.planform(px, py, s, h, 0.45, JETFORM, jet, fade)
+      if (fade > 0.5) this.navPlan(px, py, s, h, 0.45, m.seed + lag)
+    }
+  }
+
+  // Traffic in the camera's world: jets overtaking alongside and shrinking ahead, jets far off flying the other way,
+  // helicopters low over the water, and flocks of seabirds passing below.
+  private drawWorldMover(m: Mover) {
+    const { H } = this
+    const z = this.distance(m)
+    if (m.kind === "overtake" || m.kind === "oncoming") {
+      const [x, y] = this.world(m.x, z, m.y)
+      const s = (1.26 / z) * H
+      if (x < -s || x > this.W + s) return
+      if (m.kind === "overtake") this.drawJet(x, y, s, -m.dir * 0.12 + 0.05 * Math.sin(this.time * 0.5 + m.seed), 1)
+      else this.drawJet(x, y, s, m.dir * 0.1, 0, true)
+      return
+    }
+    if (m.kind === "helo") {
+      const [x, y] = this.world(m.x + m.dir * 0.6 * m.t, z, m.y)
+      this.drawHelicopter(x, y, (0.5 / z) * H, m.dir, m.seed)
+      return
+    }
+    for (let i = 0; i < m.size; i++) {
+      const dz = hash(m.seed + i * 1.7) * 0.8
+      const [x, y] = this.world(m.x + (hash(m.seed + i) - 0.5) * 0.6, z + dz, m.y + (hash(m.seed + i * 2.3) - 0.5) * 0.1)
+      this.drawBird(x, y, (0.14 / (z + dz)) * H, this.creatureTime * 40 + i * 1.3)
+    }
+  }
+
+  // A helicopter side on, nose toward dir: a rounded cabin, a tail boom with its fin, skids, a faint rotor disc rather
+  // than blades so it doesn't flicker, and a red beacon on its tail at night.
+  private drawHelicopter(x: number, y: number, s: number, dir: number, seed: number) {
+    const { look } = this
+    const body = this.craft(HELO)
+    if (s < 3) {
+      this.splat(x, y, body[0], body[1], body[2])
+      return
+    }
+    const tilt = 0.05 * Math.sin(this.time * 0.21 + seed)
+    const ca = Math.cos(tilt)
+    const sa = Math.sin(tilt)
+    const f = -dir
+    const Q = (a: number, b: number): Point => [x + (a * f * ca - b * sa) * s, y + (a * f * sa + b * ca) * s]
+    this.ellipse(...Q(-0.05, 0), 0.22 * s, 0.12 * s, body[0], body[1], body[2], 1)
+    this.polygon([Q(0.1, -0.04), Q(0.55, -0.03), Q(0.55, 0), Q(0.1, 0.05)], body)
+    this.polygon([Q(0.5, -0.03), Q(0.58, -0.17), Q(0.62, -0.17), Q(0.58, 0)], body)
+    this.polygon([Q(-0.22, 0.17), Q(0.14, 0.17), Q(0.14, 0.19), Q(-0.22, 0.19)], body)
+    this.polygon([Q(-0.05, -0.12), Q(-0.03, -0.12), Q(-0.03, -0.15), Q(-0.05, -0.15)], body)
+    const blur = look.night ? look.key : look.sky[look.sky.length - 1][1]
+    this.ellipse(...Q(-0.04, -0.15), 0.5 * s, 0.035 * s, blur[0] * 0.4 + body[0] * 0.6, blur[1] * 0.4 + body[1] * 0.6, blur[2] * 0.4 + body[2] * 0.6, 0.45)
+    if (look.lamp > 0.5 && Math.sin(this.time * 3 + seed) > 0.6) this.splat(...Q(0.6, -0.1), RED[0] * 0.6, RED[1] * 0.6, RED[2] * 0.6)
+  }
+
+  // A seabird seen from behind, wings beating now and then between glides; far off just a speck.
+  private drawBird(x: number, y: number, s: number, phase: number) {
+    const c = this.craft(BIRD)
+    if (s < 2) {
+      const k = Math.max(0.2, s / 2) * 0.5
+      this.splat(x, y, c[0] * k, c[1] * k, c[2] * k)
+      return
+    }
+    const beat = Math.sin(phase) * (0.3 + 0.7 * smoothstep(0.35, 0.65, noise1(phase * 0.04)))
+    const tip = -beat * 0.35 * s
+    this.polygon([[x, y], [x - 0.5 * s, y + tip], [x - 0.15 * s, y + 0.1 * s]], c)
+    this.polygon([[x, y], [x + 0.15 * s, y + 0.1 * s], [x + 0.5 * s, y + tip]], c)
+  }
+
+  // A few gulls wheeling over an island once it's near enough to see them.
+  private drawGulls(island: Island) {
+    if (this.activity === "calm") return
     const { A, H } = this
-    const f = this.crosser
-    const u = f.dir > 0 ? f.t : 1 - f.t
-    const [x, y] = this.turn(lerp(-0.1, A + 0.1, u) * H, f.y * H)
-    const heading = f.dir > 0 ? 0.03 : Math.PI - 0.03
-    this.planform(x, y, 0.026 * H, heading, 0.4, JETFORM, this.craft(JET))
-    if (this.look.lamp > 0.5) this.splat(x - Math.cos(heading) * 0.013 * H, y, BURNER[0] * 0.3, BURNER[1] * 0.3, BURNER[2] * 0.3)
+    const g = ISLAND * island.d
+    if (g * H < 100) return
+    const bx = A / 2 + (island.x - this.lateral) * island.d
+    const by = HORIZON + island.d
+    for (let k = 0; k < 3; k++) {
+      const a = this.creatureTime * 4 + k * 2.1 + island.x
+      const [x, y] = this.turn((bx + 0.16 * g * Math.cos(a)) * H, (by - (0.16 + 0.03 * Math.sin(a) + k * 0.02) * g) * H)
+      this.drawBird(x, y, 0.025 * g * H, this.creatureTime * 40 + k * 2)
+    }
+  }
+
+  // A ship sailing on ahead, seen from behind: its wake, hull, deck and superstructure blocks, and its lights at night.
+  private drawShip(ship: Ship) {
+    const def = SHIPS[ship.kind]
+    const look = this.look
+    if (Math.abs((ship.x - this.lateral) / ship.z) > this.A / 2 + 0.5) return
+    const P = (u: number, v: number, h: number): V3 => [ship.x + u * def.beam - this.lateral, ship.z + v * def.length, h]
+    const face = (pts: (readonly [number, number, number])[], color: RGB, alpha = 1) => this.face3(pts.map((p) => P(p[0], p[1], p[2])), color, alpha)
+    const c = (k: number) => this.craft([def.color[0] * k, def.color[1] * k, def.color[2] * k])
+    const foam = look.night ? 0.04 : 0.16
+    const back = ship.kind === "boat" ? -3 : -1.2
+    face([[-1, 0, 0], [1, 0, 0], [5, back, 0], [-5, back, 0]], look.foam, foam * 0.6)
+    face([[-0.6, 0, 0], [0.6, 0, 0], [1.4, back * 0.6, 0], [-1.4, back * 0.6, 0]], look.foam, foam)
+    const d = def.deck
+    const side = ship.x - this.lateral > 0 ? -1 : 1
+    face([[-1, 0, d], [1, 0, d], [0.8, 0, 0], [-0.8, 0, 0]], c(0.7))
+    face([[side, 0, d], [side, 0.72, d], [0, 1, d], [0, 1, 0], [side * 0.8, 0.72, 0], [side * 0.8, 0, 0]], c(0.5))
+    face([[-1, 0, d], [1, 0, d], [1, 0.72, d], [0, 1, d], [-1, 0.72, d]], c(0.9))
+    if (ship.z > 70) return
+    for (const [u0, u1, v0, v1, h] of def.blocks) {
+      const top = d + h
+      const us = side < 0 ? u0 : u1
+      face([[u0, v0, d], [u1, v0, d], [u1, v0, top], [u0, v0, top]], c(0.75))
+      face([[us, v0, d], [us, v1, d], [us, v1, top], [us, v0, top]], c(0.55))
+      face([[u0, v0, top], [u1, v0, top], [u1, v1, top], [u0, v1, top]], c(1.05))
+    }
+    if (look.lamp < 0.5) return
+    const b = def.blocks[def.blocks.length - 1]
+    this.lamp3(P(0, (b[2] + b[3]) / 2, d + b[4] + 0.01), AMBER, 0.5, 1)
+    this.lamp3(P(0, 0, d), AMBER, 0.3, 1)
   }
 
   // An aircraft's outline seen from above or below, nose along heading, flattened by the view.
@@ -834,6 +1238,32 @@ const JETFORM: Point[][] = [
   [[-0.34, 0.05], [-0.48, 0.22], [-0.53, 0.22], [-0.5, 0.05]],
   [[-0.34, -0.05], [-0.48, -0.22], [-0.53, -0.22], [-0.5, -0.05]],
 ]
+const WARTHOGFORM: Point[][] = [
+  [[0.5, 0], [0.42, 0.05], [-0.4, 0.04], [-0.4, -0.04], [0.42, -0.05]],
+  [[0.08, 0.04], [0.06, 0.52], [-0.06, 0.5], [-0.08, 0.04]],
+  [[0.08, -0.04], [0.06, -0.52], [-0.06, -0.5], [-0.08, -0.04]],
+  [[-0.14, 0.04], [-0.14, 0.15], [-0.32, 0.15], [-0.32, 0.04]],
+  [[-0.14, -0.04], [-0.14, -0.15], [-0.32, -0.15], [-0.32, -0.04]],
+  [[-0.38, 0.2], [-0.38, -0.2], [-0.47, -0.2], [-0.47, 0.2]],
+]
+const mirror = (forms: Point[][]): Point[][] => forms.flatMap((f) => [f, f.map(([a, b]) => [a, -b] as const)])
+// A tanker with swept wings and four engine pods, and an E-2 with straight wings and a wide tailplane.
+const TANKERFORM: Point[][] = [
+  [[0.5, 0], [0.42, 0.04], [-0.45, 0.035], [-0.5, 0], [-0.45, -0.035], [0.42, -0.04]],
+  ...mirror([
+    [[0.12, 0.04], [-0.12, 0.48], [-0.2, 0.48], [-0.08, 0.04]],
+    [[-0.36, 0.03], [-0.46, 0.17], [-0.5, 0.17], [-0.47, 0.03]],
+    [[0.06, 0.16], [0.06, 0.2], [-0.06, 0.2], [-0.06, 0.16]],
+    [[-0.03, 0.3], [-0.03, 0.34], [-0.15, 0.34], [-0.15, 0.3]],
+  ]),
+]
+const E2FORM: Point[][] = [
+  [[0.5, 0], [0.4, 0.05], [-0.42, 0.035], [-0.42, -0.035], [0.4, -0.05]],
+  ...mirror([
+    [[0.12, 0.04], [0.1, 0.5], [0.02, 0.5], [0, 0.04]],
+    [[-0.34, 0.03], [-0.34, 0.2], [-0.42, 0.2], [-0.42, 0.03]],
+  ]),
+]
 const SPIRITFORM: Point[][] = [
   [[0.3, 0], [-0.08, 0.55], [-0.2, 0.36], [-0.1, 0.22], [-0.22, 0.1], [-0.12, 0], [-0.22, -0.1], [-0.1, -0.22], [-0.2, -0.36], [-0.08, -0.55]],
 ]
@@ -847,7 +1277,23 @@ function makeCloud(e: number): Cloud {
   })
   for (const l of lumps) l.y = -l.r * 0.6
   const side = Math.random() < 0.5 ? -1 : 1
-  return { e, x: side * rand(0.5, 5), y: rand(0.6, 1.1), size: rand(0.18, 0.32), lumps, mips: [] }
+  return { e, x: side * rand(0.5, 5), y: rand(0.6, 1.1), size: rand(0.18, 0.32), top: CLOUD_E, alpha: 1, lumps, mips: [] }
+}
+
+// A faint, flat wisp of cloud near the camera's height, off to one side, that sweeps past the jet.
+function makeWisp(): Cloud {
+  const c = makeCloud(0)
+  for (const l of c.lumps) l.r *= 0.7
+  const x = (Math.random() < 0.5 ? -1 : 1) * rand(1.2, 2)
+  return { ...c, e: 0.5 / Math.abs(x), x, y: rand(-0.1, 0.12), size: 0.3, top: 1.6, alpha: 0.4 }
+}
+
+// A ship far ahead off to one side: mostly small boats, then destroyers, now and then a supply ship.
+function makeShip(z: number): Ship {
+  const r = Math.random()
+  const kind = r < 0.45 ? "boat" : r < 0.8 ? "destroyer" : "supply"
+  const side = Math.random() < 0.5 ? -1 : 1
+  return { kind, z, x: side * (kind === "boat" ? rand(0.5, 2.5) : rand(1.3, 4)) }
 }
 
 // Renders a cloud's lumps as faceted polygons into a premultiplied RGBA sprite at its size when CLOUD_E near, and
