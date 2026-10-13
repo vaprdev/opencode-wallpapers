@@ -23,10 +23,11 @@ Type `/wallpaper` to open the menu and pick a wallpaper; none shows until you do
 
 ![The wallpaper menu](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/menu.png)
 
-- **Collection:** Landscapes, Akira, Classics or all: which wallpapers the menu and shuffle pick from.
+- **Collection:** Landscapes, Akira, Classics, Arcade or all: which wallpapers the menu and shuffle pick from.
 - **Activity:** calm, lively or teeming: how much moves behind your work.
-- **Time, season and weather:** for Landscapes. Time follows your clock or stays fixed, seasons follow the calendar,
-  and weather can be the real weather where you are (`/wallpaper location Berlin`). Akira and Classics keep one look.
+- **Time, season and weather:** for Landscapes and Arcade. Time follows your clock or stays fixed, seasons follow the
+  calendar, and weather can be the real weather where you are (`/wallpaper location Berlin`). Akira and Classics keep
+  one look.
 - **Brightness, shuffle, per project and power:** subtle to vivid, a new wallpaper every hour, one per project, and
   slowing down when idle.
 
@@ -38,6 +39,7 @@ an error. With mouse support, clicking empty background nudges the scene, and ea
 - **Landscapes:** `ocean` · `desert` · `jungle` · `space` · `farm` · `tundra` · `beach` · `city` · `zen` · `prehistoric` · `haunted-house`
 - **Akira:** `rider` · `megacity` · `dome`
 - **Classics:** `flowerbox` · `maze` · `pipes` · `mystify` · `flying-opencode` · `matrix`
+- **Arcade:** `wings`
 
 | Spring | Summer | Autumn | Winter |
 | --- | --- | --- | --- |
@@ -108,6 +110,14 @@ At teeming; the GIFs play at 3x speed.
 | Mystify | ![Mystify](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/mystify.png) | ![Mystify in motion](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/mystify.gif) |
 | Flying OpenCode | ![Flying OpenCode](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/flying-opencode.png) | ![Flying OpenCode in motion](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/flying-opencode.gif) |
 | Matrix | ![Matrix](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/matrix.png) | ![Matrix in motion](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/matrix.gif) |
+
+### Arcade
+
+| | Day | Sunset | Night |
+| --- | --- | --- | --- |
+| Wings | ![Wings by day](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/wings.png) | ![Wings at sunset](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/wings-sunset.png) | ![Wings at night](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/wings-night.png) |
+
+![Wings in motion](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/wings.gif)
 
 ## License
 

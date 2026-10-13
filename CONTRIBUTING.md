@@ -243,9 +243,10 @@ text no brighter or busier than before, and keep flicker slow.
 
 ## Collections and fixed looks
 
-`collection` puts a wallpaper in one of the menu's groups: `Landscapes`, `Akira`, `Classics`, or a name of your own
-for a new group. The menu's Collection row picks one, and shuffle stays within it. Without one, a wallpaper joins
-Landscapes, or Classics if it has a fixed look.
+`collection` puts a wallpaper in one of the menu's groups: `Landscapes`, `Akira`, `Classics`, `Arcade`, or a name of
+your own for a new group. The menu's Collection row picks one, and shuffle stays within it. Without one, a wallpaper
+joins Landscapes, or Classics if it has a fixed look. The time, season and weather rows follow `fixedTime`, not the
+collection.
 
 A wallpaper that only makes sense at one time of day, such as an old screensaver, sets `fixedTime: "night"` (or `day`
 or `sunset`). It then always gets that time with no season or weather, whatever the settings, the menu hides its time,

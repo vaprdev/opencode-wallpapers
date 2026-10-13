@@ -132,7 +132,7 @@ const LOOKS: Record<Time, Look> = {
     key: [0.35, 0.5, 1.1],
     lamp: 1,
     trail: [0.2, 0.42, 0.8],
-    storm: [0.015, 0.035, 0.03],
+    storm: [0.02, 0.055, 0.05],
     night: true,
   },
 }
@@ -143,7 +143,7 @@ const DECK: RGB = [0.2, 0.21, 0.23]
 const STRIPE: RGB = [0.85, 0.85, 0.8]
 const YELLOW: RGB = [0.85, 0.66, 0.12]
 const JET: RGB = [0.5, 0.53, 0.58]
-const WARTHOG: RGB = [0.36, 0.41, 0.38]
+const WARTHOG: RGB = [0.24, 0.28, 0.26]
 const SPIRIT: RGB = [0.13, 0.14, 0.17]
 const FOREST: RGB = [0.1, 0.3, 0.1]
 const ROCK: RGB = [0.3, 0.27, 0.22]
@@ -174,9 +174,11 @@ interface Jet {
   side: number
 }
 
+// A crossing: progress from 0 to 1 (negative while waiting), how many scene seconds it takes, and its row.
 interface Flier {
   t: number
   wait: number
+  span: number
   y: number
   dir: number
 }
@@ -198,8 +200,8 @@ class Wings extends Canvas {
   private jets: Jet[] = []
   private nextLaunch: number
   private nextLanding = 20
-  private warthog: Flier = { t: -1, wait: 25, y: 0.57, dir: 1 }
-  private spirit: Flier = { t: -1, wait: 50, y: 0.11, dir: -1 }
+  private warthog: Flier = { t: -1, wait: 11, span: 13, y: 0.57, dir: 1 }
+  private spirit: Flier = { t: -1, wait: 3, span: 40, y: 0.11, dir: -1 }
   private flyover = { t: -1, dir: 1, y: 0.16 }
   private egg = { wait: eggWait() * TIME_SCALE, t: -1 }
   private sparkles: { x: number; y: number; age: number; seed: number }[] = []
@@ -387,7 +389,7 @@ class Wings extends Canvas {
       const z = (FOCAL * CAMERA) / Math.max(0.002, ys[i] - HORIZON)
       m.Z[i] = z
       m.X[i] = ((xs[i] - A / 2) * z) / FOCAL
-      m.rate[i] = 0.25 + hash(i * 1.7) * 0.35
+      m.rate[i] = 0.5 + hash(i * 1.7) * 0.6
       m.phase[i] = hash(i * 3.3) * TAU
     }
     m.tris = Int32Array.from(tris)
@@ -429,7 +431,7 @@ class Wings extends Canvas {
     const { H, A, look } = this
     const m = this.mesh
     const t = this.time
-    for (let i = 0; i < m.height.length; i++) m.height[i] = m.amp[i] * (0.6 * Math.sin(t * m.rate[i] + m.phase[i]) + 0.4 * Math.sin(Math.log(m.Z[i]) * 9 - t * 0.5 + m.X[i] * 0.15))
+    for (let i = 0; i < m.height.length; i++) m.height[i] = m.amp[i] * (0.6 * Math.sin(t * m.rate[i] + m.phase[i]) + 0.4 * Math.sin(Math.log(m.Z[i]) * 9 - t * 0.9 + m.X[i] * 0.15))
     shadeFacets(m.X, m.Z, m.height, m.tris, m.colors, this.sea.sky, H, this.orb.x * A - A / 2, this.orb.y, look.sea[0], look.sea[1], look.spec, look.glitter * (1 - 0.8 * this.gloom), look.spread, look.storm, smoothstep(0, 1, this.gloom) * 0.7)
   }
 
@@ -772,7 +774,7 @@ class Wings extends Canvas {
 
   private stepFlier(f: Flier, dt: number, on: boolean, min: number, max: number, row: () => number) {
     if (f.t >= 0) {
-      f.t += dt
+      f.t += dt / f.span
       if (f.t > 1) {
         f.t = -1
         f.wait = rand(min, max)
@@ -818,28 +820,34 @@ class Wings extends Canvas {
     for (let i = 0; i < 5; i++) {
       const rank = Math.ceil(i / 2)
       const side = i % 2 ? -1 : 1
-      const x = (lead - f.dir * rank * 0.07) * H
-      const y = (f.y + side * rank * 0.028) * H
+      const x = (lead - f.dir * rank * 0.09) * H
+      const y = (f.y + side * rank * 0.035) * H
       const len = Math.min(0.5, f.t * 0.12) * H
       const fade = 1 - smoothstep(10, 14, f.t)
       trail(this.hdr, this.W, H, x - f.dir * 0.02 * H, y, x - f.dir * len, y, Math.max(1, 0.004 * H), look.trail, 0.35 * fade)
       this.touch(Math.min(x, x - f.dir * len) - 3, y - 3, Math.max(x, x - f.dir * len) + 3, y + 3)
-      this.planform(x, y, 0.035 * H, heading, 0.4, JETFORM, this.craft(JET))
+      this.planform(x, y, 0.05 * H, heading, 0.4, JETFORM, this.craft(JET))
       const k = look.lamp
       this.splat(x - f.dir * 0.018 * H, y, BURNER[0] * 0.3 * k, BURNER[1] * 0.3 * k, BURNER[2] * 0.3 * k)
     }
   }
 
-  // The easter egg: a B-2 passes low overhead, from behind the viewer out toward the volcano.
+  // The easter egg: a B-2 passes low overhead, from behind the viewer out toward the volcano, its shadow sweeping
+  // across the sea and the deck below it.
   private drawEgg() {
     const { A, H } = this
     const t = this.egg.t / 12
-    const z = lerp(0.35, 6, t ** 1.4)
+    const z = lerp(0.3, 6, t ** 1.4)
     const x = (A / 2 + 0.05 / z) * H
-    const y = (0.2 + 0.6 / z) * H
     const s = (0.5 / z) * H
-    if (y - s * 0.3 > H) return
-    this.planform(x, y, s, -Math.PI / 2, 0.3, SPIRITFORM, this.craft(SPIRIT), 1 - smoothstep(0.85, 1, t))
+    const fade = 1 - smoothstep(0.85, 1, t)
+    const shadow = (HORIZON + 0.5 / z) * H
+    if (shadow - s * 0.3 < H) this.planform(x + 0.08 * H, shadow, s, Math.PI / 2, 0.3, SPIRITFORM, [0, 0, 0], 0.3 * fade)
+    const y = (HORIZON - 0.12 - 0.45 / z) * H
+    if (y + s * 0.3 < 0) return
+    // At night the moon catches its edges, so it reads against the dark sky.
+    if (this.look.night) this.planform(x, y - 0.004 * H, s * 1.03, Math.PI / 2, 0.3, SPIRITFORM, [this.look.key[0] * 0.1, this.look.key[1] * 0.1, this.look.key[2] * 0.1], fade)
+    this.planform(x, y, s, Math.PI / 2, 0.3, SPIRITFORM, this.craft(SPIRIT), fade)
   }
 
   // Sparkles bursting from a click on the water, spreading and twinkling out.
@@ -1101,7 +1109,7 @@ function shadeFacets(X: Float32Array, Z: Float32Array, Y: Float32Array, tris: In
     for (let k = 0; k < 3; k++) {
       const body = deep[k] + (lit[k] - deep[k]) * diffuse
       // Glitter replaces the water's own color rather than adding to it, so the path keeps the sun or moon's hue.
-      const v = (body * (1 - fres) + sky[row * 3 + k] * fres * 0.85) * (1 - Math.min(1, s) * 0.75) + spec[k] * s
+      const v = (body * (1 - fres) + sky[row * 3 + k] * fres * 0.7) * (1 - Math.min(1, s) * 0.75) + spec[k] * s
       colors[f + k] = v + (storm[k] - v) * gloom
     }
   }
