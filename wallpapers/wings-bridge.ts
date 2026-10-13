@@ -652,7 +652,7 @@ class WingsBridge extends Canvas {
     if (this.look.night)
       for (const [x, z] of [[-1.2, 4.6], [-2.2, 6.6], [-0.6, 7.6], [-1.6, 8.4]] as const) {
         const [px, py] = P(x, z)
-        poolOn(this.hdr, this.W, this.H, px, py, (2.2 / z) * this.H * 0.35, (0.9 / z) * this.H * 0.35, [1, 0.55, 0.2], 1.4)
+        poolOn(this.hdr, this.W, this.H, px, py, (2.2 / z) * this.H * 0.35, (0.9 / z) * this.H * 0.35, [1, 0.55, 0.2], 2.6)
       }
   }
 
@@ -750,7 +750,7 @@ class WingsBridge extends Canvas {
     for (const [i, l] of this.lamps.entries()) {
       // By day only the blinking ones show, unless a click flashes the lot.
       const base = l.blink ? 0.3 + 0.7 * smoothstep(0.3, 0.9, Math.sin(t * l.blink + i)) : look.lamp < 0.5 ? 0 : 1
-      const k = (look.lamp * base * flicker + this.flash * 0.8) * 0.5
+      const k = (look.lamp * base * flicker + this.flash * 0.8) * (look.night ? 0.7 : 0.5)
       if (k <= 0.01) continue
       this.point(l.x, l.y, l.color[0] * k, l.color[1] * k, l.color[2] * k, l.blink ? 2 : 1)
     }
@@ -966,18 +966,18 @@ class WingsBridge extends Canvas {
   private drawFlyover() {
     const { look, H } = this
     const t = this.flyover
-    const lead = lerp(-40, 44, t / FLYOVER)
+    const lead = lerp(-26, 30, t / FLYOVER)
     const fade = 1 - smoothstep(FLYOVER - 2, FLYOVER, t)
     for (let i = 0; i < 5; i++) {
       const rank = Math.ceil(i / 2)
       const side = i % 2 ? -1 : 1
       const x = lead - rank * 1.6
-      const z = 26 + side * rank * 1.4
-      const [hx, hy] = this.P(x - 0.5, z, 4)
-      const [tx, ty] = this.P(x - 0.5 - Math.min(14, t * 2.5), z, 4)
+      const z = 16 + side * rank * 1.1
+      const [hx, hy] = this.P(x - 0.5, z, 3)
+      const [tx, ty] = this.P(x - 0.5 - Math.min(10, t * 2), z, 3)
       trail(this.hdr, this.W, H, hx, hy, tx, ty, Math.max(1, 0.004 * H), look.trail, 0.35 * fade)
       this.touch(Math.min(hx, tx) - 3, hy - 3, Math.max(hx, tx) + 3, hy + 3)
-      this.aircraft(x, z, 4, Math.PI / 2, 0.85, JETFORM, this.craft(JET), this.craft(JET), false, false, fade)
+      this.aircraft(x, z, 3, Math.PI / 2, 0.85, JETFORM, this.craft(JET), this.craft(JET), false, false, fade)
     }
   }
 
@@ -1203,7 +1203,7 @@ class WingsBridge extends Canvas {
     // At night the instruments' red backlight pools on the console.
     if (!mask && look.night) {
       for (const [x, y, rx, k] of [[r.x, r.y, 0.2, 1], [q.x, q.y, 0.16, 0.8], [s.leds[0] + 0.12, 0.83, 0.2, 0.7], [s.leds[1] + 0.12, 0.83, 0.2, 0.7]] as const)
-        poolOn(this.hdr, this.W, this.H, x * H, y * H, rx * H, rx * 0.45 * H, [0.6, 0.04, 0.01], 0.6 * k, SILL * H)
+        poolOn(this.hdr, this.W, this.H, x * H, y * H, rx * H, rx * 0.45 * H, [0.6, 0.04, 0.01], 1.6 * k, SILL * H)
     }
   }
 
