@@ -1,4 +1,4 @@
-import { Canvas } from "../src/canvas"
+import { Canvas, cap, type Lighting, type Part } from "../src/canvas"
 import { eggWait } from "../src/egg"
 import { lightPool } from "../src/light"
 import { TAU, clamp, hash, hash2, lerp, rand, smoothstep, type RGB } from "../src/math"
@@ -25,6 +25,8 @@ const VANISH = 0.02
 const LAUNCH = 7
 const LANDING = 8
 const SPARKLE = 2.2
+// The two bow catapults, across the deck.
+const CATAPULTS = [-0.1, 0.08]
 // How many of the sea's rows slide toward the viewer per scene second.
 const ROW_RATE = 0.16
 // The hull's waterline below the deck, in deck heights.
@@ -186,10 +188,33 @@ interface Hull {
   rgba: Float32Array
 }
 
+// A launch or landing: its age in scene seconds, which way it banks away, and the catapult it launches from (u).
 interface Jet {
   kind: "launch" | "landing"
   t: number
   side: number
+  cat: number
+}
+
+// Air traffic crossing the screen: progress from 0 to 1 over span scene seconds, its row, which way it flies, its size
+// in screen heights, and how many fly together.
+interface Traffic {
+  kind: "formation" | "break" | "cargo" | "tanker" | "helo" | "flock"
+  t: number
+  span: number
+  y: number
+  dir: number
+  size: number
+  n: number
+  seed: number
+}
+
+// A boat at rest on the water, which the sea carries toward the viewer as the carrier sails on: its distance below
+// the horizon (d, screen heights) and its offset across the water.
+interface Boat {
+  d: number
+  x: number
+  seed: number
 }
 
 // A crossing: progress from 0 to 1 (negative while waiting), how many scene seconds it takes, and its row.
@@ -231,7 +256,14 @@ class Wings extends Canvas {
   private hull: Hull | undefined
   private hullFine: Hull | undefined
   private ship = { x: 0, y: 0, dx: 0, dy: 0, roll: 0, pitch: 0 }
-  private crosser: Flier = { t: -1, wait: 6, span: 22, y: 0.2, dir: 1 }
+  private traffic: Traffic[] = []
+  private nextTraffic = 2
+  private boats: Boat[] = []
+  // A dolphin leaping beside the carrier (t from 0 to 1 over a leap) and a whale's spout far off, each waiting between.
+  private dolphin = { t: -1, wait: 4, x: 0, d: 0, dir: 1 }
+  private spout = { t: -1, wait: 10, x: 0, d: 0 }
+  // A jet taxiing from where they park to a catapult, which then launches it.
+  private taxi = { t: 0, wait: 0 }
 
   constructor(settings: Settings) {
     super()
@@ -243,7 +275,12 @@ class Wings extends Canvas {
     if (settings.time === "day") this.frame = 0.3
     this.stars = makeStars(look.stars, HORIZON - 0.04)
     this.clouds = makeLowPolyClouds(settings.time === "day" ? 8 : 7)
-    this.nextLaunch = settings.activity === "teeming" ? 5 : 9
+    this.nextLaunch = settings.activity === "teeming" ? 1 : 5
+    // The scene starts with its traffic already about, rather than an empty sky filling up.
+    const crossing = { calm: 0, lively: 5, teeming: 12 }[settings.activity]
+    for (let i = 0; i < crossing; i++) this.traffic.push(this.makeTraffic(rand(0.1, 0.8)))
+    const boats = { calm: 0, lively: 2, teeming: 4 }[settings.activity]
+    for (let i = 0; i < boats; i++) this.boats.push(makeBoat(rand(0.02, 0.25)))
     for (let i = 0; i < this.drops.length; i += 3) {
       this.drops[i] = Math.random()
       this.drops[i + 1] = Math.random()
@@ -263,9 +300,12 @@ class Wings extends Canvas {
     this.weather.step(dt)
     this.stepShip()
     this.stepJets(dt)
-    this.stepFlier(this.warthog, dt, this.activity === "teeming", 30, 50, () => this.openRow(0.53, 0.6))
-    this.stepFlier(this.spirit, dt, this.activity === "teeming", 50, 80, () => rand(0.07, 0.14))
-    this.stepFlier(this.crosser, dt, this.activity === "teeming", 25, 40, () => rand(0.05, 0.12))
+    const teeming = this.activity === "teeming"
+    this.stepFlier(this.warthog, dt, this.activity !== "calm", teeming ? 18 : 45, teeming ? 30 : 70, () => this.openRow(0.53, 0.6))
+    this.stepFlier(this.spirit, dt, teeming, 30, 50, () => rand(0.07, 0.14))
+    this.stepTraffic(dt)
+    this.stepSea(dt)
+    this.stepTaxi(dt)
     if (this.flyover.t >= 0) this.flyover.t = this.flyover.t + dt > 14 ? -1 : this.flyover.t + dt
     const e = this.egg
     if (e.t >= 0) e.t = e.t + dt > 12 ? -1 : e.t + dt
@@ -295,7 +335,7 @@ class Wings extends Canvas {
       this.sparkles.push({ x, y, age: 0, seed: Math.random() * 100 })
       return
     }
-    if (!this.jets.some((j) => j.kind === "launch")) this.jets.push({ kind: "launch", t: 0, side: Math.random() < 0.5 ? -1 : 1 })
+    this.launch()
   }
 
   protected override visit() {
@@ -308,18 +348,21 @@ class Wings extends Canvas {
     if (!this.weather.covered && look.stars) paintStars(this.hdr, W, H, this.stars, this.time, HORIZON - 0.04, look.night ? 0.55 : 0.25, this.points)
     this.drawClouds()
     paintStorm(this.hdr, W, H, this.storm, look.cloud[0], look.cloud[1], this.gloom)
-    if (this.activity !== "calm") this.drawCircling()
-    if (this.crosser.t >= 0) this.drawCrosser(this.crosser)
     if (this.spirit.t >= 0) this.drawSpirit(this.spirit)
     if (this.flyover.t >= 0) this.drawFlyover()
     this.drawSea()
     this.drawWake()
+    if (this.activity !== "calm") this.drawSeaTraffic()
     this.drawSparkles()
     if (this.warthog.t >= 0) this.drawWarthog(this.warthog)
     this.drawHull()
     this.drawLamps()
-    if (this.activity === "teeming") this.drawHelicopter()
+    if (this.activity !== "calm") this.drawDeck()
+    if (this.activity !== "calm") this.drawHelicopters()
+    if (this.activity !== "calm") this.drawGulls()
     for (const j of this.jets) this.drawJet(j)
+    if (this.activity !== "calm") this.drawCircling()
+    for (const c of this.traffic) this.drawTraffic(c)
     if (this.egg.t >= 0) this.drawEgg()
     if (this.gloom > 0) this.drawRain()
     this.weather.draw(this.hdr, W, H)
@@ -780,22 +823,28 @@ class Wings extends Canvas {
     }
   }
 
-  // Jets launch off the bow now and then and climb away, and at teeming others come in over the stern to land.
+  // Jets launch off the bow now and then and climb away, and others come in over the stern to land. At teeming the
+  // two catapults take turns every few seconds.
   private stepJets(dt: number) {
     for (const j of this.jets) j.t += dt
     this.jets = this.jets.filter((j) => j.t < (j.kind === "launch" ? LAUNCH : LANDING))
     if (this.activity === "calm") return
+    const teeming = this.activity === "teeming"
     this.nextLaunch -= dt
-    if (this.nextLaunch <= 0 && !this.jets.some((j) => j.kind === "launch")) {
-      this.jets.push({ kind: "launch", t: 0, side: Math.random() < 0.5 ? -1 : 1 })
-      this.nextLaunch = this.activity === "teeming" ? rand(12, 20) : rand(20, 32)
-    }
-    if (this.activity !== "teeming") return
+    if (this.nextLaunch <= 0 && this.launch()) this.nextLaunch = teeming ? rand(1.5, 3) : rand(4, 7)
     this.nextLanding -= dt
     if (this.nextLanding <= 0 && !this.jets.some((j) => j.kind === "landing")) {
-      this.jets.push({ kind: "landing", t: 0, side: 0 })
-      this.nextLanding = rand(18, 30)
+      this.jets.push({ kind: "landing", t: 0, side: 0, cat: 0 })
+      this.nextLanding = teeming ? rand(6, 10) : rand(14, 22)
     }
+  }
+
+  // Sends a jet off whichever catapult is clear, if either is.
+  private launch() {
+    const cat = CATAPULTS.find((c) => !this.jets.some((j) => j.kind === "launch" && j.cat === c && j.t < 4))
+    if (cat === undefined) return false
+    this.jets.push({ kind: "launch", t: 0, side: Math.random() < 0.5 ? -1 : 1, cat })
+    return true
   }
 
   // Where a jet is in deck space, how much it banks, and how hard its afterburners glow.
@@ -808,7 +857,7 @@ class Wings extends Canvas {
       const c = Math.max(0, t - 3.5)
       const v = lerp(0.22, 1.05, run) + c * 0.35 + c * c * 0.03
       const h = 0.08 + c * 0.8 + c * c * 0.9
-      const u = -0.1 + j.side * c * c * 0.3
+      const u = j.cat + j.side * c * c * 0.3
       return { u, v, h, roll: j.side * smoothstep(0.3, 2, c) * 0.6, burn: spool, alpha: 1 - smoothstep(LAUNCH - 1, LAUNCH, t) }
     }
     // Gliding in from overhead behind the stern, touching down and rolling out, then taxiing away.
@@ -822,7 +871,8 @@ class Wings extends Canvas {
   // An aircraft's color: its daytime color darkened for the time of day, kept a little lighter than the sky at night so
   // it reads as a silhouette.
   private craft(c: RGB): RGB {
-    const k = this.look.night ? 3.2 : 1
+    // By day a little darker than life, so aircraft read as shapes against the bright sky.
+    const k = this.look.night ? 3.2 : this.look.tint[0] === 1 ? 0.6 : 1
     const p = this.paint(c)
     return [p[0] * k, p[1] * k, p[2] * k]
   }
@@ -891,25 +941,39 @@ class Wings extends Canvas {
       )
   }
 
-  // Jets holding in wide, slow loops high in the sky, clear of the text in the middle: at lively a pair far off over
-  // the volcano, at teeming one more, nearer, over the islets on the left, each loop swinging nearer and farther.
+  // Jets holding in wide, slow loops at several heights, clear of the text in the middle: farther ones higher and
+  // smaller, the highest trailing contrails. At teeming an E-2 circles high with its radar dome turning.
   private drawCircling() {
-    const { A, H } = this
-    const loops = [
-      { cx: volcanoX(A), cy: 0.2, rx: 0.36, ry: 0.04, size: 0.032, rate: 0.08, phase: 0 },
-      { cx: volcanoX(A), cy: 0.22, rx: 0.36, ry: 0.04, size: 0.032, rate: 0.08, phase: Math.PI },
-      { cx: 0.32, cy: 0.15, rx: 0.24, ry: 0.05, size: 0.05, rate: -0.08, phase: 1 },
-      { cx: 0.32, cy: 0.14, rx: 0.24, ry: 0.05, size: 0.05, rate: -0.08, phase: 1.5 },
-    ].slice(0, this.activity === "teeming" ? 3 : 2)
+    const { A, H, look } = this
+    const loops = this.activity === "teeming" ? LOOPS : LOOPS.slice(0, 6)
     for (const [i, l] of loops.entries()) {
+      const cx = l.cx < 0 ? A + l.cx : l.cx === 0 ? volcanoX(A) : l.cx
       const a = this.time * l.rate + l.phase
-      const x = (l.cx + Math.cos(a) * l.rx) * H
+      const x = (cx + Math.cos(a) * l.rx) * H
       const y = (l.cy + Math.sin(a) * l.ry) * H
       const heading = Math.atan2(Math.cos(a) * l.ry * l.rate, -Math.sin(a) * l.rx * l.rate)
       const s = l.size * (1 + 0.25 * Math.sin(a)) * H
+      if (l.cy < 0.1) {
+        const b = a - Math.sign(l.rate) * 0.35
+        const tx = (cx + Math.cos(b) * l.rx) * H
+        const ty = (l.cy + Math.sin(b) * l.ry) * H
+        trail(this.hdr, this.W, H, x, y, tx, ty, Math.max(0.7, 0.003 * H), look.trail, 0.3)
+        this.touch(Math.min(x, tx) - 3, Math.min(y, ty) - 3, Math.max(x, tx) + 3, Math.max(y, ty) + 3)
+      }
       this.planform(x, y, s, heading, 0.45, JETFORM, this.craft(JET), 1, -Math.sign(l.rate) * 0.25)
       this.navLights(x, y, s, heading, i)
     }
+    if (this.activity !== "teeming") return
+    // The E-2 Hawkeye: a slow, wide loop high over the left.
+    const a = this.time * 0.04 + 2
+    const x = (0.4 + Math.cos(a) * 0.3) * H
+    const y = (0.085 + Math.sin(a) * 0.02) * H
+    const heading = Math.atan2(Math.cos(a) * 0.02, -Math.sin(a) * 0.3)
+    const s = 0.065 * H
+    this.planform(x, y, s, heading, 0.4, CARGOFORM, this.craft(HAWKEYE))
+    const dome = this.craft([HAWKEYE[0] * 0.8, HAWKEYE[1] * 0.8, HAWKEYE[2] * 0.85])
+    this.ellipse(x - Math.cos(heading) * s * 0.05, y - 0.06 * s, 0.18 * s, 0.045 * s, dome[0], dome[1], dome[2], 1)
+    this.navLights(x, y, s, heading, 11)
   }
 
   // Amber and red blinking lights on an aircraft at night, and a faint glow from its engines.
@@ -923,38 +987,319 @@ class Wings extends Canvas {
     this.splat(x, y, 1.6 * blink, 0.3 * blink, 0.12 * blink)
   }
 
-  // At teeming a jet now and then crosses high and far off, small against the sky.
-  private drawCrosser(f: Flier) {
-    f.t = Math.min(f.t, 1)
-    const { A, H } = this
-    const u = f.dir > 0 ? f.t : 1 - f.t
-    const x = lerp(-0.1, A + 0.1, u) * H
-    const heading = f.dir > 0 ? 0.05 : Math.PI - 0.05
-    this.planform(x, f.y * H, 0.026 * H, heading, 0.4, JETFORM, this.craft(JET))
-    this.navLights(x, f.y * H, 0.026 * H, heading, 7)
+  // A crossing, picked by how busy the scene is, starting t of the way across.
+  private makeTraffic(t: number): Traffic {
+    const kinds: Traffic["kind"][] = this.activity === "teeming" ? ["formation", "formation", "formation", "break", "break", "cargo", "tanker", "helo", "flock", "flock"] : ["formation", "formation", "break", "cargo", "flock", "helo"]
+    const kind = kinds[Math.floor(Math.random() * kinds.length)]
+    const dir = Math.random() < 0.5 ? 1 : -1
+    const seed = Math.random() * 100
+    if (kind === "formation") {
+      const y = rand(0.05, 0.22)
+      return { kind, t, span: rand(12, 18), y, dir, size: lerp(0.026, 0.06, (y - 0.05) / 0.17), n: 2 + Math.floor(Math.random() * 3), seed }
+    }
+    if (kind === "break") return { kind, t, span: rand(11, 15), y: rand(0.16, 0.26), dir, size: 0.065, n: 1, seed }
+    if (kind === "cargo") return { kind, t, span: rand(34, 44), y: rand(0.12, 0.22), dir, size: 0.075, n: 1, seed }
+    if (kind === "tanker") return { kind, t, span: rand(50, 60), y: rand(0.06, 0.1), dir, size: 0.06, n: 1, seed }
+    if (kind === "helo") return { kind, t, span: rand(30, 40), y: this.openRow(0.5, 0.58), dir, size: 0.06, n: 1, seed }
+    return { kind, t, span: rand(26, 34), y: rand(0.12, 0.3), dir, size: 0.016, n: 7 + Math.floor(Math.random() * 5), seed }
   }
 
-  // At teeming a helicopter hovers off the island, swaying gently, its rotor a faint disc.
-  private drawHelicopter() {
+  private stepTraffic(dt: number) {
+    for (const c of this.traffic) c.t += dt / c.span
+    this.traffic = this.traffic.filter((c) => c.t < 1)
+    if (this.activity === "calm") return
+    const teeming = this.activity === "teeming"
+    this.nextTraffic -= dt
+    if (this.nextTraffic > 0 || this.traffic.length >= (teeming ? 14 : 6)) return
+    this.traffic.push(this.makeTraffic(0))
+    this.nextTraffic = teeming ? rand(0.6, 1.5) : rand(2, 4)
+  }
+
+  private drawTraffic(c: Traffic) {
+    const { A, H, look } = this
+    const u = c.dir > 0 ? c.t : 1 - c.t
+    const x = lerp(-0.3, A + 0.3, u) * H
+    const y = c.y * H
+    const heading = c.dir > 0 ? 0 : Math.PI
+    const s = c.size * H
+    if (c.kind === "formation") {
+      // An echelon of two to four, each a step behind and to the side of the one ahead; high ones leave contrails.
+      for (let i = 0; i < c.n; i++) {
+        const jx = x - c.dir * i * s * 1.3
+        const jy = y + (i % 2 ? 1 : -1) * Math.ceil(i / 2) * s * 0.5 + Math.sin(this.time * 0.7 + i + c.seed) * s * 0.04
+        if (c.y < 0.12) {
+          trail(this.hdr, this.W, H, jx - c.dir * s * 0.5, jy, jx - c.dir * s * 7, jy, Math.max(0.7, 0.0028 * H), look.trail, 0.3)
+          this.touch(Math.min(jx, jx - c.dir * s * 7) - 3, jy - 3, Math.max(jx, jx - c.dir * s * 7) + 3, jy + 3)
+        }
+        this.planform(jx, jy, s, heading, 0.4, JETFORM, this.craft(JET))
+        this.navLights(jx, jy, s, heading, i + c.seed)
+      }
+      return
+    }
+    if (c.kind === "break") {
+      // A jet breaking off: it dives toward the sea, rolls, and climbs back out with its afterburner lit.
+      const dip = Math.sin(Math.PI * c.t) * 0.08
+      const by = y + dip * H
+      const climb = Math.cos(Math.PI * c.t) * c.dir
+      const h = heading - climb * 0.25 * c.dir
+      this.planform(x, by, s, h, 0.45, JETFORM, this.craft(JET), 1, Math.sin(TAU * c.t) * 0.5)
+      const k = smoothstep(0.5, 0.7, c.t) * 1.2 + 0.2
+      this.splat(x - Math.cos(h) * s * 0.55, by - Math.sin(h) * s * 0.25, BURNER[0] * 0.4 * k, BURNER[1] * 0.4 * k, BURNER[2] * 0.4 * k)
+      this.navLights(x, by, s, h, c.seed)
+      return
+    }
+    if (c.kind === "cargo") {
+      this.planform(x, y, s, heading, 0.4, CARGOFORM, this.craft(CARGO))
+      this.navLights(x, y, s, heading, c.seed)
+      return
+    }
+    if (c.kind === "tanker") {
+      // A tanker far off with two jets on its hoses, one to each side behind it.
+      this.planform(x, y, s, heading, 0.4, TANKERFORM, this.craft(CARGO))
+      this.navLights(x, y, s, heading, c.seed)
+      for (const side of [-1, 1]) {
+        const hx = x - c.dir * s * 0.45
+        const hy = y + side * s * 0.12
+        const jx = x - c.dir * s * 0.95
+        const jy = y + side * s * 0.22 + s * 0.08
+        trail(this.hdr, this.W, H, hx, hy, jx + c.dir * s * 0.2, jy, 0.5, this.craft([0.5, 0.5, 0.5]), 0.6)
+        this.touch(Math.min(hx, jx) - 2, Math.min(hy, jy) - 2, Math.max(hx, jx) + 2, Math.max(hy, jy) + 2)
+        this.planform(jx, jy, s * 0.42, heading, 0.4, JETFORM, this.craft(JET))
+        this.navLights(jx, jy, s * 0.42, heading, side + c.seed)
+      }
+      return
+    }
+    if (c.kind === "helo") {
+      this.drawHelo(x, y, s, 0.12 * -c.dir, c.dir > 0 ? -1 : 1, c.seed)
+      return
+    }
+    // A flock of seabirds in a loose vee, flapping out of step.
+    for (let i = 0; i < c.n; i++) {
+      const rank = Math.ceil(i / 2)
+      const side = i % 2 ? 1 : -1
+      const bx = x - c.dir * rank * s * 2.2 + Math.sin(this.time * 0.6 + i * 2.1) * s * 0.4
+      const by = y + side * rank * s * 1.1 + Math.sin(this.time * 0.8 + i) * s * 0.3
+      this.bird(bx, by, s, Math.sin(this.time * 5 + i * 1.7 + c.seed))
+    }
+  }
+
+  // A bird with its wings beating: flap runs from -1 (down) to 1 (up).
+  private bird(x: number, y: number, s: number, flap: number) {
+    const color = this.craft(this.look.night ? [0.3, 0.32, 0.36] : [0.8, 0.82, 0.86])
+    const w = this.thick(0.001, 0.6)
+    const up = flap * s * 0.45
+    const parts: Part[] = []
+    for (const side of [-1, 1]) {
+      parts.push(cap(x, y, x + side * s * 0.5, y - up, w, w * 0.8, color), cap(x + side * s * 0.5, y - up, x + side * s, y - up * 0.3 + s * 0.15, w * 0.8, w * 0.5, color))
+    }
+    this.shape(parts, FLAT, 0)
+  }
+
+  // Gulls wheeling around the carrier's island.
+  private drawGulls() {
+    const H = this.H
+    const [ix, iy] = this.onShip(this.deck(0.8, 0.55, 2))
+    const n = this.activity === "teeming" ? 12 : 7
+    for (let i = 0; i < n; i++) {
+      const a = this.time * (0.12 + hash(i) * 0.08) * (i % 2 ? 1 : -1) + i * 1.9
+      const rx = (0.06 + hash(i + 3) * 0.1) * H
+      const x = ix + Math.cos(a) * rx
+      const y = iy - (0.01 + hash(i + 7) * 0.05) * H + Math.sin(a) * rx * 0.25
+      this.bird(x, y, 0.015 * H, Math.sin(this.time * 4 + i * 2.3))
+    }
+  }
+
+  // The sea's traffic: boats at rest drifting toward the viewer, a dolphin leaping and a whale spouting.
+  private stepSea(dt: number) {
+    if (this.activity === "calm") return
+    const teeming = this.activity === "teeming"
+    for (const b of this.boats) b.d += ROW_RATE * rowHeight(b.d) * dt
+    this.boats = this.boats.filter((b) => b.d < 0.4 && Math.abs(b.x * b.d) < this.A / 2 + 0.1)
+    if (this.boats.length < (teeming ? 4 : 2)) this.boats.push(makeBoat(0.015))
+    const d = this.dolphin
+    if (d.t >= 0) d.t = d.t + dt / 2.2 > 1 ? -1 : d.t + dt / 2.2
+    else if (teeming && (d.wait -= dt) <= 0) {
+      d.t = 0
+      d.wait = rand(4, 9)
+      d.dir = Math.random() < 0.5 ? 1 : -1
+      d.d = rand(0.22, 0.32)
+      d.x = (Math.random() < 0.5 ? -1 : 1) * rand(1.6, 2.6)
+    }
+    const w = this.spout
+    if (w.t >= 0) w.t = w.t + dt / 4 > 1 ? -1 : w.t + dt / 4
+    else if (teeming && (w.wait -= dt) <= 0) {
+      w.t = 0
+      w.wait = rand(20, 35)
+      w.d = rand(0.03, 0.06)
+      w.x = (Math.random() < 0.5 ? -1 : 1) * rand(6, 10)
+    }
+  }
+
+  private drawSeaTraffic() {
+    const { A, H, look } = this
+    const teeming = this.activity === "teeming"
+    const at = (x: number, d: number): Point => [(A / 2 + x * d) * H, (HORIZON + d) * H]
+    // Escorts keeping station with the carrier, their wakes streaming back; at teeming a supply ship alongside too.
+    const escorts: [number, number, number][] = teeming ? [[-7, 0.05, 0.8], [6.5, 0.07, 0.9], [-4.2, 0.075, 0.9], [4.2, 0.035, 0.7]] : [[6.5, 0.07, 0.9]]
+    for (const [i, [x, d, beam]] of escorts.entries()) this.drawEscort(...at(x, d), beam * d * H, i === 2 ? "supply" : i % 2 ? "destroyer" : "frigate", i)
+    for (const b of this.boats) {
+      const [x, y] = at(b.x, b.d)
+      const s = 0.22 * b.d * H
+      const bob = Math.sin(this.time * 1.1 + b.seed) * s * 0.06
+      const hull = this.paint([0.55, 0.32, 0.22])
+      this.polygon([[x - s, y - s * 0.25 + bob], [x + s, y - s * 0.25 + bob], [x + s * 0.7, y + bob], [x - s * 0.7, y + bob]], hull)
+      this.polygon([[x - s * 0.3, y - s * 0.25 + bob], [x - s * 0.3, y - s * 0.7 + bob], [x + s * 0.2, y - s * 0.7 + bob], [x + s * 0.2, y - s * 0.25 + bob]], this.paint([0.75, 0.75, 0.7]))
+      if (look.lamp > 0.5) this.splat(x, y - s * 0.8 + bob, AMBER[0] * 0.4, AMBER[1] * 0.4, AMBER[2] * 0.4)
+    }
+    const d = this.dolphin
+    if (d.t >= 0) {
+      const [x0, y0] = at(d.x, d.d)
+      const s = 0.5 * d.d * H
+      const x = x0 + d.dir * (d.t - 0.5) * s * 1.6
+      const y = y0 - Math.sin(Math.PI * d.t) * s * 0.5
+      const ang = Math.atan2(-Math.cos(Math.PI * d.t) * 0.5, d.dir * 1.6)
+      const ca = Math.cos(ang)
+      const sa = Math.sin(ang)
+      const P = (u: number, v: number): Point => [x + (u * ca - v * sa) * s * d.dir, y + (u * sa * d.dir + v * ca) * s]
+      const body = this.craft([0.4, 0.48, 0.56])
+      this.shape([cap(...P(-0.25, 0), ...P(0.25, 0), 0.05 * s, 0.07 * s, body), cap(...P(0, -0.05), ...P(-0.06, -0.13), 0.03 * s, 0.01 * s, body)], FLAT, 0)
+      for (const e of [0, 1]) {
+        const k = Math.max(0, 1 - Math.abs(d.t - e) * 5)
+        if (k > 0) for (let i = 0; i < 5; i++) this.splat(x0 + d.dir * (e - 0.5) * s * 1.6 + (i - 2) * s * 0.06, y0 - k * s * 0.1 * (1 + hash(i)), look.foam[0] * k, look.foam[1] * k, look.foam[2] * k)
+      }
+    }
+    const w = this.spout
+    if (w.t >= 0) {
+      const [x, y] = at(w.x, w.d)
+      const s = 0.6 * w.d * H
+      const hump = this.craft([0.2, 0.24, 0.28])
+      this.ellipse(x, y, s * 0.5, s * 0.1, hump[0], hump[1], hump[2], smoothstep(0, 0.2, w.t) * (1 - smoothstep(0.8, 1, w.t)))
+      const k = Math.sin(Math.PI * w.t) * 0.6
+      for (let i = 0; i < 9; i++) {
+        const f = ((w.t * 3 + i / 9) % 1)
+        this.splat(x + (hash(i) - 0.5) * s * 0.4 * f, y - s * 0.9 * Math.sin(Math.PI * f * 0.8), look.foam[0] * k * (1 - f), look.foam[1] * k * (1 - f), look.foam[2] * k * (1 - f))
+      }
+    }
+  }
+
+  // A warship from astern, keeping station: hull, superstructure and mast, with foam streaming back from its stern.
+  private drawEscort(x: number, y: number, beam: number, kind: "frigate" | "destroyer" | "supply", seed: number) {
+    const { look } = this
+    const bob = Math.sin(this.time * 0.8 + seed * 2) * beam * 0.04
+    const roll = Math.sin(this.time * 0.6 + seed) * 0.03
+    const ca = Math.cos(roll)
+    const sa = Math.sin(roll)
+    const Q = (a: number, b: number): Point => [x + (a * ca - b * sa) * beam, y + bob + (a * sa + b * ca) * beam]
+    // Foam streaming back from the stern in two arms.
+    for (let i = 0; i < 10; i++) {
+      const f = (this.time * 0.3 + i / 10 + seed * 0.13) % 1
+      const side = i % 2 ? 1 : -1
+      const k = (1 - f) * 0.6
+      this.splat(x + side * beam * (0.4 + f * 0.5), y + beam * (0.05 + f * 1.6), look.foam[0] * k, look.foam[1] * k, look.foam[2] * k)
+    }
+    const hull = this.paint(HULL)
+    const top = this.paint([HULL[0] * 1.15, HULL[1] * 1.15, HULL[2] * 1.15])
+    this.polygon([Q(-0.55, -0.35), Q(0.55, -0.35), Q(0.42, 0), Q(-0.42, 0)], hull)
+    if (kind === "supply") {
+      this.polygon([Q(-0.4, -0.35), Q(0.4, -0.35), Q(0.4, -0.75), Q(-0.4, -0.75)], top)
+      for (const k of [-0.3, 0, 0.3]) this.polygon([Q(k - 0.02, -0.75), Q(k + 0.02, -0.75), Q(k + 0.02, -1.25), Q(k - 0.02, -1.25)], hull)
+      this.polygon([Q(-0.35, -1.15), Q(0.35, -1.15), Q(0.35, -1.2), Q(-0.35, -1.2)], hull)
+    }
+    if (kind !== "supply") {
+      this.polygon([Q(-0.3, -0.35), Q(0.3, -0.35), Q(0.24, -0.85), Q(-0.24, -0.85)], top)
+      this.polygon([Q(-0.03, -0.85), Q(0.03, -0.85), Q(0.015, kind === "destroyer" ? -1.45 : -1.25), Q(-0.015, kind === "destroyer" ? -1.45 : -1.25)], hull)
+    }
+    if (look.lamp > 0.5) {
+      const blink = Math.sin(this.time * 3 + seed * 1.3) > 0.5 ? 0.6 : 0.15
+      this.splat(...Q(0, kind === "supply" ? -1.25 : kind === "destroyer" ? -1.45 : -1.25), 1.6 * blink, 0.3 * blink, 0.12 * blink)
+      this.splat(...Q(-0.5, -0.33), 0.3 * 0.5, 1.6 * 0.5, 0.5 * 0.5)
+      this.splat(...Q(0.5, -0.33), 1.8 * 0.5, 0.25 * 0.5, 0.15 * 0.5)
+    }
+  }
+
+  // A jet taxiing from the parking area to the waist catapult, which then launches it.
+  private stepTaxi(dt: number) {
+    if (this.activity === "calm") return
+    const t = this.taxi
+    if (t.wait > 0) {
+      t.wait -= dt
+      return
+    }
+    t.t += dt / 9
+    if (t.t < 1) return
+    t.t = 0
+    t.wait = this.activity === "teeming" ? rand(3, 6) : rand(10, 16)
+    this.launch()
+  }
+
+  // Life on deck: crew in colored jerseys crossing to and fro, a tow tractor, and a jet taxiing to a catapult.
+  private drawDeck() {
+    const { H, look } = this
+    const t = this.time
+    const crew = this.activity === "teeming" ? CREW : CREW.slice(0, 6)
+    for (const [i, [u0, v0, u1, v1, color]] of crew.entries()) {
+      const f = 0.5 - 0.5 * Math.cos(t * (0.15 + hash(i) * 0.1) + i * 2.1)
+      const [x, y] = this.onShip(this.deck(lerp(u0, u1, f), lerp(v0, v1, f)))
+      const [, top] = this.onShip(this.deck(lerp(u0, u1, f), lerp(v0, v1, f), 0.1))
+      const c = this.craft(color)
+      this.shape([cap(x, y, x, top, this.thick(0.0012, 0.6), this.thick(0.0012, 0.6), look.night ? [c[0] * 1.2, c[1] * 1.2, c[2] * 1.2] : c)], FLAT, 0)
+      // At night the marshals' wands glow.
+      if (look.lamp > 0.5 && i % 3 === 0) this.splat(x + Math.sin(t * 2 + i) * 1.5, top, AMBER[0] * 0.35, AMBER[1] * 0.35, AMBER[2] * 0.35)
+    }
+    // The tow tractor, trundling up and down beside the island.
+    const f = 0.5 - 0.5 * Math.cos(t * 0.06)
+    const [tx, ty] = this.onShip(this.deck(0.5, lerp(0.15, 0.4, f), 0.02))
+    const ts = (0.05 * BEAM * H) / (1 + BOW * lerp(0.15, 0.4, f))
+    const tug = this.craft(YELLOW)
+    this.polygon([[tx - ts, ty - ts * 0.6], [tx + ts, ty - ts * 0.6], [tx + ts, ty + ts * 0.3], [tx - ts, ty + ts * 0.3]], tug)
+    if (look.lamp > 0.5) this.splat(tx, ty - ts * 0.6, AMBER[0] * 0.4 * (Math.sin(t * 5) > 0 ? 1 : 0.2), AMBER[1] * 0.4 * (Math.sin(t * 5) > 0 ? 1 : 0.2), AMBER[2] * 0.2)
+    // The taxiing jet, along a curve from the parking area to the catapult.
+    const tx2 = this.taxi
+    if (tx2.wait > 0) return
+    const q = smoothstep(0, 1, tx2.t)
+    const u = lerp(0.55, CATAPULTS[0], q) + Math.sin(Math.PI * q) * -0.2
+    const v = lerp(0.85, 0.24, q)
+    const [jx, jy] = this.onShip(this.deck(u, v, 0.08))
+    const s = (0.5 * BEAM * H) / (1 + BOW * v)
+    // Nosing toward the bow, turning in as it swings across the deck.
+    this.planform(jx, jy, s, -Math.PI / 2 - Math.cos(Math.PI * q) * 0.5, 0.55, JETFORM, this.craft(JET))
+    if (look.lamp > 0.5) this.splat(jx, jy, BURNER[0] * 0.25, BURNER[1] * 0.25, BURNER[2] * 0.25)
+  }
+
+  // Helicopters: one hovering off the island, and at teeming a rescue helicopter holding off the port quarter, its
+  // downwash ruffling the water below it.
+  private drawHelicopters() {
     const { H, look } = this
     const t = this.time
     const [x, y] = this.onShip(this.deck(1.6 + 0.08 * Math.sin(t * 0.21), 0.35, 1.7 + 0.12 * Math.sin(t * 0.33)))
-    const s = 0.065 * H
-    const tilt = 0.06 * Math.sin(t * 0.21 + 1.2)
+    this.drawHelo(x, y, 0.065 * H, 0.06 * Math.sin(t * 0.21 + 1.2), 1, 3)
+    if (this.activity !== "teeming") return
+    const [rx, ry] = this.onShip(this.deck(-1.9 + 0.1 * Math.sin(t * 0.17), 0.05, 1.9 + 0.15 * Math.sin(t * 0.29)))
+    const [, wy] = this.onShip(this.deck(-1.9, 0.05, WATERLINE))
+    for (let i = 0; i < 3; i++) {
+      const f = (t * 0.6 + i / 3) % 1
+      const k = (1 - f) * 0.35
+      this.ellipse(rx, wy, (0.02 + f * 0.05) * H, (0.004 + f * 0.01) * H, look.foam[0], look.foam[1], look.foam[2], k * 0.5)
+    }
+    this.drawHelo(rx, ry, 0.075 * H, 0.05 * Math.sin(t * 0.19), -1, 5)
+  }
+
+  // A helicopter side on, nose toward face (1 left, -1 right): a rounded cabin, a tail boom with its fin, skids, and its
+  // rotor a faint blur rather than blades, so it doesn't flicker.
+  private drawHelo(x: number, y: number, s: number, tilt: number, face: number, seed: number) {
+    const look = this.look
     const body = this.craft([0.3, 0.34, 0.3])
     const ca = Math.cos(tilt)
     const sa = Math.sin(tilt)
-    const Q = (a: number, b: number): Point => [x + (a * ca - b * sa) * s, y + (a * sa + b * ca) * s]
-    // Side on, nose to the left: a rounded cabin, a tail boom with its fin, and skids.
+    const Q = (a: number, b: number): Point => [x + (a * face * ca - b * sa) * s, y + (a * face * sa + b * ca) * s]
     this.ellipse(...Q(-0.05, 0), 0.22 * s, 0.12 * s, body[0], body[1], body[2], 1)
     this.polygon([Q(0.1, -0.04), Q(0.55, -0.03), Q(0.55, 0.0), Q(0.1, 0.05)], body)
     this.polygon([Q(0.5, -0.03), Q(0.58, -0.17), Q(0.62, -0.17), Q(0.58, 0.0)], body)
     this.polygon([Q(-0.22, 0.17), Q(0.14, 0.17), Q(0.14, 0.19), Q(-0.22, 0.19)], body)
     this.polygon([Q(-0.24, -0.15), Q(0.16, -0.15), Q(0.16, -0.13), Q(-0.24, -0.13)], body)
-    // The spinning rotor, a faint blur rather than blades, so it doesn't flicker.
     const blur = look.night ? look.key : look.sky[look.sky.length - 1][1]
     this.ellipse(...Q(-0.04, -0.15), 0.5 * s, 0.035 * s, blur[0] * 0.5 + body[0] * 0.5, blur[1] * 0.5 + body[1] * 0.5, blur[2] * 0.5 + body[2] * 0.5, 0.45)
-    this.navLights(...Q(0.6, -0.1), s, Math.PI, 3)
+    this.navLights(...Q(0.6, -0.1), s, Math.PI, seed)
   }
 
   private stepFlier(f: Flier, dt: number, on: boolean, min: number, max: number, row: () => number) {
@@ -1078,6 +1423,50 @@ function volcanoX(A: number) {
   return Math.min(A / 2 + 0.32, A - 0.45)
 }
 
+// Flat color, for small and thin things.
+const FLAT: Lighting = { style: "front", dir: [0, 0, 1] }
+
+// Loops jets hold in, in screen heights: the middle (cx 0 for over the volcano, negative from the right edge), radii,
+// size, turn rate in radians per scene second and starting angle. Lively flies the first four.
+const LOOPS = [
+  { cx: 0, cy: 0.2, rx: 0.36, ry: 0.04, size: 0.05, rate: 0.13, phase: 0 },
+  { cx: 0, cy: 0.22, rx: 0.36, ry: 0.04, size: 0.05, rate: 0.13, phase: Math.PI },
+  { cx: 0.32, cy: 0.15, rx: 0.24, ry: 0.05, size: 0.07, rate: -0.14, phase: 1 },
+  { cx: 0.5, cy: 0.07, rx: 0.4, ry: 0.015, size: 0.028, rate: 0.1, phase: 2.5 },
+  { cx: -0.3, cy: 0.31, rx: 0.2, ry: 0.03, size: 0.065, rate: 0.16, phase: 4 },
+  { cx: 0.32, cy: 0.14, rx: 0.24, ry: 0.05, size: 0.07, rate: -0.14, phase: 1.5 },
+  { cx: -0.35, cy: 0.06, rx: 0.3, ry: 0.012, size: 0.026, rate: -0.11, phase: 0.4 },
+  { cx: 0, cy: 0.12, rx: 0.5, ry: 0.025, size: 0.036, rate: -0.09, phase: 3.3 },
+  { cx: 0.25, cy: 0.3, rx: 0.18, ry: 0.03, size: 0.06, rate: -0.15, phase: 5.2 },
+  { cx: -0.45, cy: 0.18, rx: 0.3, ry: 0.04, size: 0.05, rate: 0.12, phase: 2 },
+  { cx: 0, cy: 0.05, rx: 0.6, ry: 0.01, size: 0.02, rate: 0.07, phase: 1.1 },
+]
+
+// Deck crew walking between two spots (u0, v0, u1, v1) in the color of their jobs.
+const CREW: [number, number, number, number, RGB][] = [
+  [-0.5, 0.3, -0.3, 0.5, [0.9, 0.75, 0.1]],
+  [0.3, 0.7, 0.45, 0.9, [0.2, 0.6, 0.2]],
+  [-0.2, 0.15, 0.1, 0.25, [0.8, 0.15, 0.1]],
+  [0.5, 0.2, 0.55, 0.45, [0.5, 0.25, 0.6]],
+  [-0.6, 0.75, -0.3, 0.85, [0.85, 0.85, 0.8]],
+  [0.2, 0.4, 0.35, 0.3, [0.9, 0.75, 0.1]],
+  [-0.4, 0.55, -0.15, 0.6, [0.2, 0.6, 0.2]],
+  [0.35, 0.55, 0.5, 0.65, [0.5, 0.35, 0.2]],
+  [-0.75, 0.2, -0.75, 0.6, [0.15, 0.35, 0.8]],
+]
+
+const HAWKEYE: RGB = [0.55, 0.57, 0.6]
+const CARGO: RGB = [0.48, 0.5, 0.52]
+
+function makeBoat(d: number): Boat {
+  return { d, x: (Math.random() < 0.5 ? -1 : 1) * rand(2.2, 9), seed: Math.random() * 100 }
+}
+
+// Both halves of an outline drawn on one side of the centerline.
+function sym(...polys: Point[][]): Point[][] {
+  return polys.flatMap((p) => [p, p.map(([a, b]) => [a, -b] as const)])
+}
+
 // Top-down outlines, nose toward +a, span along b, for planform().
 const JETFORM: Point[][] = [
   [[0.5, 0], [0.3, 0.05], [-0.5, 0.06], [-0.5, -0.06], [0.3, -0.05]],
@@ -1094,6 +1483,13 @@ const WARTHOGFORM: Point[][] = [
   [[-0.14, -0.04], [-0.14, -0.15], [-0.32, -0.15], [-0.32, -0.04]],
   [[-0.38, 0.2], [-0.38, -0.2], [-0.47, -0.2], [-0.47, 0.2]],
 ]
+// A twin-turboprop with a straight high wing and a broad twin-finned tail, for the C-2 and the E-2.
+const CARGOFORM: Point[][] = [
+  [[0.5, 0], [0.4, 0.06], [-0.45, 0.05], [-0.45, -0.05], [0.4, -0.06]],
+  ...sym([[0.12, 0.05], [0.1, 0.55], [0.0, 0.55], [0.0, 0.05]], [[-0.36, 0.04], [-0.38, 0.2], [-0.46, 0.2], [-0.45, 0.04]], [[0.24, 0.2], [0.24, 0.26], [0.0, 0.26], [0.0, 0.2]]),
+]
+// A tanker: a long fuselage with swept wings.
+const TANKERFORM: Point[][] = [[[0.5, 0], [0.42, 0.05], [-0.45, 0.04], [-0.45, -0.04], [0.42, -0.05]], ...sym([[0.15, 0.05], [-0.15, 0.5], [-0.22, 0.5], [-0.08, 0.05]], [[-0.34, 0.04], [-0.46, 0.18], [-0.5, 0.18], [-0.46, 0.04]])]
 const SPIRITFORM: Point[][] = [
   [[0.3, 0], [-0.08, 0.55], [-0.2, 0.36], [-0.1, 0.22], [-0.22, 0.1], [-0.12, 0], [-0.22, -0.1], [-0.1, -0.22], [-0.2, -0.36], [-0.08, -0.55]],
 ]
@@ -1526,8 +1922,8 @@ export const wings: Wallpaper = {
   collection: "Arcade",
   activity: {
     calm: "The carrier underway on faceted swells, its wake, glittering water, deck lights and drifting clouds",
-    lively: "Adds jets launching off the deck now and then, a distant pair circling and a deck crew light",
-    teeming: "Adds another jet circling, landings, a helicopter, an A-10 skimming the water, a B-2 high overhead and escort ships",
+    lively: "Adds launches and landings, jets circling and crossing in formation, a helicopter, deck crew, gulls, boats and an escort",
+    teeming: "A busy sky and sea: launches every few seconds, formations, an E-2, a tanker, cargo planes, helicopters, the A-10 and B-2, birds, escorts, dolphins and a whale",
   },
   scrim: {
     day: [
