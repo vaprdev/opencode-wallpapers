@@ -365,7 +365,7 @@ class Wings extends Canvas {
       const n = Math.ceil((A + 0.4) / w)
       for (let i = 0; i <= n; i++) {
         const jx = k ? (hash2(i, k) - 0.5) * 0.7 : 0
-        const jy = k ? (hash2(i + 71, k) - 0.5) * 0.6 * h : 0
+        const jy = k ? (hash2(i + 71, k) - 0.5) * 0.3 * h : 0
         row.push(xs.length)
         xs.push(-0.2 + (i + jx) * w)
         ys.push(HORIZON + d + jy)
@@ -850,18 +850,23 @@ class Wings extends Canvas {
     this.planform(x, y, s, Math.PI / 2, 0.3, SPIRITFORM, this.craft(SPIRIT), fade)
   }
 
-  // Sparkles bursting from a click on the water, spreading and twinkling out.
+  // Sparkles bursting from a click on the water, spreading and twinkling out, each a little four-pointed glint.
   private drawSparkles() {
     const { H, look } = this
     const c = look.night ? look.spec : [1.2, 1.2, 1.1]
+    const arm = Math.max(1, 0.004 * H)
     for (const s of this.sparkles) {
       const f = s.age / SPARKLE
-      for (let i = 0; i < 18; i++) {
+      for (let i = 0; i < 28; i++) {
         const a = hash(s.seed + i) * TAU
-        const r = (0.02 + hash(s.seed + i * 3.1) * 0.06) * Math.sqrt(f)
-        const tw = Math.max(0, Math.sin(s.age * 9 + i * 2.3))
-        const k = (1 - f) * tw * 0.9
-        this.splat((s.x + Math.cos(a) * r) * H, (s.y + Math.sin(a) * r * 0.35 - f * 0.01) * H, c[0] * k, c[1] * k, c[2] * k)
+        const r = (0.02 + hash(s.seed + i * 3.1) * 0.09) * Math.sqrt(f)
+        const tw = Math.max(0, Math.sin(s.age * 7 + i * 2.3))
+        const k = (1 - f) * tw * 1.6
+        if (k <= 0.02) continue
+        const x = (s.x + Math.cos(a) * r) * H
+        const y = (s.y + Math.sin(a) * r * 0.35 - f * 0.01) * H
+        this.splat(x, y, c[0] * k, c[1] * k, c[2] * k)
+        for (const [dx, dy] of [[arm, 0], [-arm, 0], [0, arm], [0, -arm]]) this.splat(x + dx, y + dy, c[0] * k * 0.3, c[1] * k * 0.3, c[2] * k * 0.3)
       }
     }
   }
@@ -1078,6 +1083,12 @@ function shadeFacets(X: Float32Array, Z: Float32Array, Y: Float32Array, tris: In
       nx = -nx
       ny = -ny
       nz = -nz
+    }
+    // Slivers where rows of different spacing meet can come out nearly vertical; no facet tilts more than a wave would.
+    const tilt = Math.hypot(nx, nz) / Math.max(1e-9, ny)
+    if (tilt > 0.7) {
+      nx *= 0.7 / tilt
+      nz *= 0.7 / tilt
     }
     const nl = Math.hypot(nx, ny, nz) || 1
     nx /= nl
