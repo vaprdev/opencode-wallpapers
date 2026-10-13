@@ -59,13 +59,14 @@ interface Look {
   // instruments' backlight, and rain on the glass.
   frame: RGB
   rim: RGB
-  dial: RGB
   drop: RGB
-  // Inside: painted panels, brass fittings, chart paper, glowing screens, and the lamps' warm light (red at night).
+  // Inside: matte gray panels, lighter bezels, display backgrounds, the displays' main and accent glow (blue-green,
+  // red and amber in night mode), and the bridge lighting (red at night).
   panel: RGB
-  brass: RGB
-  paper: RGB
+  bezel: RGB
+  screen: RGB
   glow: RGB
+  glow2: RGB
   lamplight: RGB
   night: boolean
 }
@@ -98,13 +99,13 @@ const LOOKS: Record<Time, Look> = {
     storm: [0.1, 0.16, 0.15],
     frame: [0.022, 0.027, 0.036],
     rim: [0.1, 0.13, 0.18],
-    dial: [0.55, 0.45, 0.22],
     drop: [0.7, 0.82, 0.95],
-    panel: [0.05, 0.056, 0.066],
-    brass: [0.26, 0.18, 0.06],
-    paper: [0.3, 0.29, 0.24],
-    glow: [0.12, 0.55, 0.28],
-    lamplight: [1, 0.7, 0.35],
+    panel: [0.045, 0.05, 0.058],
+    bezel: [0.1, 0.11, 0.122],
+    screen: [0.006, 0.03, 0.04],
+    glow: [0.12, 0.62, 0.6],
+    glow2: [0.25, 0.85, 0.35],
+    lamplight: [0.6, 0.8, 1],
     night: false,
   },
   sunset: {
@@ -136,13 +137,13 @@ const LOOKS: Record<Time, Look> = {
     storm: [0.12, 0.1, 0.14],
     frame: [0.03, 0.018, 0.04],
     rim: [0.22, 0.1, 0.12],
-    dial: [0.7, 0.32, 0.12],
     drop: [1, 0.6, 0.55],
-    panel: [0.06, 0.036, 0.056],
-    brass: [0.3, 0.16, 0.06],
-    paper: [0.36, 0.24, 0.22],
-    glow: [0.7, 0.35, 0.08],
-    lamplight: [1, 0.55, 0.25],
+    panel: [0.05, 0.04, 0.054],
+    bezel: [0.11, 0.09, 0.11],
+    screen: [0.006, 0.028, 0.038],
+    glow: [0.12, 0.55, 0.55],
+    glow2: [0.25, 0.8, 0.35],
+    lamplight: [1, 0.6, 0.4],
     night: false,
   },
   night: {
@@ -172,12 +173,12 @@ const LOOKS: Record<Time, Look> = {
     storm: [0.02, 0.055, 0.05],
     frame: [0.008, 0.005, 0.014],
     rim: [0.07, 0.012, 0.01],
-    dial: [0.75, 0.08, 0.02],
     drop: [0.08, 0.22, 0.5],
-    panel: [0.022, 0.005, 0.006],
-    brass: [0.16, 0.055, 0.012],
-    paper: [0.16, 0.025, 0.012],
-    glow: [0.6, 0.22, 0.02],
+    panel: [0.02, 0.005, 0.006],
+    bezel: [0.045, 0.01, 0.01],
+    screen: [0.03, 0.006, 0.002],
+    glow: [0.6, 0.24, 0.02],
+    glow2: [0.75, 0.08, 0.02],
     lamplight: [0.9, 0.06, 0.015],
     night: true,
   },
@@ -1160,20 +1161,30 @@ class WingsBridge extends Canvas {
     const top = (x: number) => this.paneEdges(x)[0]
     const sill = (x: number) => this.paneEdges(x)[1]
     const band = (y0: (x: number) => number, y1: (x: number) => number, c: RGB) => this.polygon([...xs.map((x) => P(x, y0(x))), ...xs.slice().reverse().map((x) => P(x, y1(x)))], c)
-    // The bulkhead above the windows, the ceiling with its seams, pipes and a cable tray.
+    // The bulkhead above the windows, and the ceiling with its seams, an air-conditioning vent, LED light strips and
+    // cable trays.
     this.polygon([P(0, 0), P(A, 0), ...xs.slice().reverse().map((x) => P(x, top(x)))], col(look.panel))
     rect(0, 0, A, 0.04, col(look.frame, 1.3))
     if (!mask) {
       for (let x = -0.3; x < A + 0.3; x += 0.24) this.polygon([P(x - 0.002, 0), P(x + 0.002, 0), P(A / 2 + (x - A / 2) * 0.88 + 0.002, 0.04), P(A / 2 + (x - A / 2) * 0.88 - 0.002, 0.04)], col(look.frame, 0.55))
       rect(0, 0.019, A, 0.022, col(look.frame, 0.6))
+      rect(A / 2 - 0.09, 0.006, A / 2 + 0.09, 0.032, col(look.frame, 2.2))
+      for (let i = 0; i < 6; i++) rect(A / 2 - 0.08, 0.01 + i * 0.0035, A / 2 + 0.08, 0.0115 + i * 0.0035, col(look.frame, 0.7))
+      for (const x of [A / 2 - 0.6, A / 2 + 0.6]) {
+        rect(x - 0.08, 0.026, x + 0.08, 0.033, col(look.bezel, 1.2))
+        rect(x - 0.075, 0.028, x + 0.075, 0.031, col(look.lamplight, look.night ? 0.5 : 0.9))
+        poolOn(this.hdr, this.W, H, x * H, 0.06 * H, 0.32 * H, 0.1 * H, look.lamplight, look.night ? 0.8 : 0.5)
+      }
     }
-    this.pipe(0.048, 0.0075, look.brass, 0.55, mask)
-    this.pipe(0.064, 0.005, look.panel, 2.6, mask)
-    rect(0, 0.073, A, 0.079, col(look.frame, 1.6))
-    if (!mask) for (let x = 0.12; x < A; x += 0.33) rect(x, 0.04, x + 0.009, 0.08, col(look.frame, 0.9))
-    // The window header and sill, and mullions leaning in toward the top as the glass slants out.
+    for (const y of [0.045, 0.062]) {
+      rect(0, y, A, y + 0.011, col(look.frame, 1.8))
+      if (!mask) for (let k = 0; k < 3; k++) rect(0, y + 0.002 + k * 0.003, A, y + 0.0035 + k * 0.003, col(k === 1 ? look.bezel : look.frame, k === 1 ? 0.9 : 3))
+    }
+    if (!mask) for (let x = 0.12; x < A; x += 0.33) rect(x, 0.04, x + 0.008, 0.078, col(look.bezel, 0.8))
+    // The window header with its status light strip, the sill, and mullions leaning in as the glass slants out.
     band((x) => top(x) - 0.022, top, col(look.frame, 1))
     band((x) => top(x) - 0.006, (x) => top(x) + 0.004, mask ? col(look.frame) : this.rimmed(1.6, 0.3))
+    rect(A / 2 - 0.2, 0.176, A / 2 + 0.2, 0.19, col(look.bezel, 0.7))
     for (const d of this.mullions()) {
       const x = A / 2 + d
       const lean = Math.abs(d) > 0.6 ? 0.92 : 0.95
@@ -1187,256 +1198,219 @@ class WingsBridge extends Canvas {
     this.drawConsoleBody(s, mask, band, sill)
   }
 
-  // A pipe running the width of the ceiling, rounded by a highlight above and a shadow below.
-  private pipe(y: number, r: number, c: RGB, k: number, mask: boolean) {
-    const { A, H } = this
-    const rect = (y0: number, y1: number, kk: number) => this.polygon([[0, y0 * H], [A * H, y0 * H], [A * H, y1 * H], [0, y1 * H]], mask ? [1, 1, 1] : [c[0] * kk, c[1] * kk, c[2] * kk])
-    rect(y - r, y + r, k)
-    if (mask) return
-    rect(y - r * 0.6, y - r * 0.2, k * 1.7)
-    rect(y + r * 0.5, y + r, k * 0.55)
-  }
-
-  // The gear mounted overhead: a radio set, repeater displays, a speaker and a fan, a clock, an alarm light,
-  // binoculars on a hook and a sextant, and two small ceiling lamps.
+  // The overhead console: a comms rack of lit keys with a headset on its hook, three slim repeater screens (heading,
+  // speed and wind), a digital clock, and a row of switches under guards.
   private drawOverhead(s: Spots, mask: boolean) {
     const { H, look } = this
     const col = (c: RGB, k = 1): RGB => (mask ? [1, 1, 1] : [c[0] * k, c[1] * k, c[2] * k])
     const P = (x: number, y: number): Point => [x * H, y * H]
     const rect = (x0: number, y0: number, x1: number, y1: number, c: RGB) => this.polygon([P(x0, y0), P(x1, y0), P(x1, y1), P(x0, y1)], c)
     const disc = (x: number, y: number, r: number, c: RGB, ry = r) => this.ellipse(x * H, y * H, r * H, ry * H, c[0], c[1], c[2], 1)
-    const frame = look.frame
-    // The radio: a cabinet with two tuning dials, a glowing band display, knobs, and a cradle for the handset.
-    const r = s.radio
-    rect(r.x0, 0.084, r.x1, 0.168, col(frame, 2))
-    rect(r.x0 + 0.006, 0.09, r.x1 - 0.006, 0.162, col(look.panel, 1.3))
-    for (const dx of [0.04, 0.095]) {
-      disc(r.x0 + dx, 0.128, 0.022, col(look.brass, 0.9))
-      disc(r.x0 + dx, 0.128, 0.017, col(frame, 1.2))
-      if (!mask) this.polygon([P(r.x0 + dx - 0.002, 0.128), P(r.x0 + dx + 0.002, 0.128), P(r.x0 + dx + 0.008, 0.114)], col(look.brass, 1.4))
+    const g = look.glow
+    // The overhead console's slanted face runs the width of the bulkhead.
+    rect(0, 0.08, this.A, 0.172, col(look.panel, 1.25))
+    rect(0, 0.08, this.A, 0.084, mask ? col(look.frame) : this.rimmed(1.6, 0.2))
+    for (const r of [s.rack, s.rack2]) {
+      if (!r) continue
+      plate(r.x0, 0.088, r.x1, 0.166)
+      rect(r.x0 + 0.008, 0.093, r.x1 - 0.008, 0.103, col(look.screen, 1.4))
+      if (!mask) rect(r.x0 + 0.012, 0.096, r.x0 + 0.012 + (r.x1 - r.x0) * 0.4, 0.1, col(g, 0.6))
+      if (!mask) for (const [x, y] of keyGrid(r)) rect(x - 0.008, y - 0.006, x + 0.008, y + 0.006, col(look.bezel, 1.3))
     }
-    rect(r.x0 + 0.13, 0.1, r.x1 - 0.015, 0.122, col(look.glow, 0.2))
-    if (!mask) for (let i = 0; i < 4; i++) rect(r.x0 + 0.135 + i * 0.02, 0.105, r.x0 + 0.145 + i * 0.02, 0.117 - hash(i * 1.7) * 0.007, col(look.glow, 0.8))
-    for (let i = 0; i < 3; i++) disc(r.x0 + 0.14 + i * 0.03, 0.145, 0.007, col(frame, 3.5))
-    rect(r.x1 - 0.022, 0.158, r.x1 - 0.008, 0.172, col(frame, 3))
-    // Three repeater displays: a radar picture, the depth under the keel, and the wind.
+    // The headset on its hook at the rack's side; its cord is drawn each frame.
+    const hx = s.rack.x1 - 0.022
+    rect(hx - 0.003, 0.166, hx + 0.003, 0.178, col(look.bezel, 1.4))
+    if (!mask) {
+      for (let i = 0; i < 7; i++) {
+        const a0 = Math.PI * (i / 7)
+        const a1 = Math.PI * ((i + 1) / 7)
+        const arc = (a: number, r: number): Point => P(hx - Math.cos(a) * r, 0.2 - Math.sin(a) * r * 0.9)
+        this.polygon([arc(a0, 0.026), arc(a1, 0.026), arc(a1, 0.021), arc(a0, 0.021)], col(look.frame, 3))
+      }
+    }
+    for (const side of [-1, 1]) disc(hx + side * 0.024, 0.205, 0.009, col(look.frame, 3.4), 0.013)
+    if (!mask) this.polygon([P(hx - 0.03, 0.208), P(hx - 0.027, 0.206), P(hx - 0.005, 0.226), P(hx - 0.008, 0.229)], col(look.frame, 3.4))
+    // The slim repeaters: a heading tape, a speed bar and a wind dial.
     for (const [i, cx] of s.screens.entries()) {
       const hw = s.sw / 2
-      rect(cx - 0.01, 0.075, cx + 0.01, 0.086, col(frame, 1.4))
-      rect(cx - hw, 0.084, cx + hw, 0.17, col(frame, 1.8))
-      rect(cx - hw + 0.008, 0.092, cx + hw - 0.008, 0.162, col(look.glow, 0.1))
+      plate(cx - hw, 0.092, cx + hw, 0.158)
+      rect(cx - hw + 0.007, 0.099, cx + hw - 0.007, 0.151, col(look.screen))
       if (mask) continue
-      const g = look.glow
-      const sy = 0.127
       if (i === 0) {
-        disc(cx, sy, 0.028, col(g, 0.5))
-        disc(cx, sy, 0.025, col(g, 0.1))
-        disc(cx, sy, 0.013, col(g, 0.35))
-        disc(cx, sy, 0.011, col(g, 0.1))
-        this.polygon([P(cx - 0.0015, sy), P(cx + 0.0015, sy), P(cx + 0.02, sy - 0.018)], col(g, 0.8))
-        for (const [bx, by] of [[0.012, 0.01], [-0.017, -0.006], [0.004, -0.02]]) disc(cx + bx, sy + by, 0.003, col(g, 1.1))
+        for (let k = -4; k <= 4; k++) rect(cx + k * hw * 0.2 - 0.0012, k % 2 ? 0.118 : 0.112, cx + k * hw * 0.2 + 0.0012, 0.126, col(g, 0.6))
+        rect(cx - hw + 0.012, 0.128, cx + hw - 0.012, 0.13, col(g, 0.5))
+        this.polygon([P(cx - 0.006, 0.142), P(cx + 0.006, 0.142), P(cx, 0.132)], col(look.glow2))
         continue
       }
       if (i === 1) {
-        const pts: Point[] = [P(cx - hw + 0.012, 0.158)]
-        for (let k = 0; k <= 8; k++) pts.push(P(cx - hw + 0.012 + (k / 8) * (s.sw - 0.024), 0.13 + Math.sin(k * 1.3) * 0.008 + hash(k * 2.3) * 0.008))
-        pts.push(P(cx + hw - 0.012, 0.158))
-        this.polygon(pts, col(g, 0.45))
-        rect(cx - hw + 0.012, 0.104, cx + hw - 0.012, 0.107, col(g, 0.7))
-        disc(cx - hw / 3, 0.115, 0.004, col(g, 1))
+        rect(cx - hw + 0.014, 0.115, cx + hw - 0.014, 0.133, col(g, 0.35))
+        rect(cx - hw + 0.016, 0.117, cx - hw + 0.016 + (s.sw - 0.032) * 0.62, 0.131, col(g, 0.85))
+        for (let k = 0; k <= 5; k++) rect(cx - hw + 0.014 + (k / 5) * (s.sw - 0.028) - 0.001, 0.136, cx - hw + 0.014 + (k / 5) * (s.sw - 0.028) + 0.001, 0.142, col(g, 0.5))
         continue
       }
-      disc(cx, sy, 0.026, col(g, 0.45))
-      disc(cx, sy, 0.023, col(g, 0.1))
-      this.polygon([P(cx - 0.016, sy + 0.012), P(cx + 0.014, sy - 0.014), P(cx + 0.006, sy - 0.003), P(cx + 0.017, sy - 0.017), P(cx + 0.003, sy - 0.006), P(cx + 0.011, sy - 0.015)], col(g, 0.9))
+      disc(cx, 0.125, 0.021, col(g, 0.5))
+      disc(cx, 0.125, 0.018, col(look.screen))
+      this.polygon([P(cx - 0.012, 0.132), P(cx + 0.011, 0.117), P(cx + 0.006, 0.124), P(cx + 0.015, 0.113), P(cx + 0.002, 0.12), P(cx + 0.008, 0.115)], col(look.glow2))
     }
-    // A speaker grille and a small caged fan.
-    if (s.speaker !== undefined) {
-      rect(s.speaker - 0.034, 0.09, s.speaker + 0.034, 0.158, col(frame, 2))
-      if (!mask) for (let i = 0; i < 6; i++) rect(s.speaker - 0.024, 0.1 + i * 0.01, s.speaker + 0.024, 0.104 + i * 0.01, col(frame, 0.8))
+    // The clock: glowing seven-segment digits in a dark window; the colon blinks each frame.
+    const c = s.clock
+    plate(c.x0, 0.095, c.x1, 0.155)
+    rect(c.x0 + 0.008, 0.102, c.x1 - 0.008, 0.148, col(look.screen, 0.6))
+    if (!mask) {
+      const dw = (c.x1 - c.x0 - 0.04) / 4
+      for (let d = 0; d < 4; d++) {
+        const x = c.x0 + 0.014 + d * dw + (d > 1 ? 0.012 : 0)
+        sevenSegment((pts, color) => this.polygon(pts, color), x, 0.108, dw * 0.7, 0.034, DIGITS[d], col(g, 0.95), col(g, 0.12), H)
+      }
     }
-    if (s.fan !== undefined) {
-      const f = s.fan
-      rect(f - 0.006, 0.079, f + 0.006, 0.1, col(frame, 2))
-      disc(f, 0.125, 0.033, col(frame, 2.8))
-      disc(f, 0.125, 0.028, col(look.panel, 0.7))
-      if (!mask) {
-        for (let i = 0; i < 3; i++) {
-          const a = 0.5 + (i * TAU) / 3
-          this.polygon([P(f, 0.125), P(f + Math.cos(a) * 0.026, 0.125 + Math.sin(a) * 0.026), P(f + Math.cos(a + 0.7) * 0.024, 0.125 + Math.sin(a + 0.7) * 0.024)], col(frame, 2.2))
+    // The guarded switches: toggles behind hinged red covers.
+    const gd = s.guards
+    plate(gd.x0, 0.09, gd.x1, 0.166)
+    if (!mask)
+      for (const y of [0.104, 0.138])
+        for (let x = gd.x0 + 0.018; x < gd.x1 - 0.012; x += 0.03) {
+          rect(x - 0.009, y - 0.004, x + 0.009, y + 0.018, col(look.night ? [0.2, 0.02, 0.01] : [0.32, 0.05, 0.04]))
+          rect(x - 0.006, y - 0.001, x + 0.006, y + 0.015, col(look.panel, 0.9))
+          rect(x - 0.0015, y + 0.002, x + 0.0015, y + 0.012, col(look.bezel, 1.6))
         }
-        disc(f, 0.125, 0.006, col(look.brass, 0.8))
-      }
+
+    function plate(x0: number, y0: number, x1: number, y1: number) {
+      rect(x0, y0, x1, y1, col(look.bezel, 0.75))
+      rect(x0 + 0.003, y0 + 0.003, x1 - 0.003, y1 - 0.003, col(look.panel, 1.6))
     }
-    // The ship's clock in a brass bezel; its hands move each frame.
-    disc(s.clock, 0.122, 0.042, col(look.brass))
-    disc(s.clock, 0.122, 0.035, col(look.paper, look.night ? 1 : 0.85))
-    if (!mask)
-      for (let i = 0; i < 12; i++) {
-        const a = (i / 12) * TAU
-        const l = i % 3 ? 0.028 : 0.024
-        this.polygon([P(s.clock + Math.sin(a) * 0.032 - Math.cos(a) * 0.0015, 0.122 - Math.cos(a) * 0.032 - Math.sin(a) * 0.0015), P(s.clock + Math.sin(a) * 0.032 + Math.cos(a) * 0.0015, 0.122 - Math.cos(a) * 0.032 + Math.sin(a) * 0.0015), P(s.clock + Math.sin(a) * l, 0.122 - Math.cos(a) * l)], col(frame, 2))
-      }
-    // A caged red alarm light.
-    rect(s.alarm - 0.02, 0.079, s.alarm + 0.02, 0.09, col(frame, 2.4))
-    disc(s.alarm, 0.104, 0.019, col([0.3, 0.03, 0.02]), 0.016)
-    if (!mask) for (const dx of [-0.01, 0, 0.01]) rect(s.alarm + dx - 0.0012, 0.089, s.alarm + dx + 0.0012, 0.12, col(frame, 2.4))
-    // Binoculars hanging by their strap from a hook.
-    if (s.binoculars !== undefined) {
-      const b = s.binoculars
-      rect(b - 0.003, 0.08, b + 0.003, 0.092, col(look.brass, 0.8))
-      if (!mask) for (const side of [-1, 1]) this.polygon([P(b, 0.09), P(b + 0.002 * side, 0.09), P(b + 0.02 * side, 0.118), P(b + 0.017 * side, 0.118)], col(frame, 2))
-      for (const side of [-1, 1]) {
-        rect(b + side * 0.004, 0.118, b + side * 0.024, 0.162, col(frame, 2.6))
-        rect(b + side * 0.007, 0.112, b + side * 0.021, 0.12, col(frame, 3.4))
-        if (!mask) rect(b + side * 0.019, 0.122, b + side * 0.022, 0.158, col(look.panel, 3.2))
-      }
-    }
-    // A brass sextant on its bracket: the arc, the frame's two arms, the index arm and its little telescope.
-    const sx = s.sextant
-    const sy = 0.086
-    const arc = (a: number, rr: number): Point => P(sx + Math.sin(a) * rr, sy + Math.cos(a) * rr)
-    const brass = col(look.brass, 1.2)
-    rect(sx - 0.004, 0.079, sx + 0.004, 0.09, col(frame, 2.4))
-    for (let i = 0; i < 8; i++) {
-      const a0 = -0.55 + (i / 8) * 1.1
-      const a1 = -0.55 + ((i + 1) / 8) * 1.1
-      this.polygon([arc(a0, 0.072), arc(a1, 0.072), arc(a1, 0.063), arc(a0, 0.063)], brass)
-    }
-    for (const a of [-0.55, 0.55]) this.polygon([P(sx - 0.002, sy), P(sx + 0.002, sy), arc(a + 0.03 * Math.sign(a), 0.066), arc(a - 0.03 * Math.sign(a), 0.066)], brass)
-    this.polygon([P(sx - 0.0015, sy), P(sx + 0.0015, sy), arc(0.2, 0.075), arc(0.16, 0.075)], col(look.brass, 1.6))
-    rect(sx - 0.03, 0.112, sx + 0.006, 0.12, col(frame, 3))
-    disc(sx, sy, 0.006, col(look.brass, 1.5))
-    // Ceiling lamps spill warm light on the bulkhead (red at night).
-    if (!mask)
-      for (const x of [this.A / 2 - 0.62, this.A / 2 + 0.62]) {
-        this.polygon([P(x - 0.025, 0.04), P(x + 0.025, 0.04), P(x + 0.015, 0.052), P(x - 0.015, 0.052)], col(frame, 2.6))
-        rect(x - 0.012, 0.052, x + 0.012, 0.056, col(look.lamplight, look.night ? 0.5 : 0.8))
-        poolOn(this.hdr, this.W, H, x * H, 0.06 * H, 0.3 * H, 0.12 * H, look.lamplight, look.night ? 0.8 : 0.6)
-      }
   }
 
-  // The console: its sloping top with switch panels, and on its face the radar, the engine telegraph and throttles,
-  // the wheel, the binnacle, the chart table and the captain's chair at the corner.
+  // The console: its rounded top with key panels, a row of multifunction displays in touch bezels (radar, an
+  // electronic chart, the ship's status and the engines), and the desk in front with a keyboard and trackball, the
+  // helm joystick and the throttle quadrant; an officer's chair in the corner.
   private drawConsoleBody(s: Spots, mask: boolean, band: (y0: (x: number) => number, y1: (x: number) => number, c: RGB) => void, sill: (x: number) => number) {
     const { A, H, look } = this
     const col = (c: RGB, k = 1): RGB => (mask ? [1, 1, 1] : [c[0] * k, c[1] * k, c[2] * k])
     const P = (x: number, y: number): Point => [x * H, y * H]
     const rect = (x0: number, y0: number, x1: number, y1: number, c: RGB) => this.polygon([P(x0, y0), P(x1, y0), P(x1, y1), P(x0, y1)], c)
+    const rounded = (x0: number, y0: number, x1: number, y1: number, r: number, c: RGB) => this.polygon([P(x0 + r, y0), P(x1 - r, y0), P(x1, y0 + r), P(x1, y1 - r), P(x1 - r, y1), P(x0 + r, y1), P(x0, y1 - r), P(x0, y0 + r)], c)
     const disc = (x: number, y: number, r: number, c: RGB, ry = r) => this.ellipse(x * H, y * H, r * H, ry * H, c[0], c[1], c[2], 1)
-    const frame = look.frame
-    // The console's top catches the window light; a lip, then its face.
-    band((x) => sill(x) - 0.006, () => 0.7, col(look.panel, 1.5))
-    rect(0, 0.7, A, 0.712, mask ? col(frame) : this.rimmed(2.4, 0.5))
-    rect(0, 0.712, A, 1, col(look.panel, 0.85))
-    // Switch panels along the top: toggles in rows, with indicator lamps between them (lit each frame).
-    const [p0, p1] = s.switches
-    const n = Math.max(1, Math.round((p1 - p0) / 0.3))
-    const pw = (p1 - p0) / n
-    for (let i = 0; i < n; i++) {
-      const x0 = p0 + i * pw + 0.01
-      const x1 = p0 + (i + 1) * pw - 0.01
-      rect(x0, 0.617, x1, 0.69, col(frame, 1.8))
-      if (mask) continue
-      for (let x = x0 + 0.015; x < x1 - 0.01; x += 0.03) {
-        rect(x - 0.004, 0.63, x + 0.004, 0.64, col(look.panel, 2.2))
-        rect(x - 0.0015, 0.625, x + 0.0015, 0.634, col(look.brass, 0.8))
-      }
-    }
-    // The radar: a hooded housing, its bezel and dark scope; the sweep is drawn each frame.
-    const rd = s.radar
-    rect(rd.x - rd.rx - 0.025, rd.y - rd.ry - 0.022, rd.x + rd.rx + 0.025, rd.y + rd.ry + 0.04, col(frame, 1.8))
-    this.polygon([P(rd.x - rd.rx - 0.03, rd.y - rd.ry - 0.022), P(rd.x + rd.rx + 0.03, rd.y - rd.ry - 0.022), P(rd.x + rd.rx + 0.022, rd.y - rd.ry - 0.034), P(rd.x - rd.rx - 0.022, rd.y - rd.ry - 0.034)], col(frame, 2.6))
-    disc(rd.x, rd.y, rd.rx + 0.012, col(look.panel, 2.6), rd.ry + 0.01)
-    disc(rd.x, rd.y, rd.rx, mask ? col(frame) : look.night ? [0.02, 0.008, 0.002] : [0.004, 0.02, 0.01], rd.ry)
-    for (let i = 0; i < 4; i++) disc(rd.x - 0.06 + i * 0.04, rd.y + rd.ry + 0.022, 0.007, col(frame, 4))
-    // The engine telegraph: a brass drum on a pedestal, its dial in sectors and the lever set ahead.
-    const tg = s.telegraph
-    if (tg) {
-      this.polygon([P(tg.x - 0.022, 1), P(tg.x + 0.022, 1), P(tg.x + 0.016, tg.y), P(tg.x - 0.016, tg.y)], col(look.brass, 0.45))
-      disc(tg.x, tg.y, 0.06, col(look.brass), 0.052)
-      disc(tg.x, tg.y, 0.05, col(look.night ? look.glow : look.paper, look.night ? 0.35 : 0.75), 0.043)
-      if (!mask) {
-        for (let i = 0; i < 9; i++) {
-          const a = -1.4 + (i / 8) * 2.8
-          this.polygon([P(tg.x, tg.y), P(tg.x + Math.sin(a) * 0.05 - 0.002, tg.y - Math.cos(a) * 0.043), P(tg.x + Math.sin(a) * 0.05 + 0.002, tg.y - Math.cos(a) * 0.043)], col(frame, 2.5))
+    const g = look.glow
+    const g2 = look.glow2
+    // The console's gray top with a rounded front edge, its face, and the desk below.
+    band((x) => sill(x) - 0.006, () => 0.7, col(look.panel, 1.6))
+    rect(0, 0.7, A, 0.714, mask ? col(look.frame) : this.rimmed(2.6, 0.45))
+    rect(0, 0.714, A, 0.9, col(look.panel, 0.9))
+    rect(0, 0.9, A, 1, col(look.panel, 1.35))
+    rect(0, 0.9, A, 0.908, mask ? col(look.frame) : this.rimmed(2.4, 0.4))
+    // Key panels along the top; their lamps are lit each frame.
+    for (const [x0, x1] of s.keyPanels) {
+      rounded(x0, 0.618, x1, 0.69, 0.006, col(look.screen, 1.6))
+      if (!mask)
+        for (let x = x0 + 0.015; x < x1 - 0.01; x += 0.03) {
+          rect(x - 0.009, 0.628, x + 0.009, 0.642, col(look.bezel, 1.1))
+          rect(x - 0.009, 0.67, x + 0.009, 0.682, col(look.bezel, 0.9))
         }
-        disc(tg.x, tg.y, 0.03, col(look.night ? look.glow : look.paper, look.night ? 0.3 : 0.7), 0.026)
-        this.polygon([P(tg.x - 0.004, tg.y + 0.004), P(tg.x + 0.004, tg.y + 0.004), P(tg.x - 0.028, tg.y - 0.05), P(tg.x - 0.036, tg.y - 0.046)], col(look.brass, 1.4))
-        disc(tg.x - 0.033, tg.y - 0.05, 0.009, col(look.brass, 1.7))
-        disc(tg.x, tg.y, 0.008, col(look.brass, 1.3))
+    }
+    // The displays.
+    const [y0, y1] = [DISPLAY_TOP, DISPLAY_BOTTOM]
+    for (const [i, dx] of s.displays.entries()) {
+      const x1 = dx + s.dw
+      rounded(dx - 0.01, y0 - 0.012, x1 + 0.01, y1 + 0.03, 0.012, col(look.bezel))
+      rect(dx, y0, x1, y1, col(look.screen))
+      // Soft keys along the bezel's foot.
+      if (!mask) for (let k = 0; k < 6; k++) rect(dx + 0.01 + (k * (s.dw - 0.02)) / 6, y1 + 0.009, dx + 0.01 + ((k + 0.7) * (s.dw - 0.02)) / 6, y1 + 0.019, col(look.bezel, 1.8))
+      if (mask) continue
+      const cx = dx + s.dw / 2
+      const cy = (y0 + y1) / 2
+      if (i === 0) {
+        // Radar: range rings around the scope (the sweep is drawn each frame) and track tables beside it.
+        const r = s.scope.r
+        disc(cx, cy, r + 0.004, col(g, 0.35))
+        disc(cx, cy, r, col(look.screen, 0.6))
+        for (const side of [-1, 1])
+          if (s.dw > 0.26) for (let k = 0; k < 5; k++) rect(cx + side * (r + 0.015), y0 + 0.02 + k * 0.022, cx + side * (r + 0.015) + side * (s.dw / 2 - r - 0.03), y0 + 0.027 + k * 0.022, col(g, 0.25 + 0.15 * (k % 2)))
+        continue
+      }
+      if (i === 1) {
+        // The electronic chart: land with its coastline, depth contours, the planned track and waypoints; own ship moves
+        // along the track each frame.
+        const land: Point[] = [P(dx, y0), P(x1, y0), P(x1, y0 + 0.02)]
+        for (let k = 8; k >= 0; k--) land.push(P(dx + (k / 8) * s.dw, y0 + 0.035 + Math.sin(k * 1.1) * 0.012 + hash(k * 2.9) * 0.015 - (k / 8) * 0.02))
+        this.polygon(land, col(g, 0.22))
+        for (let k = 0; k < 8; k++) {
+          const xa = dx + (k / 8) * s.dw
+          const xb = dx + ((k + 1) / 8) * s.dw
+          const ya = y0 + 0.035 + Math.sin(k * 1.1) * 0.012 + hash(k * 2.9) * 0.015 - (k / 8) * 0.02
+          const yb = y0 + 0.035 + Math.sin((k + 1) * 1.1) * 0.012 + hash((k + 1) * 2.9) * 0.015 - ((k + 1) / 8) * 0.02
+          this.polygon([P(xa, ya), P(xb, yb), P(xb, yb + 0.003), P(xa, ya + 0.003)], col(g, 0.7))
+          for (const off of [0.03, 0.06]) if (k % 2 === 0) this.polygon([P(xa, ya + off), P(xb, yb + off), P(xb, yb + off + 0.0015), P(xa, ya + off + 0.0015)], col(g, 0.25))
+        }
+        disc(dx + s.dw * 0.72, y0 + 0.07, 0.014, col(g, 0.22), 0.009)
+        const [ax, ay, bx, by] = s.track
+        for (let k = 0; k < 10; k += 2) {
+          const f0 = k / 10
+          const f1 = (k + 1) / 10
+          this.polygon([P(lerp(ax, bx, f0), lerp(ay, by, f0) - 0.001), P(lerp(ax, bx, f1), lerp(ay, by, f1) - 0.001), P(lerp(ax, bx, f1), lerp(ay, by, f1) + 0.001), P(lerp(ax, bx, f0), lerp(ay, by, f0) + 0.001)], col(g2, 0.8))
+        }
+        for (const f of [0, 0.5, 1]) disc(lerp(ax, bx, f), lerp(ay, by, f), 0.004, col(g2, 0.6))
+        continue
+      }
+      if (i === 2) {
+        // Ship status: the carrier's deck outline seen from above, with its deck spots marked.
+        const L = s.dw * 0.4
+        const Q = (u: number, v: number): Point => P(cx + u * L, cy + v * L)
+        const deck: Point[] = [Q(-1, -0.12), Q(0.75, -0.16), Q(1, -0.08), Q(1, 0.12), Q(0.6, 0.2), Q(-0.3, 0.2), Q(-1, 0.32), Q(-1.02, 0.18)]
+        this.polygon(deck, col(g, 0.55))
+        this.polygon(deck.map(([x, y]) => [cx * H + (x - cx * H) * 0.94, cy * H + (y - cy * H) * 0.85] as const), col(look.screen, 1.2))
+        this.polygon([Q(-0.95, 0.24), Q(0.4, -0.02), Q(0.42, 0.01), Q(-0.92, 0.27)], col(g, 0.4))
+        this.polygon([Q(0.05, -0.2), Q(0.25, -0.2), Q(0.25, -0.13), Q(0.05, -0.13)], col(g, 0.7))
+        for (let k = 0; k < 4; k++) rect(cx + (0.3 + k * 0.32 - 0.8) * L - 0.003, y1 - 0.025, cx + (0.3 + k * 0.32 - 0.8) * L + 0.003, y1 - 0.019, col(g, 0.5))
+        continue
+      }
+      // Engines and power: four bars with their levels, and a trend line above.
+      for (let k = 0; k < 4; k++) {
+        const bx = dx + 0.02 + (k * (s.dw - 0.04)) / 4
+        const bw = (s.dw - 0.04) / 4 - 0.012
+        const level = [0.72, 0.68, 0.8, 0.45][k]
+        rect(bx, y0 + 0.05, bx + bw, y1 - 0.012, col(g, 0.22))
+        rect(bx + 0.002, y1 - 0.014 - (y1 - y0 - 0.064) * level, bx + bw - 0.002, y1 - 0.014, col(k === 3 ? g2 : g, 0.75))
+      }
+      for (let k = 0; k < 10; k++) {
+        const xa = dx + 0.02 + (k / 10) * (s.dw - 0.04)
+        const xb = dx + 0.02 + ((k + 1) / 10) * (s.dw - 0.04)
+        const ya = y0 + 0.03 - Math.sin(k * 0.9) * 0.008
+        const yb = y0 + 0.03 - Math.sin((k + 1) * 0.9) * 0.008
+        this.polygon([P(xa, ya), P(xb, yb), P(xb, yb + 0.002), P(xa, ya + 0.002)], col(g, 0.6))
       }
     }
-    // Two throttle levers in their quadrant.
-    if (s.throttle !== undefined) {
-      const tx = s.throttle
-      rect(tx - 0.035, 0.79, tx + 0.035, 0.82, col(frame, 2))
-      for (const [dx, lean] of [[-0.013, 0.006], [0.013, -0.004]] as const) {
-        this.polygon([P(tx + dx - 0.003, 0.805), P(tx + dx + 0.003, 0.805), P(tx + dx + lean + 0.003, 0.745), P(tx + dx + lean - 0.003, 0.745)], col(look.panel, 3.4))
-        disc(tx + dx + lean, 0.742, 0.009, col(look.brass, 1.2), 0.007)
-      }
+    // The keyboard tray and trackball.
+    const kb = s.keyboard
+    rounded(kb.x - kb.w / 2, 0.922, kb.x + kb.w / 2, 0.978, 0.008, col(look.panel, 2.2))
+    if (!mask)
+      for (let row = 0; row < 3; row++)
+        for (let x = kb.x - kb.w / 2 + 0.012; x < kb.x + kb.w / 2 - 0.012; x += 0.016) rect(x, 0.93 + row * 0.015, x + 0.011, 0.94 + row * 0.015, col(look.panel, 3.4))
+    disc(s.trackball, 0.95, 0.03, col(look.panel, 2.4), 0.02)
+    disc(s.trackball, 0.946, 0.014, col(look.screen, 4), 0.011)
+    // The helm: a compact steering joystick on its base.
+    const j = s.joystick
+    disc(j, 0.958, 0.04, col(look.panel, 2.6), 0.016)
+    this.polygon([P(j - 0.006, 0.958), P(j + 0.006, 0.958), P(j + 0.004, 0.9), P(j - 0.004, 0.9)], col(look.frame, 3.5))
+    rounded(j - 0.013, 0.86, j + 0.013, 0.905, 0.008, col(look.panel, 3))
+    disc(j, 0.868, 0.004, col(g2, 0.8))
+    // The throttle quadrant: two sleek levers in their slots.
+    const t = s.throttle
+    rounded(t - 0.045, 0.925, t + 0.045, 0.975, 0.01, col(look.panel, 2.4))
+    for (const dx of [-0.016, 0.016]) {
+      rect(t + dx - 0.003, 0.93, t + dx + 0.003, 0.97, col(look.frame, 2))
+      this.polygon([P(t + dx - 0.004, 0.95), P(t + dx + 0.004, 0.95), P(t + dx + 0.002, 0.9), P(t + dx - 0.006, 0.9)], col(look.bezel, 1.4))
+      rounded(t + dx - 0.012, 0.888, t + dx + 0.008, 0.904, 0.004, col(look.panel, 3.4))
     }
-    // The wheel, its top showing above the console's edge: a wooden rim, spokes with handles, a brass hub.
-    const wh = s.wheel
-    const wood: RGB = [look.brass[0] * 0.55, look.brass[1] * 0.45, look.brass[2] * 0.5]
-    disc(wh.x, wh.y, wh.r, col(wood), wh.r * 0.9)
-    disc(wh.x, wh.y, wh.r * 0.86, col(look.panel, 0.85), wh.r * 0.76)
-    for (let i = 0; i < 8; i++) {
-      const a = (i / 8) * TAU + 0.2
-      const ux = Math.sin(a)
-      const uy = -Math.cos(a) * 0.9
-      const w = 0.006
-      this.polygon([P(wh.x - uy * w, wh.y + ux * w), P(wh.x + uy * w, wh.y - ux * w), P(wh.x + ux * wh.r * 1.12 + uy * w, wh.y + uy * wh.r * 1.12 - ux * w), P(wh.x + ux * wh.r * 1.12 - uy * w, wh.y + uy * wh.r * 1.12 + ux * w)], col(wood, 1.15))
-      disc(wh.x + ux * wh.r * 1.18, wh.y + uy * wh.r * 1.18, 0.011, col(wood, 1.3), 0.009)
-    }
-    disc(wh.x, wh.y, 0.04, col(look.brass, 1.1), 0.036)
-    // The binnacle: a brass bowl on its pedestal, the compass glowing under its dome, and the two iron spheres.
-    const bn = s.binnacle
-    this.polygon([P(bn.x - 0.034, 1), P(bn.x + 0.034, 1), P(bn.x + 0.024, bn.y + 0.03), P(bn.x - 0.024, bn.y + 0.03)], col(look.brass, 0.5))
-    disc(bn.x, bn.y + 0.022, 0.052, col(look.brass), 0.022)
-    disc(bn.x, bn.y, 0.043, col(frame, 2), 0.034)
-    disc(bn.x, bn.y + 0.004, 0.032, col(look.night ? look.glow : look.paper, look.night ? 0.45 : 0.55), 0.02)
-    for (const side of [-1, 1]) {
-      rect(bn.x + side * 0.052 - 0.004, bn.y + 0.016, bn.x + side * 0.052 + 0.004, bn.y + 0.028, col(look.brass, 0.7))
-      disc(bn.x + side * 0.07, bn.y + 0.015, 0.017, col(look.night ? [0.3, 0.05, 0.02] : [0.2, 0.08, 0.06], 1))
-    }
-    // The chart table: a chart with a coastline and a pencilled course, dividers, the logbook, and a chart lamp.
-    const ch = s.chart
-    if (ch) {
-      this.polygon([P(ch.x0, 0.735), P(ch.x1, 0.735), P(ch.x1 + 0.02, 0.92), P(ch.x0 - 0.02, 0.92)], col(look.paper))
-      if (!mask) {
-        const coast: Point[] = []
-        for (let k = 0; k <= 10; k++) coast.push(P(ch.x0 + 0.04 + (k / 10) * (ch.x1 - ch.x0 - 0.08), 0.77 + hash(k * 3.7) * 0.03 + k * 0.004))
-        for (let k = 0; k + 1 < coast.length; k++) this.polygon([coast[k], coast[k + 1], [coast[k + 1][0], coast[k + 1][1] + 0.004 * H], [coast[k][0], coast[k][1] + 0.004 * H]], col(look.paper, 0.45))
-        this.polygon([P(ch.x0 + 0.12, 0.885), P(ch.x0 + 0.124, 0.889), P(ch.x1 - 0.03, 0.8), P(ch.x1 - 0.034, 0.797)], look.night ? col(look.paper, 0.4) : col([0.5, 0.1, 0.08]))
-        const dx = (ch.x0 + ch.x1) / 2 + 0.03
-        this.polygon([P(dx - 0.002, 0.81), P(dx + 0.002, 0.81), P(dx - 0.028, 0.875), P(dx - 0.031, 0.873)], col(look.brass, 1.5))
-        this.polygon([P(dx - 0.002, 0.81), P(dx + 0.002, 0.81), P(dx + 0.022, 0.878), P(dx + 0.019, 0.88)], col(look.brass, 1.5))
-        disc(dx, 0.81, 0.005, col(look.brass, 1.8))
-        this.polygon([P(ch.x0 + 0.005, 0.83), P(ch.x0 + 0.095, 0.82), P(ch.x0 + 0.1, 0.9), P(ch.x0 + 0.008, 0.91)], col([0.06, 0.1, 0.08], look.night ? 0.4 : 1))
-        this.polygon([P(ch.x0 + 0.095, 0.82), P(ch.x0 + 0.1, 0.821), P(ch.x0 + 0.105, 0.9), P(ch.x0 + 0.1, 0.9)], col(look.paper, 0.8))
-        this.polygon([P(ch.x0 + 0.06, 0.905), P(ch.x0 + 0.066, 0.905), P(ch.x0 + 0.068, 0.94), P(ch.x0 + 0.062, 0.94)], col([0.55, 0.08, 0.05], look.night ? 0.5 : 1))
-        const lx = ch.x1 - 0.02
-        this.polygon([P(lx - 0.003, 0.735), P(lx + 0.003, 0.735), P(lx - 0.035, 0.69), P(lx - 0.04, 0.694)], col(frame, 3))
-        this.polygon([P(lx - 0.06, 0.7), P(lx - 0.02, 0.69), P(lx - 0.025, 0.71), P(lx - 0.055, 0.716)], col(frame, 3.6))
-        poolOn(this.hdr, this.W, H, (ch.x0 + ch.x1) / 2 * H, 0.81 * H, ((ch.x1 - ch.x0) / 2 + 0.06) * H, 0.1 * H, look.lamplight, look.night ? 1.4 : 0.6)
-      }
-    }
-    // The coffee mug.
-    const m = s.mug
-    rect(m - 0.018, 0.735, m + 0.018, 0.79, col(frame, 3))
-    disc(m, 0.735, 0.018, col(frame, 1.6), 0.005)
-    disc(m + 0.024, 0.76, 0.011, col(frame, 3), 0.015)
-    disc(m + 0.024, 0.76, 0.005, col(look.panel, 0.85), 0.008)
-    // The captain's chair: its back and armrest in the corner.
-    this.polygon([P(0, 0.8), P(0.035, 0.81), P(0.06, 0.86), P(0.07, 1), P(0, 1)], col(frame, 1.4))
-    this.polygon([P(0, 0.88), P(0.13, 0.875), P(0.16, 0.9), P(0.15, 0.93), P(0, 0.94)], col(frame, 2.4))
-    if (!mask) this.polygon([P(0, 0.88), P(0.13, 0.875), P(0.15, 0.885), P(0, 0.888)], this.rimmed(2.6, 0.3))
-    // At night the instruments' red backlight pools on the console.
+    // An officer's chair in the corner: headrest, a contoured back and an armrest.
+    rounded(0.012, 0.74, 0.1, 0.795, 0.015, col(look.frame, 2.4))
+    for (const x of [0.04, 0.072]) rect(x - 0.003, 0.795, x + 0.003, 0.812, col(look.bezel, 1))
+    this.polygon([P(0, 0.81), P(0.11, 0.812), P(0.128, 0.84), P(0.13, 1), P(0, 1)], col(look.frame, 2))
+    if (!mask) this.polygon([P(0.11, 0.812), P(0.128, 0.84), P(0.13, 1), P(0.124, 1), P(0.122, 0.842), P(0.106, 0.818)], this.rimmed(2.4, 0.35))
+    rounded(0.06, 0.9, 0.2, 0.93, 0.012, col(look.frame, 2.8))
+    // At night the bridge's red lighting pools on the console.
     if (!mask && look.night)
-      for (const [x, y, rx] of [[rd.x, rd.y, rd.rx + 0.08], [bn.x, bn.y, 0.12], [(p0 + p1) / 2, 0.66, (p1 - p0) / 2], [s.wheel.x, 0.92, 0.25]] as const)
-        poolOn(this.hdr, this.W, H, x * H, y * H, rx * H, rx * 0.5 * H, look.lamplight, 0.9)
-    if (!mask && tg && look.night) poolOn(this.hdr, this.W, H, tg.x * H, tg.y * H, 0.1 * H, 0.08 * H, [1, 0.5, 0.08], 0.9)
+      for (const [x, y, rx] of [[A / 2, 0.66, 0.5], [s.joystick, 0.95, 0.15], [s.throttle, 0.95, 0.15], [A / 2, 0.95, 0.3]] as const)
+        poolOn(this.hdr, this.W, H, x * H, y * H, rx * H, Math.min(0.1, rx * 0.5) * H, look.lamplight, 0.8)
   }
 
   // The faint light from the windows on a frame edge, mixed into the frame color.
@@ -1453,133 +1427,181 @@ class WingsBridge extends Canvas {
       ? [
           [1.4, 0.12, 0.04],
           [1.3, 0.55, 0.08],
-          [0.2, 0.9, 0.3],
+          [0.25, 0.8, 0.3],
         ]
       : [
-          [1.5, 0.8, 0.15],
-          [0.3, 1.4, 0.4],
-          [1.4, 0.25, 0.1],
+          [0.3, 1.3, 0.5],
+          [1.4, 0.8, 0.15],
+          [0.3, 0.9, 1.4],
         ]
     this.leds = []
-    const [p0, p1] = s.switches
-    const n = Math.max(1, Math.round((p1 - p0) / 0.3))
-    const pw = (p1 - p0) / n
     let k = 0
-    for (let i = 0; i < n; i++)
-      for (let x = p0 + i * pw + 0.025; x < p0 + (i + 1) * pw - 0.015; x += 0.03) {
-        const h = hash(k * 7.7)
-        this.leds.push({ x: x * this.H, y: 0.665 * this.H, color: colors[Math.floor(hash(k * 3.1) * 3)], rate: h > 0.8 ? 0.5 + hash(k) * 1 : 0, phase: hash(k * 1.3) * TAU })
-        k++
-      }
-    this.leds.push({ x: (s.radio.x0 + 0.02) * this.H, y: 0.104 * this.H, color: colors[1], rate: 0.4, phase: 0 })
+    const led = (x: number, y: number) => {
+      const h = hash(k * 7.7)
+      this.leds.push({ x: x * this.H, y: y * this.H, color: colors[Math.floor(hash(k * 3.1) * 3)], rate: h > 0.8 ? 0.5 + hash(k) : 0, phase: hash(k * 1.3) * TAU })
+      k++
+    }
+    for (const [x0, x1] of s.keyPanels) for (let x = x0 + 0.015; x < x1 - 0.01; x += 0.03) led(x, 0.656)
+    for (const r of [s.rack, s.rack2]) if (r) for (const [x, y] of keyGrid(r)) if (hash(x * 13 + y * 7) > 0.45) led(x, y)
+    for (const dx of s.displays) led(dx + s.dw - 0.012, DISPLAY_BOTTOM + 0.014)
   }
 
-  // What moves inside: the indicator lamps, the radar's sweep, the clock's hands, the handset swaying on its coiled
-  // cord with the swell, and the alarm light pulsing in a storm.
+  // What moves inside: lit keys, the radar's sweep, own ship stepping along the chart, a deck spot blinking on the
+  // status display, the clock's colon, the status strip pulsing, and the headset's cord swaying with the swell.
   private drawConsole() {
     const { H, look } = this
     const s = this.inside
     if (!s) return
     const t = this.time
-    const k = look.night ? 0.35 : 0.7
+    const k = look.night ? 0.35 : 0.6
     for (const l of this.leds) {
       const on = l.rate ? smoothstep(-0.3, 0.3, Math.sin(t * l.rate + l.phase)) : 1
       const b = (0.25 + 0.75 * on) * k
       this.point(l.x, l.y, l.color[0] * b, l.color[1] * b, l.color[2] * b, 1)
     }
-    const r = s.radar
-    const phosphor: RGB = look.night ? [1.1, 0.5, 0.06] : [0.25, 1.1, 0.4]
-    const box = radarScope(this.hdr, this.W, H, r.x * H, r.y * H, r.rx * H, r.ry * H, (t * TAU) / 3, phosphor)
+    const sc = s.scope
+    const box = radarScope(this.hdr, this.W, H, sc.x * H, sc.y * H, sc.r * H, sc.r * H, (t * TAU) / 3, look.night ? [1.1, 0.45, 0.05] : [0.2, 1, 0.9])
     this.touch(box[0], box[1], box[2], box[3])
-    // The clock reads ten past ten when the scene starts.
-    const hands: [number, number, number, RGB][] = [
-      [((10 + 10 / 60) / 12) * TAU + (t * TAU) / 43200, 0.02, 0.0028, look.frame],
-      [(10 / 60) * TAU + (t * TAU) / 3600, 0.029, 0.002, look.frame],
-      [(t * TAU) / 60, 0.031, 0.0011, look.night ? [0.5, 0.08, 0.02] : [0.45, 0.06, 0.04]],
-    ]
-    for (const [a, len, w, c] of hands) this.needle(s.clock, 0.122, a, len, w, c)
-    this.drawHandset(s.radio.x1 - 0.015, 0.17)
-    if (this.gloom > 0.3) {
-      const b = (this.gloom - 0.3) * (0.5 + 0.5 * Math.sin(t * 2.5))
-      this.ellipse(s.alarm * H, 0.104 * H, 0.016 * H, 0.013 * H, 1.6 * b, 0.12 * b, 0.05 * b, 1)
+    // Own ship advances along the chart's track in small steps, as the chart refreshes.
+    const [ax, ay, bx, by] = s.track
+    const f = 0.15 + ((Math.floor(t / 6) * 0.02) % 0.7)
+    const ox = lerp(ax, bx, f)
+    const oy = lerp(ay, by, f)
+    const g2 = look.glow2
+    const ang = Math.atan2(by - ay, bx - ax)
+    const ca = Math.cos(ang)
+    const sa = Math.sin(ang)
+    const Q = (u: number, v: number): Point => [(ox + u * ca - v * sa) * H, (oy + u * sa + v * ca) * H]
+    this.polygon([Q(0.012, 0), Q(-0.007, -0.006), Q(-0.007, 0.006)], [g2[0] * 1.3, g2[1] * 1.3, g2[2] * 1.3])
+    // A deck spot on the status display blinks slowly.
+    const st = s.displays[2] + s.dw / 2
+    const on = smoothstep(-0.2, 0.2, Math.sin(t * 0.8))
+    for (let i = 0; i < 5; i++) {
+      const L = s.dw * 0.4
+      const x = st + (-0.7 + i * 0.32) * L
+      const y = (DISPLAY_TOP + DISPLAY_BOTTOM) / 2 + (i % 2 ? 0.02 : 0.05) * L * 4
+      const c = i === 2 ? AMBER : g2
+      const b = i === 2 ? 0.25 + 0.35 * on : 0.6
+      this.ellipse(x * H, y * H, 0.004 * H, 0.004 * H, c[0] * b, c[1] * b, c[2] * b, 1)
     }
+    // The clock's colon.
+    const c = s.clock
+    const cxm = (c.x0 + c.x1) / 2 + 0.003
+    const colon = Math.floor(t) % 2 ? 0.95 : 0.2
+    for (const y of [0.117, 0.133]) this.ellipse(cxm * H, y * H, 0.0025 * H, 0.0025 * H, look.glow[0] * colon, look.glow[1] * colon, look.glow[2] * colon, 1)
+    // The status strip: green, amber and red lights breathing gently; in a storm the red ones pulse harder.
+    for (let i = 0; i < STRIP.length; i++) {
+      const x = this.A / 2 - 0.18 + (i * 0.36) / (STRIP.length - 1)
+      const kind = STRIP[i]
+      const col: RGB = kind === 2 ? [1.6, 0.12, 0.05] : kind === 1 ? [1.4, 0.75, 0.1] : look.night ? [0.25, 0.7, 0.25] : [0.3, 1.2, 0.45]
+      const pulse = 0.85 + 0.15 * Math.sin(t * 0.6 + i) + (kind === 2 ? this.gloom * (0.6 + 0.6 * Math.sin(t * 2.5)) : 0)
+      const b = pulse * (look.night ? 0.3 : 0.45)
+      this.ellipse(x * H, 0.183 * H, 0.0045 * H, 0.0035 * H, col[0] * b, col[1] * b, col[2] * b, 1)
+    }
+    this.drawHeadsetCord(s.rack.x1 - 0.022 - 0.024, 0.218)
   }
 
-  private needle(cx: number, cy: number, a: number, len: number, w: number, c: RGB) {
-    const H = this.H
-    const ux = Math.sin(a)
-    const uy = -Math.cos(a)
-    const ww = this.thick(w, 0.6)
-    this.polygon([[cx * H - uy * ww, cy * H + ux * ww], [cx * H + uy * ww, cy * H - ux * ww], [(cx + ux * len) * H + uy * ww * 0.5, (cy + uy * len) * H - ux * ww * 0.5], [(cx + ux * len) * H - uy * ww * 0.5, (cy + uy * len) * H + ux * ww * 0.5]], c)
-  }
-
-  // The radio's handset hanging on its coiled cord, swinging a little as the ship pitches.
-  private drawHandset(ax: number, ay: number) {
+  // The headset's coiled cord hanging from its ear cup, swinging a little as the ship pitches.
+  private drawHeadsetCord(ax: number, ay: number) {
     const { H, look } = this
     const a = clamp((this.pitch / PITCH) * 0.08, -0.35, 0.35)
     const ux = Math.sin(a)
     const uy = Math.cos(a)
-    const cord = look.frame.map((v) => v * 3.2) as RGB
+    const cord: RGB = [look.frame[0] * 3.2, look.frame[1] * 3.2, look.frame[2] * 3.2]
     const w = this.thick(0.0016, 0.7)
-    const len = 0.075
+    const len = 0.07
     let px = ax * H
     let py = ay * H
-    for (let i = 1; i <= 12; i++) {
-      const f = i / 12
-      const side = i === 12 ? 0 : (i % 2 ? 1 : -1) * 0.006
+    for (let i = 1; i <= 11; i++) {
+      const f = i / 11
+      const side = i === 11 ? 0 : (i % 2 ? 1 : -1) * 0.005
       const qx = (ax + ux * len * f + uy * side) * H
       const qy = (ay + uy * len * f - ux * side) * H
       this.polygon([[px - w, py], [px + w, py], [qx + w, qy], [qx - w, qy]], cord)
       px = qx
       py = qy
     }
-    // The handset in its own frame: along the cord (v) and across it (u), earpiece at the top.
-    const hx = ax + ux * len
-    const hy = ay + uy * len
-    const Q = (u: number, v: number): Point => [(hx + ux * v + uy * u) * H, (hy + uy * v - ux * u) * H]
-    const body = look.frame.map((v) => v * 3.6) as RGB
-    this.polygon([Q(-0.005, 0), Q(0.005, 0), Q(0.005, 0.056), Q(-0.005, 0.056)], body)
-    this.polygon([Q(0.004, -0.002), Q(0.013, 0.001), Q(0.013, 0.014), Q(0.004, 0.016)], body)
-    this.polygon([Q(0.004, 0.042), Q(0.013, 0.044), Q(0.013, 0.057), Q(0.004, 0.059)], body)
-    this.polygon([Q(-0.005, 0.003), Q(-0.003, 0.003), Q(-0.003, 0.053), Q(-0.005, 0.053)], this.rimmed(4, 0.4))
+    this.polygon([[px - w * 2, py], [px + w * 2, py], [px + w * 2, py + 0.012 * H], [px - w * 2, py + 0.012 * H]], cord)
   }
+
 }
 
-// Where everything inside sits, measured from the edges and the middle so it fits narrow and wide screens alike;
-// pieces without room are left out.
+// Where everything inside sits, measured from the edges and the middle so it fits narrow and wide screens alike.
 function spotsFor(A: number) {
-  const narrow = A < 1.3
-  const rr = narrow ? 0.11 : 0.13
-  const radar = { x: clamp(A / 2 - 0.55, 0.2, 0.36), y: 0.79, rx: rr, ry: rr * 0.62 }
-  const tx = A / 2 - 0.32
-  const telegraph = tx - 0.06 > radar.x + radar.rx + 0.02 ? { x: tx, y: 0.79 } : undefined
-  const throttle = A / 2 - 0.17 - 0.04 > radar.x + radar.rx ? A / 2 - 0.17 : undefined
-  const chart = A - 0.12 - (A / 2 + 0.42) > 0.18 ? { x0: A / 2 + 0.42, x1: A - 0.12 } : undefined
   const sw = clamp((A - 0.68) / 3.3, 0.1, 0.17)
   const left = A / 2 - 1.5 * sw - 0.025
   const right = A / 2 + 1.5 * sw + 0.025
-  const radio = { x0: 0.035, x1: Math.min(0.27, left - 0.04) }
-  const clock = Math.max(right + 0.065, A - 0.32)
+  const rack = { x0: 0.035, x1: Math.min(0.3, left - 0.04) }
+  const clock = { x0: right + 0.035, x1: right + 0.035 + Math.min(0.13, A - right - 0.2) }
+  const guards = { x0: Math.max(clock.x1 + 0.03, A - 0.27), x1: A - 0.035 }
+  const rack2 = guards.x0 - clock.x1 - 0.08 > 0.12 ? { x0: clock.x1 + 0.04, x1: guards.x0 - 0.04 } : undefined
+  const dw = clamp((A - 0.31) / 4, 0.2, 0.36)
+  const dx0 = A / 2 - (4 * dw + 0.09) / 2
+  const displays = [0, 1, 2, 3].map((i) => dx0 + i * (dw + 0.03))
+  const narrow = A < 1.3
+  const panels = Math.max(1, Math.round((Math.min(A - 0.05, A / 2 + 0.42) - Math.max(0.05, A / 2 - 0.42)) / 0.3))
+  const p0 = Math.max(0.05, A / 2 - 0.42)
+  const pw = (Math.min(A - 0.05, A / 2 + 0.42) - p0) / panels
   return {
-    radar,
-    telegraph,
-    throttle,
-    chart,
-    binnacle: { x: A / 2 + 0.28, y: 0.8 },
-    wheel: { x: A / 2, y: 1.04, r: narrow ? 0.15 : 0.17 },
-    mug: chart ? A - 0.07 : A - 0.08,
-    switches: [Math.max(0.05, A / 2 - 0.42), Math.min(A - 0.05, A / 2 + 0.42)] as const,
-    radio,
     screens: [-1, 0, 1].map((i) => A / 2 + i * (sw + 0.025)),
     sw,
-    speaker: radio.x1 + 0.12 < left ? radio.x1 + 0.06 : undefined,
-    fan: radio.x1 + 0.22 < left ? radio.x1 + 0.16 : undefined,
+    rack,
+    rack2,
     clock,
-    alarm: clock + 0.1,
-    sextant: A - 0.075,
-    binoculars: clock - 0.12 > right + 0.04 ? clock - 0.1 : undefined,
+    guards,
+    keyPanels: Array.from({ length: panels }, (_, i) => [p0 + i * pw + 0.01, p0 + (i + 1) * pw - 0.01] as const),
+    displays,
+    dw,
+    scope: { x: displays[0] + dw / 2, y: (DISPLAY_TOP + DISPLAY_BOTTOM) / 2, r: Math.min(dw * 0.42, (DISPLAY_BOTTOM - DISPLAY_TOP) * 0.42) },
+    // The chart's planned track, corner to corner below its coast.
+    track: [displays[1] + dw * 0.15, DISPLAY_BOTTOM - 0.02, displays[1] + dw * 0.88, DISPLAY_TOP + 0.075] as const,
+    keyboard: { x: A / 2, w: narrow ? 0.2 : 0.3 },
+    trackball: A / 2 - (narrow ? 0.15 : 0.21),
+    joystick: A / 2 - (narrow ? 0.29 : 0.34),
+    throttle: A / 2 + (narrow ? 0.23 : 0.3),
   }
 }
+
+// Key positions across a comms rack: three rows under its little display.
+function keyGrid(r: { x0: number; x1: number }) {
+  const keys: [number, number][] = []
+  for (let row = 0; row < 3; row++) for (let x = r.x0 + 0.02; x < r.x1 - 0.012; x += 0.026) keys.push([x, 0.115 + row * 0.018])
+  return keys
+}
+
+// Draws a seven-segment digit from a mask of its segments (top, upper right, lower right, bottom, lower left, upper
+// left, middle), lit segments in on and the rest faintly in off.
+function sevenSegment(draw: (points: readonly (readonly [number, number])[], color: RGB) => void, x: number, y: number, w: number, h: number, mask: number, on: RGB, off: RGB, H: number) {
+  const t = Math.min(w, h) * 0.16
+  const half = h / 2
+  const bars: [number, number, number, number][] = [
+    [x + t, y, x + w - t, y + t],
+    [x + w - t, y + t, x + w, y + half - t / 2],
+    [x + w - t, y + half + t / 2, x + w, y + h - t],
+    [x + t, y + h - t, x + w - t, y + h],
+    [x, y + half + t / 2, x + t, y + h - t],
+    [x, y + t, x + t, y + half - t / 2],
+    [x + t, y + half - t / 2, x + w - t, y + half + t / 2],
+  ]
+  for (const [i, [x0, y0, x1, y1]] of bars.entries())
+    draw(
+      [
+        [x0 * H, y0 * H],
+        [x1 * H, y0 * H],
+        [x1 * H, y1 * H],
+        [x0 * H, y1 * H],
+      ],
+      mask & (1 << i) ? on : off,
+    )
+}
+
+// Segment masks for the clock's four digits.
+const DIGITS = [0b0000110, 0b1100110, 0b1001111, 0b0111111]
+// The status strip's lights: 0 green, 1 amber, 2 red.
+const STRIP = [0, 0, 0, 1, 0, 0, 2, 0, 0]
+// The console displays' screens, top and bottom.
+const DISPLAY_TOP = 0.728
+const DISPLAY_BOTTOM = 0.86
 
 type Spots = ReturnType<typeof spotsFor>
 
@@ -2000,10 +2022,10 @@ function trail(hdr: Float32Array, W: number, H: number, hx: number, hy: number, 
 export const wingsBridge: Wallpaper = {
   id: "wings-bridge",
   name: "Wings: Bridge",
-  description: "A carrier's bridge, its radio, clock, radar and wheel around windows on the flight deck and a low-poly sea, from Anomaly Arcade's Wings",
+  description: "A modern carrier's bridge, its displays, comms and helm around windows on the flight deck and a low-poly sea, from Anomaly Arcade's Wings",
   collection: "Arcade",
   activity: {
-    calm: "The bridge's lamps, clock and radar sweep, the handset swaying, and the sea on a slow swell beyond the deck",
+    calm: "The bridge's displays and lit keys, the radar sweep, a headset cord swaying, and the sea on a slow swell beyond the deck",
     lively: "Adds deck crew walking and a jet launching off the bow now and then",
     teeming: "Adds launches more often, a jet landing now and then and escort ships on the horizon",
   },
