@@ -19,6 +19,7 @@ import { space } from "./space"
 import { tundra } from "./tundra"
 import { wings } from "./wings"
 import { wingsFlight } from "./wings-flight"
+import { wingsBridge } from "./wings-bridge"
 import { zen } from "./zen"
 
-export const WALLPAPERS = [ocean, desert, jungle, space, farm, tundra, beach, city, zen, prehistoric, hauntedHouse, rider, megacity, dome, flowerbox, maze, pipes, mystify, flyingOpenCode, matrix, wings, wingsFlight]
+export const WALLPAPERS = [ocean, desert, jungle, space, farm, tundra, beach, city, zen, prehistoric, hauntedHouse, rider, megacity, dome, flowerbox, maze, pipes, mystify, flyingOpenCode, matrix, wings, wingsFlight, wingsBridge]
