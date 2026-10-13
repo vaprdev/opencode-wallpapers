@@ -39,7 +39,7 @@ an error. With mouse support, clicking empty background nudges the scene, and ea
 - **Landscapes:** `ocean` · `desert` · `jungle` · `space` · `farm` · `tundra` · `beach` · `city` · `zen` · `prehistoric` · `haunted-house`
 - **Akira:** `rider` · `megacity` · `dome`
 - **Classics:** `flowerbox` · `maze` · `pipes` · `mystify` · `flying-opencode` · `matrix`
-- **Arcade:** `wings`
+- **Arcade:** `wings` · `wings-flight`
 
 | Spring | Summer | Autumn | Winter |
 | --- | --- | --- | --- |
@@ -116,8 +116,11 @@ At teeming; the GIFs play at 3x speed.
 | | Day | Sunset | Night |
 | --- | --- | --- | --- |
 | Wings | ![Wings by day](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/wings.png) | ![Wings at sunset](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/wings-sunset.png) | ![Wings at night](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/wings-night.png) |
+| Wings: Flight | ![Wings: Flight by day](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/wings-flight.png) | ![Wings: Flight at sunset](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/wings-flight-sunset.png) | ![Wings: Flight at night](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/wings-flight-night.png) |
 
 ![Wings in motion](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/wings.gif)
+
+![Wings: Flight in motion](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/wings-flight.gif)
 
 ## License
 
