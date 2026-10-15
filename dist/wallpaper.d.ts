@@ -28,30 +28,22 @@ export interface Wallpaper {
     readonly id: string;
     readonly name: string;
     readonly description: string;
-    readonly collection?: string;
     readonly fixedTime?: Time;
     readonly scrim: Readonly<Record<Time, Scrim>>;
     readonly activity: Readonly<Record<Activity, string>>;
     create(settings: Settings): Scene;
 }
 export type Scrim = readonly [RGB, RGB, RGB];
-export declare function collectionOf(wallpaper: Wallpaper): string;
 export declare function settingsFor(wallpaper: Wallpaper, settings: Settings): Settings;
 export interface Settings {
     readonly activity: Activity;
     readonly time: Time;
     readonly brightness?: Brightness;
-    readonly season?: Season;
-    readonly weather?: Weather;
 }
 export declare const ACTIVITIES: readonly ["calm", "lively", "teeming"];
 export type Activity = (typeof ACTIVITIES)[number];
 export declare const TIMES: readonly ["day", "sunset", "night"];
 export type Time = (typeof TIMES)[number];
-export declare const SEASONS: readonly ["spring", "summer", "autumn", "winter"];
-export type Season = (typeof SEASONS)[number];
-export declare const WEATHERS: readonly ["clear", "overcast", "rain", "snow", "fog"];
-export type Weather = (typeof WEATHERS)[number];
 export declare const BRIGHTNESSES: readonly ["subtle", "normal", "vivid"];
 export type Brightness = (typeof BRIGHTNESSES)[number];
 export declare const POWERS: readonly ["saver", "smooth"];

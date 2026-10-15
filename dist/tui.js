@@ -10,7 +10,7 @@ import { setProp as _$setProp } from "@opentui/solid";
 import { createElement as _$createElement } from "@opentui/solid";
 import { Plugin } from "@opencode/plugin/tui";
 import { RGBA, TextAttributes } from "@opentui/core";
-import { For, createEffect, createSignal, onCleanup } from "solid-js";
+import { For, createEffect, createSignal } from "solid-js";
 
 // src/engine.tsx
 import { MouseButton, NativeImagePool, Renderable } from "@opentui/core";
@@ -837,16 +837,11 @@ function fitCover(samples, n, cover, at) {
 
 // src/wallpaper.ts
 var AGENT_EVENTS = ["busy", "idle", "done", "error"];
-function collectionOf(wallpaper) {
-  return wallpaper.collection ?? (wallpaper.fixedTime ? "Classics" : "Landscapes");
-}
 function settingsFor(wallpaper, settings) {
-  return wallpaper.fixedTime ? { ...settings, time: wallpaper.fixedTime, season: undefined, weather: undefined } : settings;
+  return wallpaper.fixedTime ? { ...settings, time: wallpaper.fixedTime } : settings;
 }
 var ACTIVITIES = ["calm", "lively", "teeming"];
 var TIMES = ["day", "sunset", "night"];
-var SEASONS = ["spring", "summer", "autumn", "winter"];
-var WEATHERS = ["clear", "overcast", "rain", "snow", "fog"];
 var BRIGHTNESSES = ["subtle", "normal", "vivid"];
 var POWERS = ["saver", "smooth"];
 
@@ -2107,7 +2102,7 @@ function createEngine(context, options = {}) {
     },
     start(next, requested, seconds = FADE) {
       const chosen = settingsFor(next, requested);
-      const shows = (w, s) => w === next && s?.activity === chosen.activity && s.time === chosen.time && s.season === chosen.season && s.weather === chosen.weather;
+      const shows = (w, s) => w === next && s?.activity === chosen.activity && s.time === chosen.time;
       if (shows(wallpaper, settings)) {
         settings = chosen;
         renderer.requestRender();
@@ -2220,51 +2215,6 @@ function blendScrim(a, b, t) {
   return [at(0), at(1), at(2)];
 }
 
-// src/forecast.ts
-var REFRESH = 30 * 60000;
-var cache = new Map;
-async function forecast(location) {
-  const cached = cache.get(location);
-  if (cached && Date.now() - cached.at < REFRESH)
-    return cached.result;
-  const result = await lookup(location).catch(() => ({ weather: "clear" }));
-  cache.set(location, { at: Date.now(), result });
-  return result;
-}
-function coordinatesOf(location) {
-  const match = /^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/.exec(location);
-  if (!match)
-    return;
-  return { latitude: Number(match[1]), longitude: Number(match[2]) };
-}
-async function lookup(location) {
-  const place = coordinatesOf(location) ?? await geocode(location);
-  const response = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${place.latitude}&longitude=${place.longitude}&current=weather_code`, { signal: AbortSignal.timeout(1e4) });
-  const body = await response.json();
-  return { weather: weatherFor(body.current?.weather_code), latitude: place.latitude };
-}
-async function geocode(name) {
-  const response = await fetch(`https://geocoding-api.open-meteo.com/v1/search?count=1&name=${encodeURIComponent(name.split(",")[0].trim())}`, { signal: AbortSignal.timeout(1e4) });
-  const body = await response.json();
-  const place = body.results?.[0];
-  if (!place)
-    throw new Error(`no place called ${name}`);
-  return place;
-}
-function weatherFor(code) {
-  if (code === undefined)
-    return "clear";
-  if (code === 45 || code === 48)
-    return "fog";
-  if (code >= 71 && code <= 77 || code === 85 || code === 86)
-    return "snow";
-  if (code >= 51)
-    return "rain";
-  if (code === 3)
-    return "overcast";
-  return "clear";
-}
-
 // src/load.ts
 import { homedir } from "os";
 async function loadWallpapers(modules, builtin) {
@@ -2317,8 +2267,6 @@ function problem(value, taken) {
   const activity = w.activity;
   if (!ACTIVITIES.every((a) => typeof activity?.[a] === "string"))
     return `${w.id}: activity needs a description for each of ${ACTIVITIES.join(", ")}`;
-  if (w.collection !== undefined && (typeof w.collection !== "string" || !w.collection.trim()))
-    return `${w.id}: collection must be a name`;
   if (w.fixedTime !== undefined && !TIMES.some((t) => t === w.fixedTime))
     return `${w.id}: fixedTime must be one of ${TIMES.join(", ")}`;
   const scrim2 = w.scrim;
@@ -3785,297 +3733,6 @@ function reflect(hdr, W, H, y0, y1, rows, amp, weight, tint, time, still) {
   }
 }
 
-// src/weather.ts
-var PALETTES = {
-  day: {
-    deck: [
-      [0.3, 0.34, 0.41],
-      [0.58, 0.62, 0.67]
-    ],
-    scud: [
-      [0.5, 0.53, 0.58],
-      [0.24, 0.26, 0.3]
-    ],
-    rain: [0.6, 0.68, 0.8],
-    snow: [0.95, 0.97, 1],
-    fog: [0.58, 0.62, 0.67],
-    desaturate: 0.35
-  },
-  sunset: {
-    deck: [
-      [0.06, 0.035, 0.07],
-      [0.42, 0.18, 0.14]
-    ],
-    scud: [
-      [0.3, 0.12, 0.12],
-      [0.05, 0.025, 0.05]
-    ],
-    rain: [0.9, 0.45, 0.25],
-    snow: [1, 0.66, 0.6],
-    fog: [0.34, 0.16, 0.14],
-    desaturate: 0.2
-  },
-  night: {
-    deck: [
-      [0.005, 0.009, 0.028],
-      [0.022, 0.04, 0.1]
-    ],
-    scud: [
-      [0.03, 0.05, 0.12],
-      [0.004, 0.007, 0.02]
-    ],
-    rain: [0.12, 0.32, 0.95],
-    snow: [0.25, 0.45, 0.9],
-    fog: [0.02, 0.055, 0.13],
-    desaturate: 0
-  }
-};
-var KINDS2 = {
-  clear: { cover: 0, dim: 1, gray: 0, fog: 0, rain: 0, snow: 0 },
-  overcast: { cover: 0.88, dim: 0.82, gray: 0.5, fog: 0.06, rain: 0, snow: 0 },
-  rain: { cover: 0.985, dim: 0.7, gray: 0.7, fog: 0.14, rain: 1, snow: 0 },
-  snow: { cover: 0.85, dim: 0.9, gray: 0.5, fog: 0.12, rain: 0, snow: 1 },
-  fog: { cover: 0.55, dim: 0.92, gray: 0.4, fog: 0.62, rain: 0, snow: 0 }
-};
-var RAIN = 110;
-var SNOW = 80;
-var MAX_ASPECT = 5;
-var SPLASHES = 128;
-var SPLASH_LIFE = 0.3;
-var WISP_N = 1024;
-var WISP_A = buildWisps(5);
-var WISP_B = buildWisps(17);
-
-class WeatherLayer {
-  horizon;
-  covered;
-  scud;
-  palette;
-  kind;
-  time = 0;
-  aspect = 1;
-  drops;
-  flakes;
-  splashes = new Float32Array(SPLASHES * 4).fill(-1);
-  nextSplash = 0;
-  fogRows = new Float32Array(0);
-  rainCount = 0;
-  snowCount = 0;
-  constructor(weather, time, horizon, light = false) {
-    this.horizon = horizon;
-    const kind = KINDS2[weather];
-    this.kind = light ? { cover: 0, dim: 1, gray: 0, fog: 0, rain: kind.rain * 0.5, snow: kind.snow * 0.55 } : kind;
-    this.covered = this.kind.cover > 0;
-    this.palette = PALETTES[time];
-    this.scud = this.covered ? this.palette.scud : undefined;
-    this.drops = new Float32Array(this.kind.rain ? RAIN * MAX_ASPECT * 3 : 0);
-    for (let i = 0;i < this.drops.length; i += 3) {
-      this.drops[i] = Math.random();
-      this.drops[i + 1] = Math.random() * 1.2 - 0.2;
-      this.drops[i + 2] = Math.random();
-    }
-    this.flakes = new Float32Array(this.kind.snow ? SNOW * MAX_ASPECT * 4 : 0);
-    for (let i = 0;i < this.flakes.length; i += 4) {
-      this.flakes[i] = Math.random();
-      this.flakes[i + 1] = Math.random();
-      this.flakes[i + 2] = Math.random();
-      this.flakes[i + 3] = Math.random();
-    }
-  }
-  step(dt) {
-    this.time += dt;
-    const d = this.drops;
-    for (let i = 0;i < this.rainCount * 3; i += 3) {
-      const z = d[i + 2];
-      const fall = (1.4 + z * 1.2) * dt;
-      d[i + 1] += fall;
-      d[i] += fall * 0.12 / this.aspect;
-      const ground = this.horizon + 0.03 + (1.02 - this.horizon) * z;
-      if (d[i + 1] < ground)
-        continue;
-      if (z > 0.3 && Math.random() < 0.4) {
-        const s = this.nextSplash * 4;
-        this.splashes[s] = d[i];
-        this.splashes[s + 1] = ground;
-        this.splashes[s + 2] = 0;
-        this.splashes[s + 3] = z;
-        this.nextSplash = (this.nextSplash + 1) % SPLASHES;
-      }
-      d[i] = Math.random();
-      d[i + 1] = -0.05 - Math.random() * 0.15;
-    }
-    for (let s = 0;s < this.splashes.length; s += 4)
-      if (this.splashes[s + 2] >= 0)
-        this.splashes[s + 2] += dt;
-    const f = this.flakes;
-    for (let i = 0;i < this.snowCount * 4; i += 4) {
-      f[i + 1] += (0.04 + f[i + 2] * 0.06) * dt;
-      f[i] += (Math.sin(this.time * 0.6 + f[i + 3] * 20) * 0.008 + 0.005) * dt / this.aspect;
-      if (f[i + 1] > 1.02) {
-        f[i + 1] -= 1.04;
-        f[i] = Math.random();
-      }
-      if (f[i] > 1)
-        f[i] -= 1;
-    }
-  }
-  cover(hdr, W, H) {
-    if (this.covered)
-      paintDeck(hdr, W, H, this.horizon, this.kind.cover, this.palette.deck[0], this.palette.deck[1]);
-  }
-  draw(hdr, W, H) {
-    if (this.fogRows.length !== H) {
-      this.aspect = W / H;
-      this.rainCount = Math.min(MAX_ASPECT * RAIN, Math.round(RAIN * this.kind.rain * this.aspect));
-      this.snowCount = Math.min(MAX_ASPECT * SNOW, Math.round(SNOW * this.kind.snow * this.aspect));
-      this.fogRows = new Float32Array(H);
-      for (let y = 0;y < H; y++) {
-        const v = y / H;
-        const band = Math.exp(-(((v - this.horizon) / 0.16) ** 2));
-        this.fogRows[y] = this.kind.fog * (0.45 + 0.55 * band) * (v > this.horizon ? 1 - 0.5 * smoothstep(this.horizon, 1, v) : 1);
-      }
-    }
-    const p = this.palette;
-    const k = this.kind;
-    if (k.dim < 1 || k.fog > 0) {
-      grade(hdr, W, H, k.dim, p.desaturate * k.gray, p.fog, this.fogRows, this.time);
-      touch(hdr, 0, 0, W - 1, H - 1);
-    }
-    const f = this.flakes;
-    for (let i = 0;i < this.snowCount * 4; i += 4) {
-      const z = f[i + 2];
-      const b = (0.35 + z * 0.5) * (0.6 + 0.4 * f[i + 3]);
-      flake(hdr, W, H, f[i] * W, f[i + 1] * H, p.snow[0], p.snow[1], p.snow[2], b);
-      if (z > 0.55)
-        flake(hdr, W, H, f[i] * W + 0.8, f[i + 1] * H + 0.6, p.snow[0], p.snow[1], p.snow[2], b);
-      touch(hdr, f[i] * W - 2, f[i + 1] * H - 2, f[i] * W + 2, f[i + 1] * H + 2);
-    }
-    const d = this.drops;
-    for (let i = 0;i < this.rainCount * 3; i += 3) {
-      const z = d[i + 2];
-      const len = (0.025 + z * 0.035) * H;
-      const b = 0.05 + z * 0.12;
-      streak(hdr, W, H, d[i] * W, d[i + 1] * H, len * 0.12, len, p.rain[0] * b, p.rain[1] * b, p.rain[2] * b);
-      touch(hdr, d[i] * W - len * 0.12 - 2, d[i + 1] * H - len - 1, d[i] * W + 1, d[i + 1] * H + 1);
-    }
-    const s = this.splashes;
-    for (let i = 0;i < s.length; i += 4) {
-      const age = s[i + 2];
-      if (age < 0)
-        continue;
-      if (age > SPLASH_LIFE) {
-        s[i + 2] = -1;
-        continue;
-      }
-      const t = age / SPLASH_LIFE;
-      const b = (1 - t) * (0.12 + s[i + 3] * 0.2);
-      const rx = (0.003 + s[i + 3] * 0.006) * H * (0.6 + t * 1.6);
-      splash(hdr, W, H, s[i] * W, s[i + 1] * H, rx, t, p.rain[0] * b, p.rain[1] * b, p.rain[2] * b);
-      touch(hdr, s[i] * W - rx - 2, s[i + 1] * H - rx - 2, s[i] * W + rx + 2, s[i + 1] * H + rx * 0.3 + 2);
-    }
-  }
-}
-function paintDeck(hdr, W, H, horizon, cover, top, bottom) {
-  for (let y = 0;y < Math.min(H, Math.ceil(horizon * H)); y++) {
-    const v = y / H;
-    const g = smoothstep(0, horizon, v);
-    const k = cover * (1 - 0.3 * smoothstep(horizon - 0.1, horizon, v));
-    for (let x = 0;x < W; x++) {
-      const lump = 0.8 + 0.4 * fbm2(x / H * 3.5, v * 12 + x / H * 0.6, 4);
-      const o = (y * W + x) * 3;
-      hdr[o] += ((top[0] + (bottom[0] - top[0]) * g) * lump - hdr[o]) * k;
-      hdr[o + 1] += ((top[1] + (bottom[1] - top[1]) * g) * lump - hdr[o + 1]) * k;
-      hdr[o + 2] += ((top[2] + (bottom[2] - top[2]) * g) * lump - hdr[o + 2]) * k;
-    }
-  }
-}
-function grade(hdr, W, H, dim, desaturate, fog, rows, time) {
-  const drift = time * 5;
-  for (let y = 0;y < H; y++) {
-    const base = rows[y];
-    for (let x = 0;x < W; x++) {
-      const o = (y * W + x) * 3;
-      const r = hdr[o];
-      const g = hdr[o + 1];
-      const b = hdr[o + 2];
-      const l = r * 0.2126 + g * 0.7152 + b * 0.0722;
-      const wisp = WISP_A[(x * 0.7 + y * 0.25 + drift | 0) & WISP_N - 1] * WISP_B[(x * 0.45 - y * 0.15 - drift * 0.6 + 400 | 0) & WISP_N - 1];
-      const f = clamp(base * (0.7 + 0.9 * wisp), 0, 0.95);
-      hdr[o] = (r + (l - r) * desaturate) * dim * (1 - f) + fog[0] * f;
-      hdr[o + 1] = (g + (l - g) * desaturate) * dim * (1 - f) + fog[1] * f;
-      hdr[o + 2] = (b + (l - b) * desaturate) * dim * (1 - f) + fog[2] * f;
-    }
-  }
-}
-function streak(hdr, W, H, x, y, dx, dy, r, g, b) {
-  const n = Math.ceil(dy);
-  for (let i = 0;i < n; i++) {
-    const t = i / n;
-    const py = y - dy * t | 0;
-    if (py < 0 || py >= H)
-      continue;
-    const px = x - dx * t - 0.5;
-    const x0 = Math.floor(px);
-    const fx = px - x0;
-    const k = 1 - t;
-    if (x0 >= 0 && x0 < W) {
-      const o = (py * W + x0) * 3;
-      hdr[o] += r * k * (1 - fx);
-      hdr[o + 1] += g * k * (1 - fx);
-      hdr[o + 2] += b * k * (1 - fx);
-    }
-    if (x0 + 1 >= 0 && x0 + 1 < W) {
-      const o = (py * W + x0 + 1) * 3;
-      hdr[o] += r * k * fx;
-      hdr[o + 1] += g * k * fx;
-      hdr[o + 2] += b * k * fx;
-    }
-  }
-}
-function splash(hdr, W, H, x, y, rx, t, r, g, b) {
-  for (let i = 0;i < 12; i++) {
-    const a = i / 12 * Math.PI * 2;
-    splat(hdr, W, H, x + Math.cos(a) * rx, y + Math.sin(a) * rx * 0.3, r, g, b);
-  }
-  const up = Math.sin(t * Math.PI) * rx * 0.9;
-  for (const side of [-1, 1])
-    splat(hdr, W, H, x + side * rx * 0.7, y - up, r * 2, g * 2, b * 2);
-}
-function flake(hdr, W, H, x, y, r, g, b, a) {
-  const px = x - 0.5;
-  const py = y - 0.5;
-  const x0 = Math.floor(px);
-  const y0 = Math.floor(py);
-  const fx = px - x0;
-  const fy = py - y0;
-  for (let j = 0;j < 2; j++)
-    for (let i = 0;i < 2; i++) {
-      const xi = x0 + i;
-      const yi = y0 + j;
-      if (xi < 0 || yi < 0 || xi >= W || yi >= H)
-        continue;
-      const k = (i ? fx : 1 - fx) * (j ? fy : 1 - fy) * a;
-      const o = (yi * W + xi) * 3;
-      hdr[o] += (r - hdr[o]) * k;
-      hdr[o + 1] += (g - hdr[o + 1]) * k;
-      hdr[o + 2] += (b - hdr[o + 2]) * k;
-    }
-}
-function buildWisps(seed) {
-  const tex = new Float32Array(WISP_N);
-  for (let k = 0;k < 10; k++) {
-    const c = hash(seed + k * 3.1) * WISP_N;
-    const w = 30 + hash(seed + k * 7.7) * 90;
-    const amp = 0.4 + hash(seed + k * 1.3) * 0.6;
-    for (let i = 0;i < WISP_N; i++) {
-      const d = Math.min(Math.abs(i - c), WISP_N - Math.abs(i - c));
-      tex[i] += amp * Math.exp(-(d * d) / (w * w));
-    }
-  }
-  const max = tex.reduce((m, v) => Math.max(m, v), 0);
-  return tex.map((v) => v / max);
-}
-
 // src/wind.ts
 var SLOT = 14;
 var SPEED = 0.45;
@@ -4336,29 +3993,6 @@ var DAYLIGHT = (() => {
   const l = Math.hypot(0.5, 0.6, 0.6);
   return [-0.5 / l, -0.6 / l, 0.6 / l];
 })();
-var OFF_SEASON = {
-  sea: [
-    [0.14, 0.3, 0.42],
-    [0.13, 0.38, 0.42]
-  ],
-  sand: [
-    [0.74, 0.69, 0.56],
-    [0.52, 0.47, 0.38]
-  ]
-};
-var UMBRELLAS = [
-  [0.64, 0.86, [0.85, 0.15, 0.12]],
-  [0.32, 0.84, [0.95, 0.72, 0.1]],
-  [0.78, 0.82, [0.15, 0.58, 0.35]],
-  [0.48, 0.9, [0.2, 0.45, 0.88]],
-  [0.22, 0.93, [0.95, 0.45, 0.12]],
-  [0.42, 0.8, [0.8, 0.2, 0.55]]
-];
-var SKIN = [
-  [0.85, 0.62, 0.48],
-  [0.55, 0.36, 0.24],
-  [0.95, 0.75, 0.6]
-];
 var TRUNK = [0.5, 0.36, 0.22];
 var FROND = [0.18, 0.45, 0.14];
 
@@ -4384,23 +4018,14 @@ class Beach extends Canvas {
   surfer = { x: -0.2, phase: 0 };
   startled = [];
   bottle = { wait: eggWait() * TIME_SCALE, t: -1 };
-  season;
-  weather;
   lights = new LightMap;
-  swimmers = [];
   constructor(settings) {
     super();
     this.activity = settings.activity;
-    this.season = settings.season ?? "spring";
-    const offSeason = this.season === "autumn" || this.season === "winter";
-    this.weather = new WeatherLayer(settings.weather ?? "clear", settings.time, HORIZON);
-    const look = offSeason && settings.time === "day" ? { ...LOOKS.day, ...OFF_SEASON } : LOOKS[settings.time];
-    this.look = this.weather.covered ? { ...look, glitter: look.glitter * 0.15 } : look;
+    this.look = LOOKS[settings.time];
     if (settings.time === "day")
       this.frame = 0.4;
-    this.shade = sunShade(settings.time, look.orb, this.weather.covered);
-    if (this.season === "summer" && !this.look.night)
-      this.swimmers = Array.from({ length: { calm: 1, lively: 3, teeming: 5 }[settings.activity] }, (_, i) => ({ x: 0.25 + i * 0.13 + hash(i) * 0.05, y: 0.69 + hash(i * 3.3) * 0.03, phase: i * 1.9 }));
+    this.shade = sunShade(settings.time, this.look.orb);
     this.stars = makeStars(this.look.stars, 0.45);
     this.clouds = settings.time === "sunset" ? makeClouds(4, "cirrus", 0.08, 0.3) : makeClouds(4, "cumulus", 0.07, 0.24);
     if (settings.activity !== "calm")
@@ -4415,7 +4040,6 @@ class Beach extends Canvas {
     driftClouds(this.shadows, this.A, dt);
     driftClouds(this.storm, this.A, dt);
     this.stepGloom(dt);
-    this.weather.step(dt);
     this.stepBoat(dt);
     for (const d of this.dolphins)
       this.stepDolphin(d, dt, cdt);
@@ -4467,18 +4091,13 @@ class Beach extends Canvas {
   }
   render() {
     this.restore();
-    if (!this.weather.covered)
-      paintStars(this.hdr, this.W, this.H, this.stars, this.time, 0.45, this.look.stars > 50 ? 0.5 : 0.3, this.points);
-    const [top, bottom] = this.weather.scud ?? [this.look.clouds.top, this.look.clouds.bottom];
-    const orb = this.weather.covered ? undefined : this.look.orb;
-    paintClouds(this.hdr, this.W, this.H, this.clouds, top, bottom, this.look.clouds.alpha, orb);
+    paintStars(this.hdr, this.W, this.H, this.stars, this.time, 0.45, this.look.stars > 50 ? 0.5 : 0.3, this.points);
+    paintClouds(this.hdr, this.W, this.H, this.clouds, this.look.clouds.top, this.look.clouds.bottom, this.look.clouds.alpha, this.look.orb);
     paintStorm(this.hdr, this.W, this.H, this.storm, this.look.clouds.top, this.look.clouds.bottom, this.gloom);
     this.drawSea();
-    paintShadows(this.hdr, this.W, this.H, this.shadows, HORIZON + 0.01, orb);
+    paintShadows(this.hdr, this.W, this.H, this.shadows, HORIZON + 0.01, this.look.orb);
     this.sea.still.set(this.hdr.subarray(this.sea.y0 * this.W * 3, this.sea.y1 * this.W * 3));
     this.drawWakes();
-    for (const s2 of this.swimmers)
-      this.drawSwimmer(s2);
     this.drawBoat();
     for (const d of this.dolphins)
       this.drawDolphin(d);
@@ -4501,7 +4120,6 @@ class Beach extends Canvas {
       this.drawTrunk(p);
       this.drawFronds(p);
     }
-    this.weather.draw(this.hdr, this.W, this.H);
     this.finish();
   }
   visit() {
@@ -4512,10 +4130,8 @@ class Beach extends Canvas {
     const { W, H, A, look } = this;
     this.lighting = look.style === "front" ? { style: "front", dir: DAYLIGHT } : { style: "rim", color: look.light, x: look.orb.x * W, y: look.orb.y * H };
     paintSky(this.hdr, W, H, look.sky, look.orb, this.px);
-    this.weather.cover(this.hdr, W, H);
     const sky = this.hdr.slice();
-    if (!this.weather.covered)
-      paintClouds(this.hdr, W, H, this.towers, look.clouds.top, look.clouds.bottom, look.clouds.alpha, look.orb);
+    paintClouds(this.hdr, W, H, this.towers, look.clouds.top, look.clouds.bottom, look.clouds.alpha, look.orb);
     const ix = 0.16 * A;
     this.polygon(Array.from({ length: 21 }, (_, i) => [(ix + Math.cos(i / 20 * Math.PI) * 0.08) * H, (HORIZON - Math.sin(i / 20 * Math.PI) * 0.025) * H]), this.paint([0.2, 0.35, 0.22]));
     this.shape([cap(ix * H, (HORIZON - 0.02) * H, (ix + 0.01) * H, (HORIZON - 0.06) * H, 0.003 * H, 0.002 * H, this.paint(TRUNK))], this.lighting, 0.4);
@@ -4539,13 +4155,7 @@ class Beach extends Canvas {
       haze(this.hdr, sky, W, H, HORIZON, HORIZON + 0.01, 0.4);
       mottle(this.hdr, W, H, HORIZON, 1, 0.6, [1.12, 1, 0.8], [0.72, 0.78, 0.92]);
     }
-    const season = this.season;
-    if (season === "summer")
-      for (const [i, [x, y, stripe]] of UMBRELLAS.slice(0, { calm: 2, lively: 4, teeming: 6 }[this.activity]).entries())
-        this.drawUmbrella(x * A, y, stripe, i % 3 === 2 ? undefined : SKIN[i % SKIN.length]);
-    if (season === "autumn" || season === "winter")
-      this.drawDriftwood(0.56 * A, 0.9);
-    if (this.activity === "teeming" && season !== "autumn" && season !== "winter")
+    if (this.activity === "teeming")
       this.drawBeachThings();
     this.palms = [
       { base: [0.12, 1.03], crown: [0.35, 0.33], lean: 1 },
@@ -4715,17 +4325,12 @@ class Beach extends Canvas {
       this.shape(parts, this.lighting, this.look.style === "rim" ? 0.3 : 0.7);
     }
   }
-  drawUmbrella(ux, uy, stripe, skin) {
+  drawUmbrella(ux, uy, stripe) {
     const H = this.H;
     const s = 0.75 + (uy - 0.84) * 3;
     const P = (dx, dy) => [(ux + dx * s) * H, (uy + dy * s) * H];
     this.polygon([P(-0.06, 0.04), P(0.07, 0.035), P(0.09, 0.075), P(-0.04, 0.08)], this.paint([0.2, 0.45, 0.85]));
     this.polygon([P(-0.03, 0.042), P(0, 0.04), P(0.025, 0.078), P(-0.008, 0.079)], this.paint([0.92, 0.92, 0.88]));
-    if (skin) {
-      const c = this.paint(skin);
-      this.shape([cap(...P(-0.035, 0.06), ...P(0.045, 0.056), 0.009 * s * H, 0.006 * s * H, c), ell(...P(-0.048, 0.059), 0.01 * s * H, 0.009 * s * H, 0, c)], this.lighting, 0.6);
-      this.shape([cap(...P(-0.012, 0.06), ...P(0.012, 0.059), 0.0095 * s * H, 0.0095 * s * H, this.paint(stripe))], this.lighting, 0.4);
-    }
     this.ground(ux, uy + 0.05 * s, 0.18 * s, 0.17 * s, 1.2);
     this.shape([cap(...P(0, 0.05), ...P(0, -0.12), 0.003 * s * H, 0.003 * s * H, this.paint([0.85, 0.85, 0.82]))], this.lighting, 0.4);
     for (let k = 0;k < 6; k++) {
@@ -4735,24 +4340,9 @@ class Beach extends Canvas {
       this.polygon([P(0, -0.15), P(Math.cos(a0) * 0.09, -0.12 + Math.sin(a0) * -0.02 + 0.02), P(Math.cos(a1) * 0.09, -0.12 + Math.sin(a1) * -0.02 + 0.02)], color);
     }
   }
-  drawDriftwood(x, y) {
-    const H = this.H;
-    const wood = this.paint([0.62, 0.55, 0.45]);
-    this.ground(x, y + 0.006, 0.13, 0.02, 1);
-    this.shape([cap((x - 0.07) * H, y * H, (x + 0.06) * H, (y - 0.008) * H, 0.009 * H, 0.006 * H, wood, 2), cap((x + 0.02) * H, (y - 0.005) * H, (x + 0.05) * H, (y - 0.03) * H, 0.004 * H, 0.002 * H, wood)], this.lighting, 0.7);
-  }
-  drawSwimmer(s) {
-    const H = this.H;
-    const x = s.x * this.A * H;
-    const y = (s.y + Math.sin(this.time * 1.4 + s.phase) * 0.003) * H;
-    const foam = this.look.foam;
-    this.ellipse(x, y + 0.006 * H, 0.014 * H, 0.004 * H, foam[0], foam[1], foam[2], 0.35);
-    this.shape([ell(x, y, 0.007 * H, 0.008 * H, 0, this.paint(SKIN[Math.floor(s.phase) % SKIN.length])), ell(x, y - 0.004 * H, 0.0072 * H, 0.0045 * H, 0, this.paint([0.15, 0.1, 0.06]))], this.lighting, 0.6);
-  }
   drawBeachThings() {
     const { A, H } = this;
-    if (this.season !== "summer")
-      this.drawUmbrella(0.64 * A, 0.86, [0.85, 0.15, 0.12]);
+    this.drawUmbrella(0.64 * A, 0.86, [0.85, 0.15, 0.12]);
     const [sx, sy] = [0.42 * A, 0.92];
     const sand = this.paint([0.78, 0.66, 0.42]);
     this.ground(sx, sy, 0.1, 0.09, 0.5);
@@ -5015,7 +4605,6 @@ var beach = {
   id: "beach",
   name: "Beach",
   description: "Waves washing up a sandy beach between swaying palms, with a sailboat on the horizon now and then",
-  collection: "Landscapes",
   activity: {
     calm: "Sea, waves, sand and palm trees",
     lively: "Adds leaping dolphins and seagulls",
@@ -5168,7 +4757,7 @@ var STEEL = [0.62, 0.17, 0.11];
 var HEADLIGHT = [1.4, 0.95, 0.3];
 var TAILLIGHT = [1.4, 0.08, 0.06];
 var TRAIN_LIGHT = [0.18, 0.85, 0.95];
-var RAIN2 = [0.05, 0.1, 0.16];
+var RAIN = [0.05, 0.1, 0.16];
 var LANES = [
   { y: ROAD + 0.006, dir: -1, speed: 0.075, scale: 0.85 },
   { y: ROAD + 0.018, dir: 1, speed: 0.09, scale: 1 }
@@ -5204,7 +4793,6 @@ class City extends Canvas {
   ];
   walkers = [];
   rain = [];
-  weather;
   lights = new LightMap;
   wet;
   storm = makeStorm();
@@ -5218,14 +4806,13 @@ class City extends Canvas {
       this.frame = 0.4;
     this.stars = makeStars(this.look.stars, 0.45);
     this.clouds = makeClouds(2, "stratus", 0.05, 0.12);
-    this.weather = new WeatherLayer(settings.weather ?? "clear", settings.time, BANK);
-    this.shade = sunShade(settings.time, this.look.orb, this.weather.covered);
-    this.wet = settings.weather ? settings.weather === "rain" || settings.weather === "snow" : this.look.night && settings.activity === "teeming";
+    this.shade = sunShade(settings.time, this.look.orb);
+    this.wet = this.look.night && settings.activity === "teeming";
     if (settings.activity !== "teeming")
       return;
     const umbrellas = [[0.1, 0.55, 0.6], [0.6, 0.1, 0.4], [0.65, 0.35, 0.05], [0.3, 0.15, 0.6], [0.6, 0.1, 0.08]];
     this.walkers = Array.from({ length: 5 }, (_, i) => ({ x: 0.15 + i * 0.37, dir: i % 2 ? -1 : 1, phase: Math.random(), size: [1, 0.92, 1.06, 0.97, 1.03][i], coat: PAINT[i * 3 % PAINT.length], hair: HAIR[i % HAIR.length], umbrella: umbrellas[i] }));
-    if (this.look.night && !settings.weather)
+    if (this.look.night)
       this.rain = Array.from({ length: 30 }, () => ({ x: Math.random() * 2, y: Math.random(), speed: rand(0.9, 1.3) }));
   }
   step(dt) {
@@ -5235,7 +4822,6 @@ class City extends Canvas {
     driftClouds(this.clouds, this.A, dt);
     driftClouds(this.storm, this.A, dt);
     this.stepGloom(dt);
-    this.weather.step(dt);
     this.pigeons = flyAway(this.pigeons, dt, this.A);
     this.stepHero(dt);
     this.stepTraffic(dt);
@@ -5270,10 +4856,8 @@ class City extends Canvas {
     const { W, H, look } = this;
     this.restore();
     this.lights.clear(W, H);
-    if (!this.weather.covered)
-      paintStars(this.hdr, W, H, this.visibleStars, this.time, BANK, 0.4, this.points);
-    const [top, bottom] = this.weather.scud ?? [look.clouds.top, look.clouds.bottom];
-    paintClouds(this.hdr, W, H, this.clouds, top, bottom, look.clouds.alpha, this.weather.covered ? undefined : look.orb);
+    paintStars(this.hdr, W, H, this.visibleStars, this.time, BANK, 0.4, this.points);
+    paintClouds(this.hdr, W, H, this.clouds, look.clouds.top, look.clouds.bottom, look.clouds.alpha, look.orb);
     paintStorm(this.hdr, W, H, this.storm, look.clouds.top, look.clouds.bottom, this.gloom);
     if (this.hero.t >= 0)
       this.drawHero();
@@ -5309,7 +4893,6 @@ class City extends Canvas {
     for (const b of this.pigeons)
       this.shape(bird(b, H, 0.022 * H, this.paint([0.42, 0.44, 0.5])), this.lighting, 0.4);
     this.drawRain();
-    this.weather.draw(this.hdr, W, H);
     this.finish();
   }
   visit() {
@@ -5323,7 +4906,6 @@ class City extends Canvas {
     const { W, H, A, look } = this;
     this.lighting = look.style === "front" ? { style: "front", dir: DAYLIGHT2 } : { style: "rim", color: look.light, x: look.orb.x * W, y: look.orb.y * H };
     paintSky(this.hdr, W, H, look.sky, look.orb, this.px);
-    this.weather.cover(this.hdr, W, H);
     const sky = this.hdr.slice();
     this.beacons = [];
     this.flickers = [];
@@ -5699,7 +5281,7 @@ class City extends Canvas {
       const sy = s0 - px - Math.floor((y - s0) * 0.8);
       for (let x = 0;x < W; x++) {
         const puddle = 0.35 + 0.65 * smoothstep(0.4, 0.62, fbm1(x / px * 0.03 + Math.floor(y / px * 0.4) * 5.3, 2));
-        const streak2 = 0.7 + 0.3 * Math.sin(x / px * 1.3 + y / px * 0.2);
+        const streak = 0.7 + 0.3 * Math.sin(x / px * 1.3 + y / px * 0.2);
         let r = 0;
         let g = 0;
         let b = 0;
@@ -5709,7 +5291,7 @@ class City extends Canvas {
           g += hdr[o2 + 1];
           b += hdr[o2 + 2];
         }
-        const k = 0.65 * puddle * streak2 / 3;
+        const k = 0.65 * puddle * streak / 3;
         const o = (y * W + x) * 3;
         hdr[o] = hdr[o] * 0.6 + r * k;
         hdr[o + 1] = hdr[o + 1] * 0.6 + g * k;
@@ -6015,7 +5597,7 @@ class City extends Canvas {
     if (!this.wet)
       return;
     const [cx, cy] = P(0.08, -1.08);
-    const u = look.glow > 0 ? [w.umbrella[0] * look.glow * 0.9, w.umbrella[1] * look.glow * 0.9, w.umbrella[2] * look.glow * 0.9] : this.paint(w.umbrella.map((c) => c * 1.4));
+    const u = [w.umbrella[0] * look.glow * 0.9, w.umbrella[1] * look.glow * 0.9, w.umbrella[2] * look.glow * 0.9];
     this.polygon(Array.from({ length: 11 }, (_, i) => [cx + Math.cos(Math.PI + i / 10 * Math.PI) * 0.26 * S, cy + Math.sin(Math.PI + i / 10 * Math.PI) * 0.13 * S + (i % 2 ? 0 : 0.02 * S)]), u);
     this.shape([cap(cx, cy, ...P(0.12, -0.85), 0.012 * S, 0.012 * S, this.paint([0.3, 0.3, 0.32]))], this.lighting, 0);
   }
@@ -6027,7 +5609,7 @@ class City extends Canvas {
       const y = r.y * H;
       for (let k = 0;k < n; k++) {
         const a = (1 - k / n) * 0.9;
-        this.splat(x + k * 0.15, y - k, RAIN2[0] * a, RAIN2[1] * a, RAIN2[2] * a);
+        this.splat(x + k * 0.15, y - k, RAIN[0] * a, RAIN[1] * a, RAIN[2] * a);
       }
     }
   }
@@ -6036,7 +5618,6 @@ var city = {
   id: "city",
   name: "City",
   description: "A skyline over a river, traffic on an elevated highway, and a blimp drifting over now and then",
-  collection: "Landscapes",
   activity: {
     calm: "Skyline, river and light traffic on the highway",
     lively: "Adds a train crossing the bridge and more traffic",
@@ -6198,14 +5779,6 @@ var LOOKS3 = {
     dust: [0, 0, 0]
   }
 };
-var FLOWERS = [
-  [1, 0.5, 0.08],
-  [0.5, 0.3, 0.95],
-  [1, 0.85, 0.15],
-  [0.92, 0.35, 0.68]
-];
-var FLOWER_LIGHT = { day: [1, 1, 1], sunset: [0.3, 0.15, 0.13], night: [0.08, 0.1, 0.2] };
-var DUSTING = { day: [0.92, 0.93, 0.97], sunset: [0.55, 0.28, 0.3], night: [0.06, 0.12, 0.3] };
 var STAR_TINTS2 = [
   [0.55, 0.75, 1.2],
   [1.15, 0.85, 0.45],
@@ -6239,10 +5812,6 @@ class Desert extends Canvas {
   startled = [];
   roadrunner = { wait: eggWait() * TIME_SCALE3, t: -1, x: 0, halt: -1, stride: 0 };
   puffs = [];
-  season;
-  flowerLight;
-  dusting;
-  weather;
   shade;
   lights = new LightMap;
   constructor(settings) {
@@ -6251,11 +5820,7 @@ class Desert extends Canvas {
     this.look = LOOKS3[settings.time];
     if (settings.time === "day")
       this.frame = 0.4;
-    this.season = settings.season ?? "summer";
-    this.flowerLight = FLOWER_LIGHT[settings.time];
-    this.dusting = DUSTING[settings.time];
-    this.weather = new WeatherLayer(settings.weather ?? "clear", settings.time, HORIZON2);
-    this.shade = sunShade(settings.time, this.look.orb, this.weather.covered);
+    this.shade = sunShade(settings.time, this.look.orb);
     const look = this.look;
     const top = look.milkyWay ? 0.5 : 0.3;
     this.stars = Array.from({ length: look.stars }, () => ({ x: Math.random(), y: Math.random() * top, b: 0.4 + Math.random() * 0.6, phase: Math.random() * TAU, tint: STAR_TINTS2[Math.floor(Math.random() * STAR_TINTS2.length)] }));
@@ -6282,7 +5847,6 @@ class Desert extends Canvas {
     driftClouds(this.storm, this.A, dt);
     this.stepGloom(dt);
     this.stepTumbleweed(dt);
-    this.weather.step(dt);
     this.stepCreatures(dt * CREATURE_SPEED3);
     this.startled = flyAway(this.startled, dt, this.A);
     this.stepRoadrunner(dt, dt * CREATURE_SPEED3);
@@ -6293,14 +5857,12 @@ class Desert extends Canvas {
   }
   render() {
     this.restore();
-    if (this.look.style === "front" && this.season !== "winter" && !this.weather.covered) {
+    if (this.look.style === "front") {
       shimmer(this.hdr, this.background, this.W, this.H, this.time);
       this.touch(0, Math.floor((HORIZON2 - 0.05) * this.H), this.W - 1, Math.ceil((HORIZON2 + 0.02) * this.H));
     }
-    if (!this.weather.covered)
-      this.drawStars();
-    const [top, bottom] = this.weather.scud ?? [this.look.clouds.top, this.look.clouds.bottom];
-    paintClouds(this.hdr, this.W, this.H, this.clouds, top, bottom, this.look.clouds.alpha, this.weather.covered ? undefined : this.look.orb);
+    this.drawStars();
+    paintClouds(this.hdr, this.W, this.H, this.clouds, this.look.clouds.top, this.look.clouds.bottom, this.look.clouds.alpha, this.look.orb);
     paintStorm(this.hdr, this.W, this.H, this.storm, this.look.clouds.top, this.look.clouds.bottom, this.gloom);
     for (const b of this.flock)
       this.look.night ? this.drawBat(b) : this.drawBird(b, 0.3, "vulture");
@@ -6318,7 +5880,6 @@ class Desert extends Canvas {
     if (this.look.night)
       this.drawCampfire();
     this.drawDust();
-    this.weather.draw(this.hdr, this.W, this.H);
     this.finish();
   }
   visit() {
@@ -6330,7 +5891,6 @@ class Desert extends Canvas {
     this.orbX = look.orb.x * W;
     this.orbY = look.orb.y * H;
     this.drawSky();
-    this.weather.cover(this.hdr, W, H);
     const sky = this.hdr.slice();
     const day = look === LOOKS3.day;
     const far = mesas(A, 3, 7, [0.06, 0.16], [0.04, 0.09]);
@@ -6367,8 +5927,6 @@ class Desert extends Canvas {
     });
     if (day)
       mottle(this.hdr, W, H, HORIZON2, 1, 0.6, [1.1, 0.98, 0.8], [0.72, 0.7, 0.86]);
-    if (this.season === "spring")
-      this.drawBloom();
     if (this.activity === "teeming") {
       for (const [x, h] of [[0.45, 0.14], [A - 0.14, 0.11]]) {
         const gy = backTop[clamp(Math.round(x * H), 0, W - 1)] + 2 * px;
@@ -6399,14 +5957,6 @@ class Desert extends Canvas {
     return 0.35 + 0.65 * Math.exp(-Math.abs(x - this.orbX) / (0.45 * this.H));
   }
   surface(base, top, x, depth2, rimWidth, rimStrength, strata) {
-    if (strata && this.season === "winter") {
-      const snow = smoothstep(this.px, 0, depth2 - (0.006 + 0.03 * fbm1(x / this.px * 0.06, 4) ** 2) * this.H);
-      if (snow > 0)
-        return mix2(this.lit(base, top, x, depth2, rimWidth, rimStrength, strata), this.dusting, snow * 0.85);
-    }
-    return this.lit(base, top, x, depth2, rimWidth, rimStrength, strata);
-  }
-  lit(base, top, x, depth2, rimWidth, rimStrength, strata) {
     const { light } = this.look;
     const px = this.px;
     if (this.look.style === "rim") {
@@ -6453,28 +6003,6 @@ class Desert extends Canvas {
         const maria = orb.moon ? 1 - 0.18 * smoothstep(0.55, 0.75, fbm1((x - this.orbX) / this.px * 0.25 + 3, 7) + fbm1((y - this.orbY) / this.px * 0.25 + 1, 9) * 0.6) : 1;
         this.blend(o, orb.core[0] * limb2 * maria, orb.core[1] * limb2 * maria, orb.core[2] * limb2 * maria, cov);
       }
-    }
-  }
-  drawBloom() {
-    const { W, H, A, hdr } = this;
-    const patch = (u, v) => fbm2(u * 5, v * 11, 3);
-    const green = this.flowerLight;
-    for (let y = Math.ceil((HORIZON2 + 0.01) * H);y < H; y++)
-      for (let x = 0;x < W; x++) {
-        const k = smoothstep(0.44, 0.6, patch(x / H, y / H)) * 0.35;
-        if (k <= 0)
-          continue;
-        this.blend((y * W + x) * 3, hdr[(y * W + x) * 3] * 0.6 + 0.2 * green[0], hdr[(y * W + x) * 3 + 1] * 0.6 + 0.3 * green[1], hdr[(y * W + x) * 3 + 2] * 0.5 + 0.06 * green[2], k);
-      }
-    for (let i = 0;i < Math.round(A * 3200); i++) {
-      const u = hash(i * 1.31) * A;
-      const v = HORIZON2 + 0.015 + hash(i * 2.77) * (0.99 - HORIZON2);
-      if (patch(u, v) < 0.5)
-        continue;
-      const kind = FLOWERS[Math.floor(fbm2(u * 1.6 + 7, v * 3 + 2, 2) * 9 + hash(i * 4.1) * 1.4) % FLOWERS.length];
-      const near2 = (v - HORIZON2) / (1 - HORIZON2);
-      const light = this.flowerLight;
-      this.disc(u * H, v * H, lerp(0.0016, 0.0055, near2) * H, kind[0] * light[0], kind[1] * light[1], kind[2] * light[2], 0.9);
     }
   }
   drawFloor() {
@@ -6633,12 +6161,6 @@ class Desert extends Canvas {
       cap(x, gy - h * 0.5, x + h * 0.21, gy - h * 0.55, r * 0.65, r * 0.65, c, 1.5),
       cap(x + h * 0.21, gy - h * 0.55, x + h * 0.21, gy - h * 0.82, r * 0.65, r * 0.58, c, 1.5)
     ], 1 - haze2 * 0.5);
-    if (this.season !== "spring")
-      return;
-    const light = this.flowerLight;
-    for (const [tx, ty, tr] of [[x, gy - h, r * 0.85], [x - h * 0.24, gy - h * 0.72, r * 0.62], [x + h * 0.21, gy - h * 0.82, r * 0.58]])
-      for (const a of [-0.9, -0.3, 0.3, 0.9])
-        this.disc(tx + Math.sin(a) * tr * 0.8, ty - Math.cos(a) * tr * 0.5, tr * 0.38, 0.98 * light[0], 0.94 * light[1], 0.82 * light[2], 0.95);
   }
   drawSkull(x, gy, s) {
     const { bone, horn, hornTip, socket } = this.look;
@@ -6948,7 +6470,6 @@ var desert = {
   id: "desert",
   name: "Desert",
   description: "Mesas and dunes with a saguaro, a cow skull, and a tumbleweed now and then",
-  collection: "Landscapes",
   activity: {
     calm: "Mesas, a saguaro and a skull",
     lively: "Adds a soaring eagle (an owl at night) and a rattlesnake",
@@ -7071,7 +6592,6 @@ class Dome extends Canvas {
   creatureTime = 0;
   activity;
   look;
-  weather;
   lighting = { style: "rim", color: [0, 1, 0], x: 0, y: 0 };
   cx = 1;
   R = RADIUS;
@@ -7102,7 +6622,6 @@ class Dome extends Canvas {
     super();
     this.activity = settings.activity;
     this.look = LOOKS4[settings.time];
-    this.weather = new WeatherLayer(settings.weather ?? "clear", settings.time, HORIZON3);
     this.flash.wait = rand(6, 14);
     const rays = [
       [0, 0.03, 1.2],
@@ -7137,7 +6656,6 @@ class Dome extends Canvas {
     const cdt = dt * CREATURE_SPEED4;
     this.creatureTime += cdt;
     this.stepGloom(dt);
-    this.weather.step(dt);
     driftClouds(this.clouds, this.A, dt * 0.5);
     if (this.gloom > 0)
       driftClouds(this.storm, this.A, dt);
@@ -7192,8 +6710,7 @@ class Dome extends Canvas {
     const dark = look.bank[1];
     if (this.gloom > 0)
       paintStorm(hdr, W, H, this.storm, [dark[0] * 1.6, dark[1] * 1.6, dark[2] * 1.6], dark, this.gloom);
-    const [top, bottom] = this.weather.scud ?? look.clouds;
-    paintClouds(hdr, W, H, this.clouds, top, bottom, 0.55);
+    paintClouds(hdr, W, H, this.clouds, ...look.clouds, 0.55);
     if (this.flash.t >= 0)
       this.drawFlash();
     if (this.visitor)
@@ -7208,7 +6725,6 @@ class Dome extends Canvas {
       this.drawRubble(t.x, t.y, t.size * clamp((5 - t.age) / 1.5, 0, 1), t.spin, { style: "rim", color: g, x: t.x * H, y: (t.y + 0.05) * H });
     if (this.bike.t >= 0)
       this.drawBike();
-    this.weather.draw(hdr, W, H);
     fillDome(hdr, W, H, this.cx * H, BASE * H, this.R * (1 + 0.05 * swell) * H, FOOT, look.dome, look.rim, look.glow, level2, this.px);
     for (const c of this.chunks)
       if (Math.sin(c.a) >= 0)
@@ -7251,7 +6767,6 @@ class Dome extends Canvas {
     this.rho = new Float32Array(W * H);
     this.phases = new Float32Array(W * H);
     this.paintSky();
-    this.weather.cover(hdr, W, H);
     this.skyRows = Math.ceil(HORIZON3 * H);
     this.tex = new Float32Array(W * this.skyRows);
     this.dist = new Float32Array(W * this.skyRows);
@@ -7303,16 +6818,16 @@ class Dome extends Canvas {
       const [a, from] = stops[Math.max(0, i - 1)];
       const [b, to] = stops[i < 0 ? stops.length - 1 : i];
       const k = b > a ? smoothstep(a, b, v) : 1;
-      const streak2 = smoothstep(0.08, 0.44, v) * 0.35;
+      const streak = smoothstep(0.08, 0.44, v) * 0.35;
       for (let x = 0;x < W; x++) {
         const u = (x + 0.5) / H;
         const tex = smoothstep(0.35, 0.75, fbm2(u * 3.5 + fbm1(v * 14, 4) * 0.5, v * 24, 4));
         const d = Math.max(0, Math.hypot(u - cx, (v - BASE) * 1.3) - R);
         const halo = 0.09 * look.reach * Math.exp(-d / 0.09) * smoothstep(BASE - R * 1.3, BASE, v);
         const o = (y * W + x) * 3;
-        hdr[o] = lerp(from[0], to[0], k) + look.ripple[0] * tex * streak2;
-        hdr[o + 1] = lerp(from[1], to[1], k) + look.ripple[1] * tex * streak2;
-        hdr[o + 2] = lerp(from[2], to[2], k) + look.ripple[2] * tex * streak2;
+        hdr[o] = lerp(from[0], to[0], k) + look.ripple[0] * tex * streak;
+        hdr[o + 1] = lerp(from[1], to[1], k) + look.ripple[1] * tex * streak;
+        hdr[o + 2] = lerp(from[2], to[2], k) + look.ripple[2] * tex * streak;
         if (halo < 0.002)
           continue;
         hdr[o] += g[0] * halo;
@@ -7326,7 +6841,7 @@ class Dome extends Canvas {
   }
   paintBank() {
     const { W, H, A, look, hdr, px } = this;
-    const [lit, shade] = this.weather.scud ?? look.bank;
+    const [lit, shade] = look.bank;
     const balls = [];
     for (let x = -0.15, k = 0;x < A + 0.15; k++) {
       const big = 0.6 + 0.8 * smoothstep(this.R * 0.6, Math.max(this.R + 0.2, A / 2), Math.abs(x - this.cx));
@@ -7643,7 +7158,6 @@ var dome = {
   id: "dome",
   name: "Dome",
   description: "A vast black energy dome over a ruined city, its foot blazing with light under a ring of clouds, with a gunship crossing now and then",
-  collection: "Akira",
   fixedTime: "night",
   activity: {
     calm: "The dome, its slowly breathing light and the creeping cloud ring",
@@ -7739,50 +7253,8 @@ var DAYLIGHT4 = (() => {
   const l = Math.hypot(0.5, 0.6, 0.6);
   return [0.5 / l, -0.6 / l, 0.6 / l];
 })();
-var GROUND = {
-  spring: {
-    day: [
-      [0.46, 0.68, 0.36],
-      [0.34, 0.64, 0.18]
-    ]
-  },
-  autumn: {
-    day: [
-      [0.6, 0.52, 0.28],
-      [0.56, 0.44, 0.17]
-    ],
-    sunset: [
-      [0.62, 0.34, 0.1],
-      [0.42, 0.22, 0.05]
-    ]
-  },
-  winter: {
-    day: [
-      [0.74, 0.79, 0.88],
-      [0.82, 0.86, 0.93]
-    ],
-    sunset: [
-      [0.6, 0.4, 0.26],
-      [0.5, 0.34, 0.24]
-    ],
-    night: [
-      [0.035, 0.07, 0.18],
-      [0.045, 0.1, 0.24]
-    ]
-  }
-};
-var CORN = {
-  spring: { height: 0.4, stalk: [0.3, 0.62, 0.14] },
-  summer: { height: 1, stalk: [0.25, 0.5, 0.12], ear: [0.95, 0.8, 0.25], tassel: [0.75, 0.6, 0.3] },
-  autumn: { height: 1, stalk: [0.62, 0.48, 0.2], ear: [0.72, 0.55, 0.26], tassel: [0.5, 0.36, 0.18] },
-  winter: { height: 0.18, stalk: [0.48, 0.38, 0.24] }
-};
-var CROWN = {
-  spring: [[0.92, 0.6, 0.72], [[1, 0.88, 0.92], [0.85, 0.42, 0.6], [0.4, 0.62, 0.2]]],
-  summer: [[0.18, 0.4, 0.12], [[0.12, 0.3, 0.08], [0.28, 0.52, 0.16]]],
-  autumn: [[0.85, 0.42, 0.1], [[0.95, 0.68, 0.15], [0.7, 0.16, 0.06], [0.55, 0.3, 0.08]]],
-  winter: [[0, 0, 0], []]
-};
+var CORN = { stalk: [0.25, 0.5, 0.12], ear: [0.95, 0.8, 0.25], tassel: [0.75, 0.6, 0.3] };
+var CROWN = [[0.18, 0.4, 0.12], [[0.12, 0.3, 0.08], [0.28, 0.52, 0.16]]];
 var CROPS = [
   [1, 1, 1],
   [0.66, 0.82, 0.62],
@@ -7813,14 +7285,9 @@ class Farm extends Canvas {
   smoke = [];
   fireflies = [];
   egg = { wait: eggWait() * TIME_SCALE5, t: -1, cow: undefined };
-  season;
-  weather;
   lights = new LightMap;
-  hills;
-  treeTops = [];
   barnX = 0;
   millX = 0.25;
-  leaves = [];
   corn = new SwayLayer;
   pasture = new Int32Array(0);
   pastureTop = 0;
@@ -7832,13 +7299,7 @@ class Farm extends Canvas {
     this.look = LOOKS5[settings.time];
     if (settings.time === "day")
       this.frame = 0.4;
-    this.season = settings.season ?? "summer";
-    this.hills = GROUND[this.season]?.[settings.time] ?? this.look.hills;
-    this.weather = new WeatherLayer(settings.weather ?? (this.season === "winter" ? "snow" : "clear"), settings.time, HORIZON4, !settings.weather);
-    this.shade = sunShade(settings.time, this.look.orb, this.weather.covered);
-    const drifting = { spring: 10, autumn: 22, summer: 0, winter: 0 }[this.season] * { calm: 1, lively: 1.3, teeming: 1.6 }[settings.activity];
-    const colors = this.season === "spring" ? [[1, 0.78, 0.86], [0.95, 0.6, 0.72]] : [[0.9, 0.45, 0.1], [0.75, 0.2, 0.07], [0.95, 0.7, 0.18]];
-    this.leaves = Array.from({ length: Math.round(drifting) }, (_, i) => ({ x: Math.random() * 2, y: 0.4 + Math.random() * 0.55, phase: Math.random() * TAU, color: colors[i % colors.length] }));
+    this.shade = sunShade(settings.time, this.look.orb);
     this.stars = makeStars(this.look.stars, 0.45);
     this.clouds = settings.time === "sunset" ? makeClouds(5, "cirrus", 0.06, 0.3) : makeClouds(5, "cumulus", 0.08, 0.3);
     const walker = (x, y) => ({ x, y, wx: x, wy: y, wanderT: 0, face: 1, phase: Math.random() * TAU, graze: 0, rest: 0, look: 0, moving: false, g: gait(1, hash(x * 7 + y)) });
@@ -7848,7 +7309,7 @@ class Farm extends Canvas {
     }
     if (settings.activity === "teeming")
       this.pigs = [walker(0.9, 0.9), walker(1, 0.92)];
-    const flies = this.look.fireflies && this.season === "summer" ? { calm: 12, lively: 20, teeming: 30 }[settings.activity] : 0;
+    const flies = this.look.fireflies ? { calm: 12, lively: 20, teeming: 30 }[settings.activity] : 0;
     this.fireflies = Array.from({ length: flies }, () => ({ x: Math.random() * 2, y: 0.6 + Math.random() * 0.35, vx: 0, vy: 0, phase: Math.random() * TAU }));
   }
   step(dt) {
@@ -7860,18 +7321,7 @@ class Farm extends Canvas {
     driftClouds(this.shadows, this.A, dt);
     driftClouds(this.storm, this.A, dt);
     this.stepGloom(dt);
-    this.weather.step(dt);
     this.fan += dt * (0.8 + 1.6 * gust(this.millX, this.time));
-    for (const l of this.leaves) {
-      l.y += (0.02 + Math.sin(this.time * 1.3 + l.phase) * 0.012) * dt;
-      l.x += (0.025 + Math.sin(this.time * 0.7 + l.phase * 3) * 0.02 + gust(l.x, this.time) * 0.09) * dt;
-      if (l.y < 0.99 && l.x < this.A + 0.05)
-        continue;
-      const tree = this.treeTops[Math.floor(Math.random() * this.treeTops.length)];
-      const fromTree = tree && Math.random() < 0.6;
-      l.x = fromTree ? tree[0] + rand(-0.04, 0.04) : -0.03;
-      l.y = fromTree ? tree[1] + rand(-0.02, 0.03) : rand(0.35, 0.75);
-    }
     for (const f of this.fireflies) {
       f.vx += (Math.random() - 0.5) * 0.02 * dt;
       f.vy += (Math.random() - 0.5) * 0.02 * dt;
@@ -7915,12 +7365,9 @@ class Farm extends Canvas {
     if (x1 >= 0)
       this.touch(x0, this.pastureTop, x1, this.H - 1);
     this.corn.draw(this.hdr, this.W, this.H, this.time);
-    if (!this.weather.covered)
-      paintStars(this.hdr, this.W, this.H, this.stars, this.time, 0.5, this.look.stars > 50 ? 0.5 : 0.3, this.points);
-    const [top, bottom] = this.weather.scud ?? [this.look.clouds.top, this.look.clouds.bottom];
-    const orb = this.weather.covered ? undefined : this.look.orb;
-    paintClouds(this.hdr, this.W, this.H, this.clouds, top, bottom, this.look.clouds.alpha, orb);
-    paintShadows(this.hdr, this.W, this.H, this.shadows, HORIZON4 + 0.01, orb);
+    paintStars(this.hdr, this.W, this.H, this.stars, this.time, 0.5, this.look.stars > 50 ? 0.5 : 0.3, this.points);
+    paintClouds(this.hdr, this.W, this.H, this.clouds, this.look.clouds.top, this.look.clouds.bottom, this.look.clouds.alpha, this.look.orb);
+    paintShadows(this.hdr, this.W, this.H, this.shadows, HORIZON4 + 0.01, this.look.orb);
     paintStorm(this.hdr, this.W, this.H, this.storm, this.look.clouds.top, this.look.clouds.bottom, this.gloom);
     this.drawShadows();
     this.drawFan();
@@ -7943,8 +7390,6 @@ class Farm extends Canvas {
     this.lights.apply(this.hdr);
     this.drawCornRow(3);
     this.drawFireflies();
-    this.drawLeaves();
-    this.weather.draw(this.hdr, this.W, this.H);
     this.finish();
   }
   visit() {
@@ -7955,12 +7400,8 @@ class Farm extends Canvas {
     const { W, H, A, look } = this;
     this.lighting = look.style === "front" ? { style: "front", dir: DAYLIGHT4 } : { style: "rim", color: look.light, x: look.orb.x * W, y: look.orb.y * H };
     paintSky(this.hdr, W, H, look.sky, look.orb, this.px);
-    this.weather.cover(this.hdr, W, H);
-    const [far, near2] = this.hills;
-    const season = this.season;
-    const golden = season === "autumn" ? 0.45 : 0.85;
-    const patchwork = season === "winter" ? 0.3 : 1;
-    const grass = this.cells ? 0 : season === "winter" ? 0.03 : 0.1;
+    const [far, near2] = look.hills;
+    const grass = this.cells ? 0 : 0.1;
     const farTop = new Float32Array(W);
     this.nearTop = new Float32Array(W);
     for (let x = 0;x < W; x++) {
@@ -7974,10 +7415,10 @@ class Farm extends Canvas {
       const fu = x / H * 5 + y / H * 9;
       const fv = y / H * 22;
       const field2 = hash2(Math.floor(fu), Math.floor(fv));
-      const k = 1 + (field2 < 0.33 ? -0.15 : field2 < 0.66 ? 0 : 0.12) * patchwork;
-      const gold = field2 > golden && season !== "winter" ? 0.3 : 0;
+      const k = 1 + (field2 < 0.33 ? -0.15 : field2 < 0.66 ? 0 : 0.12);
+      const gold = field2 > 0.85 ? 0.3 : 0;
       const c = [far[0] * k + gold * far[0], far[1] * k + gold * 0.2 * far[1], far[2] * k * (1 - gold)];
-      if (!day || season === "winter")
+      if (!day)
         return this.rim(c, x, d, 1.5);
       const crop = CROPS[Math.floor(hash2(Math.floor(fu) + 7.1, Math.floor(fv) + 3.3) * CROPS.length)];
       const hedge = Math.min(fu - Math.floor(fu), (fv - Math.floor(fv)) * 0.4) < 0.05 ? 0.5 : 1;
@@ -7991,7 +7432,7 @@ class Farm extends Canvas {
       return this.rim([near2[0] * blades * depth2, near2[1] * blades * depth2, near2[2] * blades * depth2], x, d, 2);
     });
     if (day)
-      mottle(this.hdr, W, H, 0.58, 1, 0.55, season === "winter" ? [1.03, 1, 0.92] : [1.14, 1.06, 0.7], season === "winter" ? [0.62, 0.74, 1] : [0.66, 0.84, 0.66]);
+      mottle(this.hdr, W, H, 0.58, 1, 0.55, [1.14, 1.06, 0.7], [0.66, 0.84, 0.66]);
     const field = this.hdr.slice();
     for (let x = 0;x < W; x++) {
       const cy = this.roadY(x / H) * H;
@@ -7999,12 +7440,10 @@ class Farm extends Canvas {
         if (y < 0 || y >= H)
           continue;
         const edge = clamp(0.009 * H - Math.abs(y + 0.5 - cy) + 0.5, 0, 1);
-        const c = season === "winter" ? lerpRGB(this.paint([0.5, 0.4, 0.26]), near2, 0.6) : this.paint([0.5, 0.4, 0.26]);
+        const c = this.paint([0.5, 0.4, 0.26]);
         this.blend((y * W + x) * 3, c[0], c[1], c[2], edge);
       }
     }
-    if (season === "spring")
-      this.drawWildflowers();
     this.barnX = A - 0.24;
     const trees = [0.5, A - 0.04];
     const ground = (x, y, w, h, tip) => groundShadow(this.hdr, W, H, this.shade, x * H, y * H, w * H, h * H, tip);
@@ -8017,21 +7456,13 @@ class Farm extends Canvas {
       ground(this.barnX + dx, by + 0.02, 0.045, 0.04);
     for (let x = 0.38 * A;x < A + 0.05; x += 0.07)
       ground(x, 0.725, 0.012, 0.045, 0.6);
-    this.treeTops = trees.map((x) => {
-      const base = this.nearTop[clamp(Math.round(x * H), 0, W - 1)] / H + 0.012;
-      this.drawTree(x, base);
-      return [x, base - 0.12];
-    });
+    for (const x of trees)
+      this.drawTree(x, this.nearTop[clamp(Math.round(x * H), 0, W - 1)] / H + 0.012);
     this.drawFarmhouse(0.08, this.nearTop[clamp(Math.round(0.08 * H), 0, W - 1)] / H + 0.006);
     this.drawWindmillTower(this.millX, 0.65);
     this.drawBarn(this.barnX, 0.655);
     for (const [dx, by] of [[-0.28, 0.705], [-0.2, 0.712]])
       this.shape([ell((this.barnX + dx) * H, by * H, 0.022 * H, 0.02 * H, 0, this.paint([0.78, 0.62, 0.3]), 3)], this.lighting, 0.8);
-    if (season === "autumn")
-      for (const [dx, r] of [[-0.062, 0.011], [-0.046, 0.008], [0.056, 0.01]]) {
-        const [px, py] = [(this.barnX + dx) * H, 0.664 * H];
-        this.shape([ell(px, py - r * H, r * 1.25 * H, r * H, 0, this.paint([0.92, 0.45, 0.06]), 3), cap(px, py - r * 1.9 * H, px + 0.003 * H, py - r * 2.4 * H, 0.0018 * H, 0.0012 * H, this.paint([0.3, 0.35, 0.1]))], this.lighting, 0.7);
-      }
     const fy = 0.725 * H;
     const posts = [];
     for (let x = 0.38 * A;x < A + 0.05; x += 0.07)
@@ -8135,12 +7566,6 @@ class Farm extends Canvas {
     this.polygon(P([[c, b - 0.185], [c + 0.06, b - 0.198], [c + 0.135, b - 0.168], [c + 0.15, b - 0.115], [c + 0.09, b - 0.1], [c + 0.075, b - 0.155]]), this.paint([0.22, 0.07, 0.06]));
     this.polygon(P([[c - 0.08, b - 0.1], [c + 0.08, b - 0.1], [c + 0.08, b], [c - 0.08, b]]), this.paint([0.62, 0.12, 0.08]));
     this.polygon(P([[c - 0.09, b - 0.1], [c - 0.075, b - 0.155], [c, b - 0.185], [c + 0.075, b - 0.155], [c + 0.09, b - 0.1]]), this.paint([0.32, 0.1, 0.08]));
-    if (this.season === "winter") {
-      const snow = this.hills[1];
-      this.polygon(P([[c, b - 0.187], [c + 0.06, b - 0.2], [c + 0.135, b - 0.17], [c + 0.148, b - 0.12], [c + 0.09, b - 0.104], [c + 0.075, b - 0.157]]), snow);
-      this.polygon(P([[c - 0.077, b - 0.157], [c, b - 0.188], [c + 0.077, b - 0.157], [c + 0.072, b - 0.148], [c, b - 0.176], [c - 0.072, b - 0.148]]), snow);
-      this.shape([ell((c - 0.13) * H, (b - 0.175) * H, 0.023 * H, 0.013 * H, 0, snow)], this.lighting, 0.4);
-    }
     this.polygon(P([[c - 0.035, b - 0.065], [c + 0.035, b - 0.065], [c + 0.035, b], [c - 0.035, b]]), this.look.windows === 1 ? [1.1, 0.6, 0.18] : this.paint([0.42, 0.07, 0.05]));
     const trim = this.paint([0.88, 0.86, 0.8]);
     const t = 0.0025 * H;
@@ -8160,8 +7585,6 @@ class Farm extends Canvas {
     this.polygon(P([[h + 0.028, hb - 0.062], [h + 0.036, hb - 0.062], [h + 0.036, hb - 0.045], [h + 0.028, hb - 0.045]]), this.paint([0.4, 0.2, 0.15]));
     this.polygon(P([[h - 0.035, hb - 0.035], [h + 0.035, hb - 0.035], [h + 0.035, hb], [h - 0.035, hb]]), this.paint([0.85, 0.82, 0.72]));
     this.polygon(P([[h - 0.043, hb - 0.034], [h, hb - 0.066], [h + 0.043, hb - 0.034]]), this.paint([0.35, 0.15, 0.12]));
-    if (this.season === "winter")
-      this.polygon(P([[h - 0.04, hb - 0.037], [h, hb - 0.067], [h + 0.04, hb - 0.037], [h + 0.03, hb - 0.04], [h, hb - 0.058], [h - 0.03, hb - 0.04]]), this.hills[1]);
     this.window(h - 0.024, hb - 0.026, h - 0.012, hb - 0.014);
     this.window(h + 0.012, hb - 0.026, h + 0.024, hb - 0.014);
   }
@@ -8198,11 +7621,10 @@ class Farm extends Canvas {
   }
   drawCornRow(row) {
     const { A, H } = this;
-    const corn = CORN[this.season];
     const base = [0.79, 0.87, 0.96, 1.05][row] * H;
-    const height = (0.12 + row * 0.045) * H * corn.height;
+    const height = (0.12 + row * 0.045) * H;
     const spacing = this.cells ? Math.max(0.026 + row * 0.006, 9 * this.px / H) : 0.026 + row * 0.006;
-    const stalk = this.paint(corn.stalk);
+    const stalk = this.paint(CORN.stalk);
     const end = (0.36 * A + 0.03) * H;
     const px = this.px;
     const mass = [[-2 * px, base + 2 * px]];
@@ -8225,10 +7647,9 @@ class Farm extends Canvas {
         parts.push(cap(lx, ly, ...mid, this.thick(0.006, 1.3), this.thick(0.004, 1.1), stalk), cap(...mid, lx + side * reach + bend * reach * 1.5, ly + reach * 0.15 + bend * reach, this.thick(0.004, 1.1), this.thick(0.0015, 0.6), stalk));
       }
       const [ex, ey] = at(0.55);
-      if (corn.ear)
-        parts.push(ell(ex + 0.008 * H, ey, this.thick(0.007, 1.6), this.thick(0.016, 3), 0.25 + bend, this.paint(corn.ear)));
-      if (corn.tassel && !this.cells)
-        parts.push(cap(...top, top[0] + 0.012 * H, top[1] - 0.012 * H, 0.002 * H, 0.001 * H, this.paint(corn.tassel)), cap(...top, top[0] - 0.01 * H, top[1] - 0.014 * H, 0.002 * H, 0.001 * H, this.paint(corn.tassel)));
+      parts.push(ell(ex + 0.008 * H, ey, this.thick(0.007, 1.6), this.thick(0.016, 3), 0.25 + bend, this.paint(CORN.ear)));
+      if (!this.cells)
+        parts.push(cap(...top, top[0] + 0.012 * H, top[1] - 0.012 * H, 0.002 * H, 0.001 * H, this.paint(CORN.tassel)), cap(...top, top[0] - 0.01 * H, top[1] - 0.014 * H, 0.002 * H, 0.001 * H, this.paint(CORN.tassel)));
       this.shape(parts, this.lighting, this.look.style === "rim" ? this.cells ? 0.08 : 0.2 : 0.6);
     }
   }
@@ -8238,12 +7659,7 @@ class Farm extends Canvas {
     const fork = base - 0.06;
     const limbs = [[-0.04, -0.13], [0.035, -0.135], [-0.005, -0.155], [0.05, -0.1], [-0.055, -0.095]];
     this.shape([cap(x * H, base * H, x * H, fork * H, 0.006 * H, 0.0045 * H, bark), ...limbs.map(([dx, dy]) => cap(x * H, fork * H, (x + dx) * H, (base + dy) * H, 0.0035 * H, 0.0012 * H, bark))], this.lighting, 0.6);
-    if (this.season === "winter") {
-      const snow = this.hills[1];
-      this.shape(limbs.map(([dx, dy]) => cap((x + dx * 0.3) * H, (fork + (base + dy - fork) * 0.3) * H - 0.003 * H, (x + dx * 0.85) * H, (fork + (base + dy - fork) * 0.85) * H - 0.003 * H, 0.0016 * H, 0.0008 * H, snow)), this.lighting, 0.3);
-      return;
-    }
-    const [crown, specks] = CROWN[this.season];
+    const [crown, specks] = CROWN;
     const blobs = [[0, -0.12, 0.05, 0.04], [-0.038, -0.1, 0.034, 0.03], [0.038, -0.104, 0.034, 0.03], [-0.016, -0.148, 0.034, 0.027], [0.022, -0.142, 0.03, 0.025]];
     this.shape(blobs.map(([dx, dy, rx, ry]) => ell((x + dx) * H, (base + dy) * H, rx * H, ry * H, 0, this.paint(crown))), this.lighting, 0.8);
     for (let i = 0;i < 46; i++) {
@@ -8251,26 +7667,6 @@ class Farm extends Canvas {
       const r = Math.sqrt(hash(i * 2.9 + x));
       const c = this.paint(specks[i % specks.length]);
       this.disc((x + Math.cos(a) * r * 0.06) * H, (base - 0.122 + Math.sin(a) * r * 0.045) * H, 0.004 * H, c[0], c[1], c[2], 0.9);
-    }
-  }
-  drawWildflowers() {
-    const { W, H } = this;
-    const colors = [[0.95, 0.85, 0.2], [0.95, 0.92, 0.85], [0.6, 0.35, 0.85], [0.95, 0.45, 0.55]];
-    for (let i = 0;i < Math.round(this.A * 160); i++) {
-      const x = hash(i * 3.3) * W;
-      const top = this.nearTop[clamp(Math.round(x), 0, W - 1)] / H;
-      const y = (top + 0.01 + hash(i * 5.1) * (0.95 - top)) * H;
-      const c = this.paint(colors[i % colors.length]);
-      this.disc(x, y, 0.0025 * H, c[0], c[1], c[2], 0.85);
-    }
-  }
-  drawLeaves() {
-    const H = this.H;
-    const size = this.season === "spring" ? 0.0045 : 0.0065;
-    for (const l of this.leaves) {
-      const spin = Math.sin(this.time * 2 + l.phase) * 1.3;
-      const flat = 0.35 + 0.65 * Math.abs(Math.cos(this.time * 1.6 + l.phase));
-      this.shape([ell(l.x * H, l.y * H, size * H, size * 0.55 * flat * H, spin, this.paint(l.color))], this.lighting, 0.5);
     }
   }
   wander(w, dt, zone, speed, pause, stride2) {
@@ -8617,9 +8013,6 @@ class Farm extends Canvas {
     }
   }
 }
-function lerpRGB(a, b, t) {
-  return [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
-}
 function lightenGrass(hdr, W, H, pasture, gusts) {
   for (let k = 0;k < pasture.length; k++) {
     const p = pasture[k];
@@ -8638,7 +8031,6 @@ var farm = {
   id: "farm",
   name: "Farm",
   description: "Rolling fields with a red barn, a turning windmill and swaying corn, and a tractor now and then",
-  collection: "Landscapes",
   activity: {
     calm: "Barn, windmill, fields and corn",
     lively: "Adds grazing cows and pecking chickens",
@@ -9270,7 +8662,6 @@ var flowerbox = {
   id: "flowerbox",
   name: "Flower Box",
   description: "The old 3D screensaver: a glossy box of colored patches spinning and bouncing, morphing into balls, a star and a pillow",
-  collection: "Classics",
   fixedTime: "night",
   activity: {
     calm: "One object drifting and turning slowly, morphing between a cube, a cluster of balls and a pillow",
@@ -9439,7 +8830,7 @@ class FlyingOpenCode extends Canvas {
     const order = [...this.marks].sort((a, b) => b.z - a.z);
     const dim = 1 - 0.55 * this.gloom;
     const warp = this.warp();
-    const streak2 = Math.max(this.activity === "teeming" ? 0.35 : 0, warp);
+    const streak = Math.max(this.activity === "teeming" ? 0.35 : 0, warp);
     const reach = lerp(1.4, 5, warp);
     const speed = STREAM[this.activity].speed * (1 - 0.65 * this.gloom) * (1 + 5 * warp);
     for (const m of order) {
@@ -9453,8 +8844,8 @@ class FlyingOpenCode extends Canvas {
       shade.set([c[0] * lit, c[1] * lit, c[2] * lit, c[0] * f * lit, c[1] * f * lit, c[2] * f * lit]);
       const b = BLOCK * m.size;
       const tall = b * 5 * H / m.z;
-      if (streak2 > 0 && m.z < reach)
-        this.streak(m, streak2 * smoothstep(reach, reach * 0.4, m.z) * fade, speed);
+      if (streak > 0 && m.z < reach)
+        this.streak(m, streak * smoothstep(reach, reach * 0.4, m.z) * fade, speed);
       if (tall < 2) {
         const area = b * H / m.z;
         const k = area * area * (0.25 + 0.75 * facing) / 20;
@@ -9584,7 +8975,6 @@ var flyingOpenCode = {
   id: "flying-opencode",
   name: "Flying OpenCode",
   description: "The old flying-logos screensaver with OpenCode marks: colored marks stream out of the dark toward you, flapping as they fly",
-  collection: "Classics",
   fixedTime: "night",
   activity: {
     calm: "A few marks drifting slowly out of the middle",
@@ -9756,9 +9146,7 @@ class HauntedHouse extends Canvas {
   creatureTime = 0;
   activity;
   look;
-  weather;
   lighting = { style: "front", dir: DAYLIGHT5 };
-  light = [1, 1, 1];
   lights = new LightMap;
   stars;
   shown = [];
@@ -9808,7 +9196,6 @@ class HauntedHouse extends Canvas {
     this.activity = settings.activity;
     this.look = LOOKS8[settings.time];
     this.orb = this.look.orb;
-    this.weather = new WeatherLayer(settings.weather ?? "clear", settings.time, HORIZON5);
     this.stars = makeStars(this.look.stars, 0.5);
     this.clouds = makeClouds(settings.time === "day" ? 7 : 4, this.look.cloudKind, 0.05, 0.32);
     const n = { calm: 6, lively: 9, teeming: 12 }[settings.activity];
@@ -9829,7 +9216,6 @@ class HauntedHouse extends Canvas {
     const cdt = dt * CREATURE_SPEED6;
     this.creatureTime += cdt;
     this.stepGloom(dt);
-    this.weather.step(dt);
     driftClouds(this.clouds, this.A, dt * 0.4);
     if (this.gloom > 0)
       driftClouds(this.storm, this.A, dt);
@@ -9877,10 +9263,8 @@ class HauntedHouse extends Canvas {
   render() {
     this.restore();
     const { W, H, look, hdr } = this;
-    if (!this.weather.covered)
-      paintStars(hdr, W, H, this.shown, this.time, 0.5, look.night ? 0.8 : 0.4, this.points);
-    const [top, bottom] = this.weather.scud ?? look.clouds;
-    paintClouds(hdr, W, H, this.clouds, top, bottom, look.night ? 0.75 : 0.6, this.weather.covered ? undefined : this.orb);
+    paintStars(hdr, W, H, this.shown, this.time, 0.5, look.night ? 0.8 : 0.4, this.points);
+    paintClouds(hdr, W, H, this.clouds, ...look.clouds, look.night ? 0.75 : 0.6, this.orb);
     if (this.gloom > 0)
       paintStorm(hdr, W, H, this.storm, [0.16, 0.1, 0.22], [0.04, 0.02, 0.06], this.gloom);
     if (this.flash.t >= 0)
@@ -9926,7 +9310,6 @@ class HauntedHouse extends Canvas {
     this.drawLeaves();
     for (const b of this.burst)
       this.drawBat(b.x, b.y, 0.026, b.phase, Math.sign(b.vx));
-    this.weather.draw(hdr, W, H);
     this.finish();
   }
   visit() {
@@ -9964,9 +9347,7 @@ class HauntedHouse extends Canvas {
     this.hx = A / 2 + 0.01;
     this.hy = this.riseY(this.hx);
     this.orb = { ...look.orb, x: Math.max(0.12, this.hx + look.orb.x * this.S) / A };
-    const veil = this.weather.covered ? 0.3 : 1;
-    this.light = [look.light[0] * veil, look.light[1] * veil, look.light[2] * veil];
-    this.lighting = look.style === "front" ? { style: "front", dir: DAYLIGHT5 } : { style: "rim", color: this.light, x: this.orb.x * W, y: this.orb.y * H };
+    this.lighting = look.style === "front" ? { style: "front", dir: DAYLIGHT5 } : { style: "rim", color: look.light, x: this.orb.x * W, y: this.orb.y * H };
     this.pumpkins = [];
     this.windows = [];
     paintSky(hdr, W, H, look.sky, { ...this.orb, moon: false }, this.px);
@@ -9984,7 +9365,6 @@ class HauntedHouse extends Canvas {
       ])
         this.ellipse(mx + u * R, my + v * R, r * R, r * R * 0.85, c[0] * 0.72, c[1] * 0.62, c[2] * 0.6, 0.55);
     }
-    this.weather.cover(hdr, W, H);
     const sky = hdr.slice();
     this.paintLand();
     this.paintForest();
@@ -10042,7 +9422,7 @@ class HauntedHouse extends Canvas {
         const rim = look.style === "rim" ? Math.exp(-((v - rise) * H) / (2 * px)) * (look.night ? 0.1 : 0.18) : 0;
         for (let c = 0;c < 3; c++) {
           const ground = lerp(near2[c], lerp(look.grass[c], look.dirt[c], patch * 0.6), smoothstep(0, 0.08, v - rise)) * tuft * (1 - 0.25 * depth2);
-          hdr[o + c] += (ground + this.light[c] * rim - hdr[o + c]) * a2;
+          hdr[o + c] += (ground + look.light[c] * rim - hdr[o + c]) * a2;
         }
       }
     }
@@ -10801,7 +10181,7 @@ class HauntedHouse extends Canvas {
     if (look.style === "rim") {
       const r = this.thick(0.0011, 0.45);
       const k = look.night ? 0.12 : 0.2;
-      const l = [this.light[0] * k, this.light[1] * k, this.light[2] * k];
+      const l = [look.light[0] * k, look.light[1] * k, look.light[2] * k];
       this.shape([cap(...R(-1, 0.1), ...R(-1, 0.8), r, r, l), cap(...R(-1, 0.8), ...R(0, 1.04), r, r, l)], this.lighting, 0);
     }
   }
@@ -11684,7 +11064,7 @@ class HauntedHouse extends Canvas {
     const r = this.thick(0.0022, 0.75);
     const lx = this.orb.x * this.W;
     const k = this.look.night ? 0.35 : 0.4;
-    const c = [this.light[0] * k, this.light[1] * k, this.light[2] * k];
+    const c = [this.look.light[0] * k, this.look.light[1] * k, this.look.light[2] * k];
     const parts = [];
     for (let i = 0;i + 1 < pts.length; i++) {
       const [ax, ay] = pts[i];
@@ -11751,7 +11131,6 @@ var hauntedHouse = {
   id: "haunted-house",
   name: "Haunted House",
   description: "A crooked Victorian haunted house on a rise above a foggy graveyard under a huge moon, with a witch flying by now and then",
-  collection: "Landscapes",
   activity: {
     calm: "The candle and jack-o'-lanterns flicker, fog creeps, a bat or two flits and the swing sways",
     lively: "Adds bats pouring from the turret, ghosts drifting by and a ghoul peeking out from behind a gravestone",
@@ -11828,7 +11207,6 @@ var LOOKS9 = {
     night: true
   }
 };
-var RAINY_MIST = { day: [0.36, 0.46, 0.42], sunset: [0.3, 0.16, 0.16], night: [0.01, 0.04, 0.07] };
 var TRUNK2 = [0.24, 0.17, 0.1];
 var CANOPY = [0.1, 0.28, 0.09];
 var LEAF = [0.12, 0.42, 0.08];
@@ -11850,8 +11228,6 @@ class Jungle extends Canvas {
   creatureTime = 0;
   activity;
   look;
-  weather;
-  rainy;
   lighting = { style: "front", dir: DAYLIGHT6 };
   shade;
   leaves = [];
@@ -11871,15 +11247,10 @@ class Jungle extends Canvas {
   constructor(settings) {
     super();
     this.activity = settings.activity;
-    const rainy = settings.season === "summer" || settings.season === "autumn";
-    this.rainy = rainy;
-    const look = LOOKS9[settings.time];
     this.shade = sunShade(settings.time, { x: 0.85, y: -0.15 }, true);
-    const wet = RAINY_MIST[settings.time];
-    this.look = rainy ? { ...look, mist: [mixRGB(look.mist[0], wet, 0.55), mixRGB(look.mist[1], wet, 0.4), look.mist[2]], far: mixRGB(look.far, wet, 0.4), shafts: look.shafts * 0.25 } : look;
+    this.look = LOOKS9[settings.time];
     if (settings.time === "day")
       this.frame = 0.3;
-    this.weather = new WeatherLayer(settings.weather ?? (rainy ? "rain" : "clear"), settings.time, 0.66, !settings.weather);
     const count = this.look.night ? 0 : { calm: 0, lively: 2, teeming: 4 }[settings.activity];
     this.butterflies = Array.from({ length: count }, (_, i) => ({ x: 0.3 + i * 0.3, y: 0.5, wx: 0.3 + i * 0.3, wy: 0.5, wanderT: 0, phase: i * 2.3 }));
     const flies = this.look.night ? { calm: 16, lively: 30, teeming: 48 }[settings.activity] : 0;
@@ -11906,7 +11277,6 @@ class Jungle extends Canvas {
       f.y = clamp(f.y + f.vy * dt, 0.25, 0.95);
     }
     this.stepToucan(dt);
-    this.weather.step(dt);
     for (const b of this.butterflies)
       this.stepButterfly(b, cdt);
     this.stepGloom(dt);
@@ -11950,7 +11320,7 @@ class Jungle extends Canvas {
     this.drawShafts();
     this.drawFalls();
     const mist = this.look.mist[1];
-    driftMist(this.hdr, this.W, this.H, this.mist, mist[0], mist[1], mist[2], this.rainy ? 0.3 : 0.22);
+    driftMist(this.hdr, this.W, this.H, this.mist, mist[0], mist[1], mist[2], 0.22);
     this.touch(0, Math.floor(0.5 * this.H), this.W - 1, Math.ceil(0.96 * this.H));
     if (this.toucan.x > -5)
       this.drawToucan(this.toucan);
@@ -11969,7 +11339,6 @@ class Jungle extends Canvas {
     this.drawMotes();
     for (const l of this.leaves)
       this.drawLeaf(l);
-    this.weather.draw(this.hdr, this.W, this.H);
     this.finish();
   }
   layout() {
@@ -11986,7 +11355,7 @@ class Jungle extends Canvas {
     if (look.style === "front")
       haze(this.hdr, mist, W, H, 1, 1.01, 0.3);
     const fx = 0.32;
-    this.falls = { x: fx * H, top: 0.27 * H, bottom: 0.66 * H, half: (this.rainy ? 0.026 : 0.018) * H };
+    this.falls = { x: fx * H, top: 0.27 * H, bottom: 0.66 * H, half: 0.018 * H };
     const rock = mixRGB(this.paint(ROCK), look.far, 0.35);
     const boulders = [
       [0, 0.47, 0.085, 0.2],
@@ -12432,7 +11801,6 @@ var jungle = {
   id: "jungle",
   name: "Jungle",
   description: "A misty rainforest with a waterfall, light through the canopy, and a toucan flying by now and then",
-  collection: "Landscapes",
   activity: {
     calm: "Trees, vines, a waterfall and swaying leaves",
     lively: "Adds a swinging spider monkey and blue morpho butterflies",
@@ -12469,7 +11837,7 @@ var RIPPLE_WIDTH = 0.035;
 var GLITCH = 1.6;
 var HOLD = 7;
 var FADE2 = 1.5;
-var RAIN3 = font(5, [
+var RAIN2 = font(5, [
   "##### ....# ..#.# ..##. ..#.. ..#.. .#...",
   "....# ...#. ..##. .#.#. ...#. ...#. ...#.",
   "..#.. ##### #...# ....# ...#. ..#.. .#...",
@@ -12703,7 +12071,7 @@ class Matrix extends Canvas {
         tint(c, b, letter ? Math.max(head[i], 0.5) : head[i], red[i]);
         if (letter)
           glyph(this.hdr, W, H, x, r * ROW * s, SOLID.rows, 0, 5, 7, s, 0.0004, 0.0018, 0.0008);
-        const table = letter ? ALPHABET : red[i] > 0.2 ? GLITCHES : RAIN3;
+        const table = letter ? ALPHABET : red[i] > 0.2 ? GLITCHES : RAIN2;
         const g = letter ? LETTERS[word.text[col - word.col]] : glyphs[i] % table.count;
         glyph(this.hdr, W, H, x, r * ROW * s, table.rows, table.glyphs[g], 5, 7, s, c[0], c[1], c[2]);
         y0 = Math.min(y0, r * ROW * s);
@@ -12918,7 +12286,6 @@ var matrix = {
   id: "matrix",
   name: "Matrix",
   description: "The digital rain: streams of mirrored katakana and digits falling down a black screen, pale mint heads trailing green",
-  collection: "Classics",
   fixedTime: "night",
   activity: {
     calm: "A few slow streams falling through the dark",
@@ -13746,7 +13113,6 @@ var maze = {
   id: "maze",
   name: "3D Maze",
   description: "The old 3D maze screensaver: gliding through red brick corridors under a tiled ceiling, turning at every junction",
-  collection: "Classics",
   fixedTime: "day",
   activity: {
     calm: "Long looks down each corridor between slow walks and turns",
@@ -13965,7 +13331,6 @@ class Megacity extends Canvas {
   activity;
   look;
   lighting = { style: "front", dir: DAYLIGHT7 };
-  weather;
   city = buildCity();
   storm = makeStorm();
   depth = new Float32Array(0);
@@ -13986,7 +13351,6 @@ class Megacity extends Canvas {
     super();
     this.activity = settings.activity;
     this.look = LOOKS11[settings.time];
-    this.weather = new WeatherLayer(settings.weather ?? "clear", settings.time, HORIZON6);
     this.gap = rand(...TRAFFIC2[this.activity]) * 0.3;
   }
   step(dt) {
@@ -13995,7 +13359,6 @@ class Megacity extends Canvas {
     const cdt = dt * CREATURE_SPEED8;
     this.creatureTime += cdt;
     this.stepGloom(dt);
-    this.weather.step(dt);
     driftClouds(this.storm, this.A, dt);
     this.stepBikes(dt, cdt);
     this.bursts = this.bursts.filter((b) => this.time - b.t < 5);
@@ -14021,7 +13384,6 @@ class Megacity extends Canvas {
     this.drawTrails();
     for (const b of [...this.bikes].sort((a, c) => c.z - a.z))
       this.drawBike(b);
-    this.weather.draw(this.hdr, W, H);
     this.finish();
   }
   visit() {
@@ -14039,7 +13401,6 @@ class Megacity extends Canvas {
     const { W, H, look } = this;
     this.lighting = look.style === "front" ? { style: "front", dir: DAYLIGHT7 } : { style: "rim", color: look.light, x: this.A / 2 * H, y: (HORIZON6 - 0.15) * H };
     paintSky(this.hdr, W, H, look.sky, look.orb, this.px);
-    this.weather.cover(this.hdr, W, H);
     const real = this.px === 1;
     const depth2 = new Float32Array(W * H);
     const win = new Float32Array(real ? W * H : 0);
@@ -14775,9 +14136,9 @@ function surface2(city2, look, j, Y, Z, dv, dx, sy) {
   const height = b.y1 - b.y0;
   const zone = smoothstep(0.004, 0.01, u) * smoothstep(0.004, 0.01, extent - u) * (b.y0 > 0 ? 1 : smoothstep(0.035, 0.045, v));
   const w = windows(look, u - 0.008, v - 0.045, du, dv, b.pu, b.pv, b.du, b.dv, b.seed * 3 + (front ? 0 : 1), height - 0.065, zone);
-  const grade2 = look.style === "front" ? 0.9 + 0.15 * smoothstep(0, 1.5, Y) : 1;
+  const grade = look.style === "front" ? 0.9 + 0.15 * smoothstep(0, 1.5, Y) : 1;
   for (let i = 0;i < 3; i++)
-    shade[i] = c[i] * lit2[i] * grade2 * (1 - w) + shade[i] * w;
+    shade[i] = c[i] * lit2[i] * grade * (1 - w) + shade[i] * w;
   if (b.shop >= 0 && b.y0 === 0 && !front) {
     const s = look.shops[b.shop % look.shops.length];
     const k = smoothstep(0.034, 0.028, v) * smoothstep(0.004, 0.008, v) * (0.5 + 0.5 * hash(Math.floor(u / 0.05) + b.seed)) * (b.shop < 4 ? 1 : 0.3);
@@ -14908,7 +14269,6 @@ var megacity = {
   id: "megacity",
   name: "Megacity",
   description: "A canyon of towers over a neon avenue, where motorbikes ride off into the haze trailing red light",
-  collection: "Akira",
   fixedTime: "night",
   activity: {
     calm: "The glowing city, windows coming and going, and a distant bike now and then",
@@ -15290,7 +14650,6 @@ var mystify = {
   id: "mystify",
   name: "Mystify",
   description: "The old screensaver: bright polygons whose corners glide and bounce off the edges, trailing stacks of echoes",
-  collection: "Classics",
   fixedTime: "day",
   activity: {
     calm: "One polygon drifting slowly",
@@ -16732,7 +16091,6 @@ var ocean = {
   id: "ocean",
   name: "Ocean",
   description: "Deep water, god rays, marine snow, and a whale that drifts past now and then",
-  collection: "Landscapes",
   activity: {
     calm: "Water, light and the whale",
     lively: "Adds a fish and an octopus",
@@ -17399,7 +16757,6 @@ var pipes = {
   id: "pipes",
   name: "3D Pipes",
   description: "The old 3D screensaver: glossy pipes growing through the dark one length at a time, turning at ball joints",
-  collection: "Classics",
   fixedTime: "day",
   activity: {
     calm: "One pipe growing slowly through the grid, over a long fill",
@@ -17564,7 +16921,6 @@ class Prehistoric extends Canvas {
   dragonflies = [];
   nessie = { t: -1, x: 0, y: 0, dir: 1, wait: 1 };
   pool = { y0: 0, y1: 0, rows: new Float32Array(0), amp: new Float32Array(0), gloss: new Float32Array(0) };
-  weather;
   lights = new LightMap;
   storm = makeStorm();
   birds = [];
@@ -17576,8 +16932,7 @@ class Prehistoric extends Canvas {
     if (settings.time === "day")
       this.frame = 0.4;
     this.night = settings.time === "night";
-    this.weather = new WeatherLayer(settings.weather ?? "clear", settings.time, HORIZON7);
-    this.shade = sunShade(settings.time, this.look.orb, this.weather.covered);
+    this.shade = sunShade(settings.time, this.look.orb);
     this.allStars = makeStars(this.look.stars, 0.5);
     this.clouds = settings.time === "sunset" ? makeClouds(4, "stratus", 0.08, 0.3) : makeClouds(3, "cumulus", 0.06, 0.28);
     if (settings.activity !== "teeming")
@@ -17600,7 +16955,6 @@ class Prehistoric extends Canvas {
         c.x = this.plumeTop();
     }
     this.stepGloom(dt);
-    this.weather.step(dt);
     this.birds = flyAway(this.birds, dt, this.A);
     this.stepDelorean(dt);
     for (const s of this.smoke) {
@@ -17634,14 +16988,12 @@ class Prehistoric extends Canvas {
   render() {
     this.restore();
     this.plants.draw(this.hdr, this.W, this.H, this.time);
-    if (!this.weather.covered)
-      paintStars(this.hdr, this.W, this.H, this.stars, this.time, 0.5, this.look.stars > 50 ? 0.5 : 0.3, this.points);
+    paintStars(this.hdr, this.W, this.H, this.stars, this.time, 0.5, this.look.stars > 50 ? 0.5 : 0.3, this.points);
     const orange = this.look.lava[1];
     flowLava(this.hdr, this.lava.index, this.lava.k, this.lava.along, this.time, orange[0], orange[1], orange[2]);
     this.touch(this.lava.box[0], this.lava.box[1], this.lava.box[2], this.lava.box[3]);
-    const [top, bottom] = this.weather.scud ?? [this.look.clouds.top, this.look.clouds.bottom];
-    const orb = this.weather.covered ? undefined : this.look.orb;
-    paintClouds(this.hdr, this.W, this.H, this.clouds, top, bottom, this.look.clouds.alpha, orb);
+    const orb = this.look.orb;
+    paintClouds(this.hdr, this.W, this.H, this.clouds, this.look.clouds.top, this.look.clouds.bottom, this.look.clouds.alpha, orb);
     paintShadows(this.hdr, this.W, this.H, this.shadows, HORIZON7 + 0.02, orb);
     paintStorm(this.hdr, this.W, this.H, this.storm, this.look.clouds.top, this.look.clouds.bottom, this.gloom);
     const [hot, cool, alpha] = this.look.smoke;
@@ -17682,7 +17034,6 @@ class Prehistoric extends Canvas {
       this.drawDelorean();
     for (const b of this.birds)
       this.shape(bird(b, this.H, 0.024 * this.H, this.paint([0.5, 0.3, 0.2])), this.lighting, 0.4);
-    this.weather.draw(this.hdr, this.W, this.H);
     this.finish();
   }
   visit() {
@@ -17696,7 +17047,6 @@ class Prehistoric extends Canvas {
     const { W, H, A, look, px } = this;
     this.lighting = look.style === "front" ? { style: "front", dir: DAYLIGHT8 } : { style: "rim", color: look.light, x: look.orb.x * W, y: look.orb.y * H };
     paintSky(this.hdr, W, H, look.sky, look.orb, px);
-    this.weather.cover(this.hdr, W, H);
     const sky = this.hdr.slice();
     const day = look === LOOKS14.day;
     for (const [i, c] of this.ash.entries())
@@ -18523,7 +17873,6 @@ var prehistoric = {
   id: "prehistoric",
   name: "Prehistoric",
   description: "A smoking volcano over ferns and cycads, with a T. rex stomping by now and then",
-  collection: "Landscapes",
   activity: {
     calm: "Volcano, smoke, ferns and cycads",
     lively: "Adds a browsing sauropod and circling pterosaurs",
@@ -18632,7 +17981,7 @@ var TROUSERS = [0.78, 0.08, 0.05];
 var GLOVES = [0.68, 0.07, 0.05];
 var CUFF = [0.66, 0.66, 0.7];
 var HAIR2 = [0.02, 0.02, 0.03];
-var SKIN2 = [0.9, 0.62, 0.46];
+var SKIN = [0.9, 0.62, 0.46];
 var HEADLAMP = [1.7, 1.1, 0.45];
 var TAILLAMP = [2, 0.1, 0.05];
 var CRACKS = [
@@ -18665,7 +18014,6 @@ class Rider extends Canvas {
   look;
   lighting = { style: "front", dir: LOOKS15.day.dir };
   shade;
-  weather;
   k = 1;
   cx = 1;
   cycle = START;
@@ -18686,8 +18034,7 @@ class Rider extends Canvas {
     super();
     this.activity = settings.activity;
     this.look = LOOKS15[settings.time];
-    this.weather = new WeatherLayer(settings.weather ?? "clear", settings.time, 0);
-    const shade2 = sunShade(settings.time, this.look.sun, this.weather.covered);
+    const shade2 = sunShade(settings.time, this.look.sun);
     this.shade = { ...shade2, cast: Math.min(0.9, shade2.cast * 1.3) };
     this.lamps = this.look.lamps;
     const motes = { calm: 5, lively: 8, teeming: 12 }[settings.activity];
@@ -18707,7 +18054,6 @@ class Rider extends Canvas {
     const cdt = dt * CREATURE_SPEED11;
     this.creatureTime += cdt;
     this.stepGloom(dt);
-    this.weather.step(dt);
     this.stepScript(cdt);
     this.stepTrails(cdt);
     this.stepVisitor(cdt);
@@ -18752,7 +18098,6 @@ class Rider extends Canvas {
       this.drawVisitor();
     if (this.psychic.t >= 0)
       this.drawChunks();
-    this.weather.draw(this.hdr, W, H);
     this.finish();
   }
   visit() {
@@ -18793,7 +18138,6 @@ class Rider extends Canvas {
     const { W, H, look, hdr, px } = this;
     const grain = this.cells ? 2 : 1;
     const seamW = Math.max(0.0013 * H * this.k, (this.cells ? 0.9 : 0.6) * px);
-    const covered = this.weather.covered ? 0.85 : 1;
     for (let y = 0;y < H; y++) {
       const v = (y + 0.5) / H;
       const seamX = this.cx - 0.006 * this.k + 0.0015 * Math.sin(v * 9);
@@ -18805,7 +18149,7 @@ class Rider extends Canvas {
         const pool = Math.exp(-(dx * dx + dy * dy) * 1.6);
         const stain = 1 + (fbm2(u * 2.2, v * 2.2, 3) - 0.5) * 0.1 + (fbm2(u * 9 + 3, v * 9, 2) - 0.5) * 0.04;
         const g = 1 + (hash2(Math.floor(x / px / grain), Math.floor(y / px / grain)) - 0.5) * 0.03;
-        const m = stain * g * covered;
+        const m = stain * g;
         const o = (y * W + x) * 3;
         hdr[o] = lerp(look.ground[0], look.halo[0], pool) * m;
         hdr[o + 1] = lerp(look.ground[1], look.halo[1], pool) * m;
@@ -19214,7 +18558,7 @@ class Rider extends Canvas {
     this.shape([ell(hx, hy, 0.09 * S, 0.088 * S, 0, hair), ell(hx - 0.065 * S, hy - 0.04 * S, 0.048 * S, 0.034 * S, 0.6, hair), ell(hx + 0.06 * S, hy - 0.05 * S, 0.048 * S, 0.034 * S, -0.5, hair), ell(hx + 0.01 * S, hy - 0.085 * S, 0.042 * S, 0.034 * S, 0.1, hair), ell(hx - 0.075 * S, hy + 0.03 * S, 0.03 * S, 0.04 * S, 0.3, hair)], this.lighting, 0.35);
     if (p.face > 0.6) {
       const f = (p.face - 0.6) / 0.4;
-      this.shape([ell(hx, hy + 0.02 * S, 0.06 * S * f, 0.058 * S, 0, this.paint(SKIN2))], this.lighting, 0.6);
+      this.shape([ell(hx, hy + 0.02 * S, 0.06 * S * f, 0.058 * S, 0, this.paint(SKIN))], this.lighting, 0.6);
       this.shape([ell(hx, hy - 0.035 * S, 0.072 * S, 0.035 * S, 0, hair)], this.lighting, 0.5);
     }
     if (!pill || p.face > 0.4)
@@ -19383,7 +18727,6 @@ var rider = {
   id: "rider",
   name: "Rider",
   description: "A red capsule bike on pale cracked concrete, its rider walking up to it, with another of the gang speeding by now and then",
-  collection: "Akira",
   fixedTime: "day",
   activity: {
     calm: "The bike, the rider standing by it, and drifting dust",
@@ -20079,7 +19422,6 @@ var space = {
   id: "space",
   name: "Space",
   description: "A ringed planet turning slowly below a nebula and drifting stars, with a comet now and then",
-  collection: "Landscapes",
   activity: {
     calm: "The planet, its rings, a moon and the stars",
     lively: "Adds an orbiting space station and a satellite",
@@ -20205,7 +19547,6 @@ class Tundra extends Canvas {
   bear;
   fisher = { tug: 0, next: 8 };
   yeti = { wait: eggWait() * TIME_SCALE19, t: -1, x: 0 };
-  weather;
   pines = new SwayLayer;
   lights = new LightMap;
   constructor(settings) {
@@ -20216,9 +19557,8 @@ class Tundra extends Canvas {
       this.frame = 0.4;
     this.stars = makeStars(this.look.stars, 0.45);
     this.clouds = makeClouds(3, "stratus", 0.26, 0.4);
-    this.weather = new WeatherLayer(settings.weather ?? "clear", settings.time, HORIZON8);
-    this.shade = sunShade(settings.time, this.look.orb, this.weather.covered);
-    this.flakes = Array.from({ length: settings.weather ? 0 : { calm: 70, lively: 100, teeming: 130 }[settings.activity] }, () => ({ x: Math.random() * 4, y: Math.random(), z: Math.random(), s: Math.random() }));
+    this.shade = sunShade(settings.time, this.look.orb);
+    this.flakes = Array.from({ length: { calm: 70, lively: 100, teeming: 130 }[settings.activity] }, () => ({ x: Math.random() * 4, y: Math.random(), z: Math.random(), s: Math.random() }));
     const walker = (x, y) => ({ x, y, wx: x, wy: y, wanderT: 0, face: 1, phase: Math.random() * TAU, rest: 0, moving: false, hop: Infinity, g: gait(1, hash(x * 7 + y)) });
     if (settings.activity !== "calm") {
       this.penguins = Array.from({ length: settings.activity === "teeming" ? 5 : 3 }, (_, i) => walker(0.6 + i * 0.12, 0.81 + i % 2 * 0.015));
@@ -20236,7 +19576,6 @@ class Tundra extends Canvas {
     driftClouds(this.shadows, this.A, dt);
     driftClouds(this.storm, this.A, dt);
     this.stepGloom(dt);
-    this.weather.step(dt);
     for (const f2 of this.flakes) {
       f2.y += (0.02 + f2.z * 0.035) * dt;
       f2.x += (Math.sin(this.time * 0.6 + f2.s * 20) * 0.006 + 0.004 + gust(f2.x, this.time) * (0.06 + f2.z * 0.06)) * dt;
@@ -20290,13 +19629,11 @@ class Tundra extends Canvas {
   render() {
     this.restore();
     this.pines.draw(this.hdr, this.W, this.H, this.time);
-    if (this.look.aurora > 0 && !this.weather.covered)
+    if (this.look.aurora > 0)
       this.drawAurora();
-    if (!this.weather.covered)
-      paintStars(this.hdr, this.W, this.H, this.stars, this.time, 0.5, this.look.stars > 50 ? 0.5 : 0.3, this.points);
-    const [top, bottom] = this.weather.scud ?? [this.look.clouds.top, this.look.clouds.bottom];
-    const orb = this.weather.covered ? undefined : this.look.orb;
-    paintClouds(this.hdr, this.W, this.H, this.clouds, top, bottom, this.look.clouds.alpha, orb);
+    paintStars(this.hdr, this.W, this.H, this.stars, this.time, 0.5, this.look.stars > 50 ? 0.5 : 0.3, this.points);
+    const orb = this.look.orb;
+    paintClouds(this.hdr, this.W, this.H, this.clouds, this.look.clouds.top, this.look.clouds.bottom, this.look.clouds.alpha, orb);
     paintShadows(this.hdr, this.W, this.H, this.shadows, 0.61, orb);
     paintStorm(this.hdr, this.W, this.H, this.storm, this.look.clouds.top, this.look.clouds.bottom, this.gloom);
     this.drawShadows();
@@ -20313,7 +19650,7 @@ class Tundra extends Canvas {
     if (this.fox)
       this.drawFox(this.fox);
     this.lights.clear(this.W, this.H);
-    if (this.look.aurora > 0 && !this.weather.covered)
+    if (this.look.aurora > 0)
       this.lightSnow();
     if (this.look.glow === 1)
       for (const [i, [x, base, R]] of this.igloos().entries()) {
@@ -20323,7 +19660,6 @@ class Tundra extends Canvas {
       }
     this.lights.apply(this.hdr);
     this.drawFlakes();
-    this.weather.draw(this.hdr, this.W, this.H);
     this.finish();
   }
   visit() {
@@ -20334,7 +19670,6 @@ class Tundra extends Canvas {
     const { W, H, A, look, px } = this;
     this.lighting = look.style === "front" ? { style: "front", dir: DAYLIGHT9 } : { style: "rim", color: look.light, x: look.orb.x * W, y: look.orb.y * H };
     paintSky(this.hdr, W, H, look.sky, look.orb, px);
-    this.weather.cover(this.hdr, W, H);
     const sky = this.hdr.slice();
     this.drawMountains();
     const drift = new Float32Array(W);
@@ -20345,7 +19680,7 @@ class Tundra extends Canvas {
         const v = y / H;
         const waves = 0.5 + 0.5 * Math.sin(x / H * 6 + v * 40 + fbm1(x / px * 0.02, 3) * 4);
         const k = smoothstep(0.3, 1, waves) * (look === LOOKS17.day ? 0.2 : 0.35) * (1 - (v - 0.6) * 0.8);
-        const c = lerpRGB2(look.snow, look.shade, look === LOOKS17.day ? Math.min(1, k + smoothstep(0.7, 1.1, v) * 0.45) : k);
+        const c = lerpRGB(look.snow, look.shade, look === LOOKS17.day ? Math.min(1, k + smoothstep(0.7, 1.1, v) * 0.45) : k);
         const edge = look.style === "rim" ? Math.exp(-(y + 0.5 - drift[x]) / (2 * px)) * 0.3 : 0;
         this.blend((y * W + x) * 3, c[0] + look.light[0] * edge, c[1] + look.light[1] * edge, c[2] + look.light[2] * edge, clamp(y + 1 - drift[x], 0, 1));
       }
@@ -20425,7 +19760,7 @@ class Tundra extends Canvas {
         if (look.style === "front")
           c = mulRGB(c, slope2 > 0.3 ? [1.05, 1, 0.92] : slope2 < -0.3 ? [0.45, 0.6, 0.92] : [0.8, 0.82, 0.9]);
         const edge = look.style === "rim" ? Math.exp(-(y + 0.5 - top[x]) / (1.8 * this.px)) * 0.5 : 0;
-        c = lerpRGB2(c, look.sky[look.sky.length - 1][1], haze2 * 0.5);
+        c = lerpRGB(c, look.sky[look.sky.length - 1][1], haze2 * 0.5);
         this.blend((y * W + x) * 3, c[0] + look.light[0] * edge, c[1] + look.light[1] * edge, c[2] + look.light[2] * edge, clamp(y + 1 - top[x], 0, 1));
       }
     }
@@ -20466,8 +19801,8 @@ class Tundra extends Canvas {
   drawPine(x, base, h, haze2) {
     const H = this.H;
     const sky = this.look.sky[this.look.sky.length - 1][1];
-    const green = lerpRGB2(this.paint(PINE), sky, haze2 * 0.5);
-    const snow = lerpRGB2(this.look.peaks, sky, haze2 * 0.4);
+    const green = lerpRGB(this.paint(PINE), sky, haze2 * 0.5);
+    const snow = lerpRGB(this.look.peaks, sky, haze2 * 0.4);
     this.polygon([
       [(x - h * 0.03) * H, base * H],
       [(x + h * 0.03) * H, base * H],
@@ -20485,10 +19820,10 @@ class Tundra extends Canvas {
   drawIgloo(cx, base, R) {
     const H = this.H;
     const dome2 = (x, r2, h) => Array.from({ length: 25 }, (_, i) => [(x + Math.cos(i / 24 * Math.PI) * r2) * H, (base - Math.sin(i / 24 * Math.PI) * h) * H]);
-    const block = lerpRGB2(this.look.snow, this.look.shade, 0.5);
+    const block = lerpRGB(this.look.snow, this.look.shade, 0.5);
     const seam = this.look.shade;
     this.polygon(dome2(cx, R, R * 0.85), block);
-    this.polygon(dome2(cx - R * 0.15, R * 0.75, R * 0.72).map(([x, y]) => [x, y - R * 0.04 * H]), lerpRGB2(this.look.snow, this.look.peaks, 0.7), 0.55);
+    this.polygon(dome2(cx - R * 0.15, R * 0.75, R * 0.72).map(([x, y]) => [x, y - R * 0.04 * H]), lerpRGB(this.look.snow, this.look.peaks, 0.7), 0.55);
     const lines2 = [];
     for (let row = 1;row < 4; row++) {
       const yy = base - row / 4 * R * 0.85;
@@ -20525,7 +19860,7 @@ class Tundra extends Canvas {
     const x = cx * H;
     const y = base * H;
     const P = (u, v) => [x + u * S, y + v * S];
-    const body2 = lerpRGB2(this.look.snow, this.look.peaks, 0.6);
+    const body2 = lerpRGB(this.look.snow, this.look.peaks, 0.6);
     const stick = this.paint([0.35, 0.22, 0.12]);
     this.shape([cap(...P(-0.25, -0.95), ...P(-0.6, -1.15), 0.025 * S, 0.015 * S, stick), cap(...P(-0.5, -1.08), ...P(-0.58, -1.25), 0.015 * S, 0.01 * S, stick), cap(...P(0.25, -0.95), ...P(0.62, -1.12), 0.025 * S, 0.015 * S, stick)], this.lighting, 0.5);
     this.shape([ell(...P(0, -0.42), 0.45 * S, 0.42 * S, 0, body2), ell(...P(0, -1), 0.33 * S, 0.31 * S, 0, body2), ell(...P(0, -1.48), 0.24 * S, 0.23 * S, 0, body2)], this.lighting, 0.8);
@@ -20674,7 +20009,7 @@ class Tundra extends Canvas {
     const step = t > 4 && t < 8 ? Math.sin(t * 6) * 0.06 : 0;
     const turn = Math.sin(clamp((t - 1.5) / 2.5, 0, 1) * TAU) * 0.04;
     const wave2 = smoothstep(8, 8.6, t) * (1 - smoothstep(9.6, 10, t));
-    const c = lerpRGB2(look.snow, scaleRGB(look.shade, 0.45), fade);
+    const c = lerpRGB(look.snow, scaleRGB(look.shade, 0.45), fade);
     this.shape([
       cap(...P(-0.1, -0.4), ...P(-0.1 + step, 0), 0.075 * S, 0.06 * S, c),
       cap(...P(0.1, -0.4), ...P(0.1 - step, 0), 0.075 * S, 0.06 * S, c),
@@ -20799,7 +20134,7 @@ class Tundra extends Canvas {
 function auroraFold(u, t) {
   return 0.35 + 0.65 * Math.pow(0.5 + 0.5 * Math.sin(u * 14 + Math.sin(u * 3 + t * 0.1) * 3 + t * 0.15), 2);
 }
-function lerpRGB2(a, b, t) {
+function lerpRGB(a, b, t) {
   return [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
 }
 function scaleRGB(c, k) {
@@ -20812,7 +20147,6 @@ var tundra = {
   id: "tundra",
   name: "Tundra",
   description: "Snowy peaks, a frozen lake, igloos and a snowman under falling snow, with a snowy owl now and then",
-  collection: "Landscapes",
   activity: {
     calm: "Peaks, igloos, a snowman and falling snow",
     lively: "Adds waddling penguins and an arctic fox",
@@ -20838,5056 +20172,455 @@ var tundra = {
   create: (settings) => new Tundra(settings)
 };
 
-// wallpapers/wings.ts
+// wallpapers/universe.ts
 var TIME_SCALE20 = 0.35;
-var HORIZON9 = 0.47;
-var CAMERA2 = 1;
-var FOCAL2 = 1;
-var STERN = 0.87;
-var BEAM = 0.115;
-var BOW = 0.45;
-var VANISH = 0.02;
-var LAUNCH = 7;
-var LANDING = 8;
-var SPARKLE = 2.2;
-var CATAPULTS = [-0.1, 0.08];
-var ROW_RATE = 0.16;
-var WATERLINE = -0.42;
-var LOOKS18 = {
-  day: {
-    sky: [
-      [0, [0.07, 0.27, 0.72]],
-      [0.25, [0.2, 0.47, 0.88]],
-      [HORIZON9, [0.62, 0.82, 0.96]]
-    ],
-    orb: { x: 0, y: 0.13, r: 0.035, core: [5, 4.6, 3.8], glow: [1, 0.95, 0.8], near: 0.45, wide: 0.12 },
-    orbX: -0.55,
-    stars: 0,
-    cloud: [
-      [1.05, 1.07, 1.1],
-      [0.6, 0.7, 0.86]
-    ],
-    sea: [
-      [0.02, 0.2, 0.42],
-      [0.06, 0.52, 0.62]
-    ],
-    glitter: 0.7,
-    spread: [0.04, 0.16],
-    spec: [1.2, 1.15, 1],
-    tint: [1, 1, 1],
-    key: [1, 0.97, 0.88],
-    lamp: 0.25,
-    trail: [0.95, 0.97, 1],
-    foam: [0.85, 0.95, 1],
-    storm: [0.1, 0.16, 0.15],
-    night: false
-  },
-  sunset: {
-    sky: [
-      [0, [0.12, 0.2, 0.55]],
-      [0.2, [0.3, 0.32, 0.72]],
-      [0.34, [0.75, 0.42, 0.62]],
-      [0.42, [1.1, 0.55, 0.5]],
-      [HORIZON9, [1.25, 0.72, 0.45]]
-    ],
-    orb: { x: 0, y: 0.45, r: 0.04, core: [3, 1.7, 1], glow: [1.1, 0.5, 0.35], near: 0.5, wide: 0.25 },
-    orbX: -0.32,
-    stars: 10,
-    cloud: [
-      [1.05, 0.58, 0.55],
-      [0.36, 0.27, 0.52]
-    ],
-    sea: [
-      [0.06, 0.1, 0.32],
-      [0.2, 0.26, 0.62]
-    ],
-    glitter: 0.9,
-    spread: [0.04, 0.3],
-    spec: [1.3, 0.62, 0.42],
-    tint: [0.32, 0.24, 0.34],
-    key: [1, 0.55, 0.45],
-    lamp: 0.6,
-    trail: [1.1, 0.62, 0.6],
-    foam: [1, 0.78, 0.82],
-    storm: [0.12, 0.1, 0.14],
-    night: false
-  },
-  night: {
-    sky: [
-      [0, [0.004, 0.01, 0.04]],
-      [0.25, [0.015, 0.035, 0.11]],
-      [HORIZON9, [0.05, 0.11, 0.3]]
-    ],
-    orb: { x: 0, y: 0.13, r: 0.034, core: [1.25, 0.95, 0.42], glow: [0.5, 0.38, 0.15], near: 0.3, wide: 0.1, moon: true },
-    orbX: -0.3,
-    stars: 150,
-    cloud: [
-      [0.12, 0.18, 0.4],
-      [0.03, 0.05, 0.14]
-    ],
-    sea: [
-      [0.012, 0.04, 0.13],
-      [0.06, 0.15, 0.45]
-    ],
-    glitter: 0.6,
-    spread: [0.035, 0.3],
-    spec: [1.1, 0.68, 0.1],
-    tint: [0.06, 0.08, 0.17],
-    key: [0.35, 0.5, 1.1],
-    lamp: 1,
-    trail: [0.2, 0.42, 0.8],
-    foam: [0.1, 0.5, 0.75],
-    storm: [0.02, 0.055, 0.05],
-    night: true
-  }
+var MIDDLE = 0.53;
+var FLAT2 = 0.36;
+var TILT = -0.11;
+var SPIN = 0.26;
+var LOGO = 0.15;
+var TILE = 0.032;
+var SURGE2 = 4;
+var EXTRAS2 = 8;
+var COOL = [0.78, 0.8, 0.86];
+var WARM = [1, 0.64, 0.34];
+var EMBER = { right: 0.2, y: 0.78, r: 0.6, color: [0.05, 0.02, 0.008] };
+var CAST3 = {
+  calm: { streaks: 220, icons: 5, marks: 4 },
+  lively: { streaks: 380, icons: 10, marks: 8 },
+  teeming: { streaks: 460, icons: 14, marks: 12 }
 };
-var HULL = [0.36, 0.38, 0.42];
-var DECK = [0.2, 0.21, 0.23];
-var STRIPE = [0.85, 0.85, 0.8];
-var YELLOW = [0.85, 0.66, 0.12];
-var JET = [0.5, 0.53, 0.58];
-var WARTHOG = [0.24, 0.28, 0.26];
-var SPIRIT = [0.13, 0.14, 0.17];
-var FOREST = [0.1, 0.3, 0.1];
-var ROCK2 = [0.3, 0.27, 0.22];
-var AMBER3 = [2, 1.05, 0.3];
-var BURNER = [2.6, 1.15, 0.35];
+var MARKS = [
+  [1, 0.22, 0.16],
+  [0.2, 0.85, 0.3],
+  [0.12, 0.72, 1],
+  [0.95, 0.25, 0.85],
+  [1, 0.75, 0.12],
+  [0.3, 0.42, 1],
+  [1, 0.48, 0.1],
+  [0.62, 0.32, 1]
+];
+var ICONS = [
+  { tile: [0.085, 0.085, 0.095], glyph: [0.48, 0.48, 0.52], kind: "key" },
+  { tile: [0.085, 0.085, 0.095], glyph: [0.48, 0.48, 0.52], kind: "lock" },
+  { tile: [0.085, 0.085, 0.095], glyph: [0.48, 0.48, 0.52], kind: "shield" },
+  { tile: [0.085, 0.085, 0.095], glyph: [0.48, 0.48, 0.52], kind: "person" },
+  { tile: [0.085, 0.085, 0.095], glyph: [0.48, 0.48, 0.52], kind: "globe" },
+  { tile: [0.085, 0.085, 0.095], glyph: [0.48, 0.48, 0.52], kind: "doc" },
+  { tile: [0.085, 0.085, 0.095], glyph: [0.48, 0.48, 0.52], kind: "terminal" },
+  { tile: [0.085, 0.085, 0.095], glyph: [0.48, 0.48, 0.52], kind: "image" },
+  { tile: [0.085, 0.085, 0.095], glyph: [0.66, 0.66, 0.7], kind: "dot" },
+  { tile: [0.55, 0.36, 0.25], glyph: [0.95, 0.85, 0.75], kind: "anthropic" },
+  { tile: [0.06, 0.24, 0.7], glyph: [0.65, 0.8, 1], kind: "meta" },
+  { tile: [0.8, 0.28, 0.07], glyph: [1, 0.78, 0.55], kind: "mistral" },
+  { tile: [0.08, 0.38, 0.75], glyph: [0.85, 0.95, 1], kind: "azure" },
+  { tile: [0.82, 0.52, 0.06], glyph: [0.3, 0.16, 0.02], kind: "doc" },
+  { tile: [0.28, 0.28, 0.85], glyph: [0.85, 0.88, 1], kind: "globe" }
+];
 
-class Wings extends Canvas {
+class Universe extends Canvas {
+  cast;
+  streaks = [];
+  icons = [];
+  stars = [];
+  surge = 0;
   time = 0;
-  activity;
-  look;
-  weather;
-  orb;
-  stars;
-  clouds;
-  storm = makeStorm();
-  mesh = { X: new Float32Array(0), Z: new Float32Array(0), height: new Float32Array(0), tris: new Int32Array(0), colors: new Float32Array(0) };
-  sea = { y0: 0, rows: new Float64Array(0), ids: new Int32Array(0), idA: new Int32Array(0), idB: new Int32Array(0), mix: new Float32Array(0), open: new Float32Array(0), glow: new Float32Array(0), sky: new Float32Array(0) };
-  jets = [];
-  nextLaunch;
-  nextLanding = 12;
-  warthog = { t: -1, wait: 11, span: 13, y: 0.57, dir: 1 };
-  spirit = { t: -1, wait: 3, span: 40, y: 0.11, dir: -1 };
-  flyover = { t: -1, dir: 1, y: 0.16 };
-  egg = { wait: eggWait() * TIME_SCALE20, t: -1 };
-  sparkles = [];
-  drops = new Float32Array(160 * 3);
-  lamps = [];
-  hull;
-  hullFine;
-  ship = { x: 0, y: 0, dx: 0, dy: 0, roll: 0, pitch: 0 };
-  traffic = [];
-  nextTraffic = 2;
-  boats = [];
-  dolphin = { t: -1, wait: 4, x: 0, d: 0, dir: 1 };
-  spout = { t: -1, wait: 10, x: 0, d: 0 };
-  taxi = { t: 0, wait: 0 };
+  logo = { x: 0, y: 0, w: 0, h: 0, rgba: new Float32Array(0) };
   constructor(settings) {
     super();
-    this.activity = settings.activity;
-    this.weather = new WeatherLayer(settings.weather ?? "clear", settings.time, HORIZON9);
-    const look = LOOKS18[settings.time];
-    this.look = this.weather.covered ? { ...look, glitter: look.glitter * 0.12 } : look;
-    this.orb = look.orb;
-    if (settings.time === "day")
-      this.frame = 0.3;
-    this.stars = makeStars(look.stars, HORIZON9 - 0.04);
-    this.clouds = makeLowPolyClouds(settings.time === "day" ? 8 : 7);
-    this.nextLaunch = settings.activity === "teeming" ? 1 : 5;
-    const crossing = { calm: 0, lively: 5, teeming: 12 }[settings.activity];
-    for (let i = 0;i < crossing; i++)
-      this.traffic.push(this.makeTraffic(rand(0.1, 0.8)));
-    const boats = { calm: 0, lively: 2, teeming: 4 }[settings.activity];
-    for (let i = 0;i < boats; i++)
-      this.boats.push(makeBoat(rand(0.02, 0.25)));
-    for (let i = 0;i < this.drops.length; i += 3) {
-      this.drops[i] = Math.random();
-      this.drops[i + 1] = Math.random();
-      this.drops[i + 2] = Math.random();
-    }
+    this.supersample = 1;
+    this.cast = CAST3[settings.activity];
+  }
+  reach() {
+    return Math.hypot(this.A / 2 + 0.1, (0.5 + 0.08) / FLAT2);
+  }
+  streak() {
+    const r = lerp(0.11, this.reach(), Math.random() ** 1.1);
+    const length = 0.04 + 0.32 * Math.random() ** 2;
+    return { r, a: rand(0, TAU), span: Math.min(1.5, length / r), bright: 0.07 + 0.38 * Math.random() ** 2.2, warm: Math.random() < 0.16 ? rand(0.4, 1) : rand(0, 0.12) };
+  }
+  icon(extra = false, mark = false) {
+    return {
+      r: lerp(0.24, this.reach() * 0.85, Math.random() ** 1.2),
+      a: rand(0, TAU),
+      icon: mark ? { tile: [0.03, 0.03, 0.034], glyph: MARKS[Math.floor(Math.random() * MARKS.length)], kind: "opencode" } : ICONS[Math.floor(Math.random() * ICONS.length)],
+      bright: mark ? rand(0.6, 1) : rand(0.35, 1),
+      age: 0,
+      life: rand(30, 60),
+      extra
+    };
   }
   step(dt) {
     dt = clamp(dt, 0, 0.1) * TIME_SCALE20;
     this.time += dt;
-    for (const c of this.clouds) {
-      c.x += c.speed * dt;
-      if (c.x > this.A + c.size)
-        c.x = -c.size;
-    }
-    if (this.gloom > 0)
-      driftClouds(this.storm, this.A, dt);
     this.stepGloom(dt);
-    this.weather.step(dt);
-    this.stepShip();
-    this.stepJets(dt);
-    const teeming = this.activity === "teeming";
-    this.stepFlier(this.warthog, dt, this.activity !== "calm", teeming ? 18 : 45, teeming ? 30 : 70, () => this.openRow(0.53, 0.6));
-    this.stepFlier(this.spirit, dt, teeming, 30, 50, () => rand(0.07, 0.14));
-    this.stepTraffic(dt);
-    this.stepSea(dt);
-    this.stepTaxi(dt);
-    if (this.flyover.t >= 0)
-      this.flyover.t = this.flyover.t + dt > 14 ? -1 : this.flyover.t + dt;
-    const e = this.egg;
-    if (e.t >= 0)
-      e.t = e.t + dt > 12 ? -1 : e.t + dt;
-    if (e.t < 0) {
-      e.wait -= dt;
-      if (e.wait <= 0) {
-        e.t = 0;
-        e.wait = eggWait(true) * TIME_SCALE20;
-      }
+    this.surge = Math.max(0, this.surge - dt);
+    const pace = dt * SPIN * (1 - 0.6 * this.gloom) * (1 + 1.5 * this.rush());
+    for (const s of this.streaks)
+      s.a += pace * spin(s.r);
+    for (const [i, c] of this.icons.entries()) {
+      c.a += pace * 0.85 * spin(c.r);
+      c.age += dt;
+      if (c.age < c.life)
+        continue;
+      if (c.extra)
+        c.life = 0;
+      if (!c.extra)
+        this.icons[i] = this.icon(false, c.icon.kind === "opencode");
     }
-    for (const s of this.sparkles)
-      s.age += dt;
-    this.sparkles = this.sparkles.filter((s) => s.age < SPARKLE);
-    if (this.gloom > 0)
-      for (let i = 0;i < this.drops.length; i += 3) {
-        this.drops[i + 1] += (1.3 + this.drops[i + 2]) * dt;
-        this.drops[i] += 0.1 * dt;
-        if (this.drops[i + 1] > 1.05) {
-          this.drops[i + 1] -= 1.1;
-          this.drops[i] = Math.random();
-        }
-      }
+    this.icons = this.icons.filter((c) => c.life > 0);
   }
-  poke(x, y) {
-    if (y > HORIZON9 + 0.02) {
-      this.sparkles.push({ x, y, age: 0, seed: Math.random() * 100 });
-      return;
-    }
-    this.launch();
-  }
-  visit() {
-    if (this.flyover.t < 0)
-      this.flyover = { t: 0, dir: Math.random() < 0.5 ? 1 : -1, y: rand(0.1, 0.17) };
+  rush() {
+    return smoothstep(0, 1, this.surge) * smoothstep(SURGE2, SURGE2 - 1, this.surge);
   }
   render() {
     this.restore();
-    const { W, H, look } = this;
-    if (!this.weather.covered && look.stars)
-      paintStars(this.hdr, W, H, this.stars, this.time, HORIZON9 - 0.04, look.night ? 0.55 : 0.25, this.points);
-    this.drawClouds();
-    paintStorm(this.hdr, W, H, this.storm, look.cloud[0], look.cloud[1], this.gloom);
-    if (this.spirit.t >= 0)
-      this.drawSpirit(this.spirit);
-    if (this.flyover.t >= 0)
-      this.drawFlyover();
-    this.drawSea();
-    this.drawWake();
-    if (this.activity !== "calm")
-      this.drawSeaTraffic();
-    this.drawSparkles();
-    if (this.warthog.t >= 0)
-      this.drawWarthog(this.warthog);
-    this.drawHull();
-    this.drawLamps();
-    if (this.activity !== "calm")
-      this.drawDeck();
-    if (this.activity !== "calm")
-      this.drawHelicopters();
-    if (this.activity !== "calm")
-      this.drawGulls();
-    for (const j of this.jets)
-      this.drawJet(j);
-    if (this.activity !== "calm")
-      this.drawCircling();
-    for (const c of this.traffic)
-      this.drawTraffic(c);
-    if (this.egg.t >= 0)
-      this.drawEgg();
-    if (this.gloom > 0)
-      this.drawRain();
-    this.weather.draw(this.hdr, W, H);
+    const { W, H, hdr } = this;
+    for (const s of this.stars)
+      this.point(s.x * W, s.y * H, s.b * s.tint[0], s.b * s.tint[1], s.b * s.tint[2], s.b > 0.05 ? 2 : 1);
+    const dim2 = (1 - 0.5 * this.gloom) * (1 + 0.2 * this.rush()) * (this.cells ? 1.15 : 1);
+    const cx = this.A / 2 * H;
+    const cy = MIDDLE * H;
+    const ex = (this.A - EMBER.right) * H;
+    const ey = EMBER.y * H;
+    const er = EMBER.r * H;
+    for (const s of this.streaks) {
+      if (this.cells && s.bright < 0.12)
+        continue;
+      const hx = cx + orbitX(s.r, s.a) * H;
+      const hy = cy + orbitY(s.r, s.a) * H;
+      const glow2 = Math.exp(-((hx - ex) ** 2 + (hy - ey) ** 2) / (er * er));
+      const w = clamp(s.warm + 0.85 * glow2, 0, 1);
+      const k = s.bright * dim2;
+      arc(hdr, W, H, cx, cy, s.r * H, s.a, s.span, lerp(COOL[0], WARM[0], w) * k, lerp(COOL[1], WARM[1], w) * k, lerp(COOL[2], WARM[2], w) * k);
+    }
+    const side = Math.max(TILE * H, this.cells ? 5 : 0);
+    for (const c of this.icons) {
+      const fade = smoothstep(0, 4, c.age) * smoothstep(c.life, c.life - 4, c.age) * c.bright * (1 - 0.5 * this.gloom);
+      if (fade <= 0.01)
+        continue;
+      const x = cx + orbitX(c.r, c.a) * H;
+      const y = cy + orbitY(c.r, c.a) * H;
+      const s = c.icon.kind === "opencode" ? side * 1.25 : side;
+      if (x < -s || y < -s || x > W + s || y > H + s)
+        continue;
+      tile(hdr, W, H, x, y, s, c.icon.tile, c.icon.glyph, c.icon.kind, fade, this.cells ? 2 : 3);
+      this.touch(x - s, y - s, x + s, y + s);
+    }
+    const logo = this.logo;
+    composite(hdr, W, H, logo.x, logo.y, logo.w, logo.h, logo.rgba);
+    this.touch(logo.x, logo.y, logo.x + logo.w - 1, logo.y + logo.h - 1);
     this.finish();
   }
+  visit() {
+    this.surge = SURGE2;
+  }
+  poke(x, y) {
+    if (this.icons.filter((c) => c.extra).length >= EXTRAS2)
+      return;
+    const dx = x - this.A / 2;
+    const dy = y - MIDDLE;
+    const u = dx * Math.cos(TILT) + dy * Math.sin(TILT);
+    const v = (-dx * Math.sin(TILT) + dy * Math.cos(TILT)) / FLAT2;
+    this.icons.push({ ...this.icon(true), r: Math.max(0.15, Math.hypot(u, v)), a: Math.atan2(v, u), bright: 1, life: 24 });
+  }
   layout() {
-    const { W, H, A, look } = this;
-    this.orb = { ...look.orb, x: (A / 2 + look.orbX) / A };
-    paintSky(this.hdr, W, H, look.sky, this.orb, this.px);
-    this.weather.cover(this.hdr, W, H);
-    const sky = new Float32Array(H * 3);
-    for (let y = 0;y < Math.ceil(HORIZON9 * H); y++)
-      for (let x = 0;x < W; x += 2)
-        for (let c = 0;c < 3; c++)
-          sky[y * 3 + c] += this.hdr[(y * W + x) * 3 + c] / Math.ceil(W / 2);
-    this.buildSea(sky);
-    this.shadeSea();
-    fillSea(this.hdr, W, this.sea.y0, this.sea.idA, this.sea.idB, this.sea.mix, undefined, this.mesh.colors, undefined);
-    this.drawIslands();
-    if (this.activity === "teeming")
-      this.drawEscorts();
-    this.paintHull();
-    this.placeLamps();
-    const hdr = this.hdr;
-    this.hdr = new Float32Array(W * H * 3);
-    this.drawIslands(true);
-    if (this.activity === "teeming")
-      this.drawEscorts(true);
-    const open = new Float32Array(this.sea.idA.length);
-    for (let i = 0;i < open.length; i++)
-      open[i] = 1 - clamp(this.hdr[(this.sea.y0 * W + i) * 3], 0, 1);
-    this.hdr = hdr;
-    this.sea.open = open;
-    const glow2 = new Float32Array(open.length * 3);
-    if (look.lamp > 0.5) {
-      const cx = A / 2 * H;
-      for (let i = 0;i < open.length; i++) {
-        const x = i % W;
-        const y = this.sea.y0 + Math.floor(i / W);
-        const d = ((x - cx) / (0.3 * H)) ** 2 + ((y - (STERN - 0.1) * H) / (0.17 * H)) ** 2;
-        const k = Math.max(0, 1 - d) ** 2 * 0.05 * look.lamp;
-        glow2[i * 3] = AMBER3[0] * k;
-        glow2[i * 3 + 1] = AMBER3[1] * k;
-        glow2[i * 3 + 2] = AMBER3[2] * k;
-      }
-    }
-    this.sea.glow = glow2;
-    this.sea.sky = sky;
-    for (const c of this.clouds)
-      c.sprite = cloudSprite(c, H, this.weather.scud ?? look.cloud, this.orb.x * A - c.x);
-  }
-  paint(c) {
-    const t = this.look.tint;
-    return [c[0] * t[0], c[1] * t[1], c[2] * t[2]];
-  }
-  buildSea(sky) {
-    const { W, H } = this;
-    const rows = [0];
-    while (rows[rows.length - 1] < 1.1 - HORIZON9)
-      rows.push(rows[rows.length - 1] + rowHeight(rows[rows.length - 1]));
-    const y0 = Math.floor(HORIZON9 * H);
-    const n = W * (H - y0);
-    this.sea = { ...this.sea, y0, rows: Float64Array.from(rows), ids: new Int32Array(n * 4), idA: new Int32Array(n), idB: new Int32Array(n), mix: new Float32Array(n), sky };
-  }
-  meshSea() {
-    const { W, H, A } = this;
-    const sea = this.sea;
-    const m = this.mesh;
-    const phase = this.time * ROW_RATE;
-    const base = Math.floor(phase);
-    const f = phase - base;
-    const table = sea.rows;
-    const xs = [];
-    const ys = [];
-    const ds = [];
-    const ids = [];
-    const rows = [];
-    for (let r = 0;r + 1 < table.length; r++) {
-      const d = table[r] + (table[r + 1] - table[r]) * f;
-      const q = r - base;
-      const h = rowHeight(d);
-      const w = Math.max(0.018, h * 2.3);
-      const row = [];
-      const i0 = Math.floor((-0.25 - A / 2) / w);
-      const i1 = Math.ceil((A / 2 + 0.25) / w);
-      for (let i = i0;i <= i1; i++) {
-        row.push(xs.length);
-        xs.push(A / 2 + (i + (hash2(i, q) - 0.5) * 0.7) * w);
-        ys.push(HORIZON9 + d + (hash2(i + 71, q) - 0.5) * 0.3 * h);
-        ds.push(d);
-        ids.push(i * 7919 + q * 104729);
-      }
-      rows.push(row);
-    }
-    const tris = [];
-    for (let k = 0;k + 1 < rows.length; k++)
-      stitch(rows[k], rows[k + 1], xs, tris);
-    const n = xs.length;
-    if (m.X.length < n) {
-      m.X = new Float32Array(n * 2);
-      m.Z = new Float32Array(n * 2);
-      m.height = new Float32Array(n * 2);
-    }
-    const t = this.time;
-    for (let i = 0;i < n; i++) {
-      const z = FOCAL2 * CAMERA2 / Math.max(0.002, ys[i] - HORIZON9);
-      m.Z[i] = z;
-      m.X[i] = (xs[i] - A / 2) * z / FOCAL2;
-      const amp = Math.max(0.018, rowHeight(ds[i]) * 2.3) * 0.45 * smoothstep(0.004, 0.08, ds[i]);
-      const id = ids[i];
-      m.height[i] = amp * ((hash(id) - 0.5) * 1.6 + 0.3 * Math.sin(t * (0.5 + hash(id + 0.5) * 0.6) + hash(id + 0.3) * TAU));
-    }
-    m.tris = Int32Array.from(tris);
-    if (m.colors.length < tris.length)
-      m.colors = new Float32Array(tris.length * 2);
-    const y0 = sea.y0;
-    const SW = W * 2;
-    const SH = (H - y0) * 2;
-    sea.ids.fill(-1);
-    for (let k = 0;k < tris.length; k += 3) {
-      const a = tris[k];
-      const b = tris[k + 1];
-      const c = tris[k + 2];
-      rasterTri(sea.ids, SW, SH, xs[a] * H * 2, (ys[a] * H - y0) * 2, xs[b] * H * 2, (ys[b] * H - y0) * 2, xs[c] * H * 2, (ys[c] * H - y0) * 2, k / 3);
-    }
-    resolveSamples(sea.ids, W, H - y0, sea.idA, sea.idB, sea.mix);
-  }
-  shadeSea() {
-    const { H, A, look } = this;
-    const m = this.mesh;
-    this.meshSea();
-    shadeFacets(m.X, m.Z, m.height, m.tris, m.colors, this.sea.sky, H, this.orb.x * A - A / 2, this.orb.y, look.sea[0], look.sea[1], look.spec, look.glitter * (1 - 0.8 * this.gloom), look.spread, look.storm, smoothstep(0, 1, this.gloom) * 0.7);
-  }
-  drawSea() {
-    this.shadeSea();
-    const s = this.sea;
-    fillSea(this.hdr, this.W, s.y0, s.idA, s.idB, s.mix, s.open, this.mesh.colors, s.glow);
-    this.touch(0, s.y0, this.W - 1, this.H - 1);
-  }
-  drawIslands(mask = false) {
-    const { A, H } = this;
-    const color = (c, lit2) => mask ? [1, 1, 1] : this.facet(c, lit2);
-    const P = (x, y) => [x * H, y * H];
-    const vx = volcanoX(A);
-    const base = HORIZON9 + 0.004;
-    const hill = [P(vx - 0.27, base), P(vx - 0.2, base - 0.02), P(vx - 0.1, base - 0.035), P(vx + 0.12, base - 0.035), P(vx + 0.22, base - 0.018), P(vx + 0.29, base)];
-    this.polygon(hill, color(FOREST, 0.4));
-    const peak = P(vx - 0.01, HORIZON9 - 0.17);
-    const feet = [-0.17, -0.1, -0.03, 0.05, 0.12, 0.18].map((dx) => P(vx + dx, base - 0.025));
-    const lightSide = this.orb.x * A < vx ? -1 : 1;
-    this.polygon([peak, ...feet], color(ROCK2, 0.5));
-    for (let i = 0;i + 1 < feet.length; i++) {
-      const face = (i + 0.5) / (feet.length - 1) - 0.5;
-      this.polygon([peak, feet[i], feet[i + 1]], color(ROCK2, 0.5 + face * lightSide * 0.9));
-    }
-    const slope2 = (dx) => base - 0.025 - (1 - Math.abs(dx + 0.01) / 0.175) * 0.17;
-    const forest = [P(vx - 0.2, base)];
-    for (let i = 0;i <= 24; i++) {
-      const dx = -0.19 + i / 24 * 0.39;
-      const top = Math.max(slope2(dx) + 0.045, base - 0.075) - (i % 2 ? 0.006 : 0) - hash(i * 2.1) * 0.006;
-      forest.push(P(vx + dx, Math.min(top, base - 0.02)));
-    }
-    forest.push(P(vx + 0.21, base));
-    this.polygon(forest, color(FOREST, 0.5 - lightSide * 0.1));
-    for (let i = 0;i < 18; i++) {
-      const dx = -0.22 + i / 17 * 0.47;
-      const top = Math.max(slope2(dx) + 0.05, base - 0.06) + hash(i * 5.3) * 0.02;
-      if (top > base - 0.012)
-        continue;
-      const s = 0.012 + hash(i * 1.9) * 0.008;
-      this.polygon([P(vx + dx, top), P(vx + dx - s * 0.7, top + s * 1.4), P(vx + dx + s * 0.7, top + s * 1.4)], color(FOREST, hash(i) > 0.5 ? 0.75 : 0.3));
-    }
-    this.polygon([P(vx - 0.022, HORIZON9 - 0.155), P(vx - 0.01, HORIZON9 - 0.17), P(vx + 0.004, HORIZON9 - 0.157), P(vx - 0.01, HORIZON9 - 0.15)], color(ROCK2, 0.15));
-    for (const [x, w, h] of [[0.14, 0.09, 0.05], [0.27, 0.08, 0.045]]) {
-      const pts = [P(x - w, base), P(x - w * 0.55, base - h * 0.55), P(x - w * 0.15, base - h), P(x + w * 0.2, base - h * 0.85), P(x + w * 0.6, base - h * 0.4), P(x + w, base)];
-      this.polygon(pts, color(FOREST, 0.5));
-      for (let i = 0;i + 1 < pts.length; i++)
-        this.polygon([P(x, base), pts[i], pts[i + 1]], color(FOREST, 0.55 - (i - 2) / 3 * lightSide * 0.5));
-      for (let i = 0;i < 7; i++) {
-        const dx = (i / 6 - 0.5) * w * 1.4;
-        const top = base - h * (1 - Math.abs(dx) / w) * 0.95;
-        this.polygon([P(x + dx, top - 0.01), P(x + dx - 0.009, top + 0.008), P(x + dx + 0.009, top + 0.008)], color(FOREST, hash(i + x) > 0.5 ? 0.7 : 0.35));
-      }
-    }
-    const rx = A - 0.18;
-    for (const [dx, w, h] of [[-0.03, 0.012, 0.035], [-0.012, 0.009, 0.05], [0.004, 0.011, 0.042], [0.03, 0.008, 0.028]]) {
-      this.polygon([P(rx + dx - w, base), P(rx + dx - w * 0.6, base - h), P(rx + dx + w * 0.3, base - h * 1.05), P(rx + dx + w, base)], color(ROCK2, 0.45 + lightSide * dx * 8));
-    }
-    this.polygon([P(rx - 0.07, base), P(rx - 0.05, base - 0.008), P(rx + 0.06, base - 0.008), P(rx + 0.09, base)], color(FOREST, 0.4));
-    for (const [x, w] of [[vx + 0.33, 0.025], [vx + 0.4, 0.015], [vx - 0.36, 0.02]])
-      this.polygon([P(x - w, base), P(x, base - 0.012), P(x + w, base)], color(ROCK2, 0.3));
-  }
-  facet(c, lit2) {
-    const { look } = this;
-    const k = clamp(lit2, 0, 1);
-    if (!look.night && look.tint[0] === 1)
-      return [c[0] * (0.45 + 0.75 * k), c[1] * (0.45 + 0.75 * k), c[2] * (0.45 + 0.75 * k)];
-    const t = look.tint;
-    return [c[0] * t[0] * 2.4 + look.key[0] * 0.08 * k, c[1] * t[1] * 2.4 + look.key[1] * 0.08 * k, c[2] * t[2] * 2.4 + look.key[2] * 0.08 * k];
-  }
-  drawEscorts(mask = false) {
-    const { A, H } = this;
-    for (const [x, s] of [[A / 2 - 0.36, 0.05], [A / 2 - 0.2, 0.035], [A - 0.05, 0.04]]) {
-      const y = HORIZON9 + 0.006;
-      const hull2 = mask ? [1, 1, 1] : this.paint(HULL);
-      this.polygon([[(x - s) * H, (y - s * 0.12) * H], [(x + s) * H, (y - s * 0.12) * H], [(x + s * 0.85) * H, y * H], [(x - s * 0.8) * H, y * H]], hull2);
-      this.polygon([[(x - s * 0.25) * H, (y - s * 0.12) * H], [(x - s * 0.2) * H, (y - s * 0.4) * H], [(x + s * 0.15) * H, (y - s * 0.4) * H], [(x + s * 0.25) * H, (y - s * 0.12) * H]], hull2);
-      this.polygon([[(x - s * 0.02) * H, (y - s * 0.4) * H], [(x - s * 0.01) * H, (y - s * 0.7) * H], [(x + s * 0.01) * H, (y - s * 0.7) * H], [(x + s * 0.02) * H, (y - s * 0.4) * H]], hull2);
-    }
-  }
-  deck(u, v, h = 0) {
-    const H = this.H;
-    const z = 1 + BOW * v;
-    return [(this.A / 2 + u * BEAM / z) * H, (VANISH + (STERN - VANISH) / z - h * BEAM / z) * H];
-  }
-  drawCarrier(mask = false) {
-    const D = (u, v, h = 0) => this.deck(u, v, h);
-    const c = (color, k = 1) => mask ? [1, 1, 1] : this.paint([color[0] * k, color[1] * k, color[2] * k]);
-    this.polygon([D(-0.92, 0, 0), D(0.92, 0, 0), D(0.82, 0, -0.42), D(-0.82, 0, -0.42)], c(HULL, 0.8));
-    this.polygon([D(0.92, 0, 0), D(0.95, 0.9, 0), D(0.8, 0.9, -0.42), D(0.82, 0, -0.42)], c(HULL, 0.55));
-    this.polygon([D(-0.92, 0, 0), D(-0.95, 0.9, 0), D(-0.8, 0.9, -0.42), D(-0.82, 0, -0.42)], c(HULL, 0.45));
-    const outline = [D(-1, 0), D(1, 0), D(1, 0.88), D(0.8, 1.02), D(-0.8, 1.02), D(-1, 0.88)];
-    this.polygon(outline, c(HULL, 0.6));
-    this.polygon([D(-0.96, 0.01), D(0.96, 0.01), D(0.96, 0.87), D(0.77, 1), D(-0.77, 1), D(-0.96, 0.87)], c(DECK));
-    if (mask) {
-      this.drawIsland(true);
-      return;
-    }
-    const line = (u0, v0, u1, v1, w, color, k = 1) => {
-      this.polygon([D(u0 - w, v0), D(u0 + w, v0), D(u1 + w, v1), D(u1 - w, v1)], c(color, k));
+    const { W, H, hdr, A } = this;
+    const count = (n) => Math.round(n * clamp(A / (16 / 9), 0.6, 1.6));
+    const streaks = count(this.cast.streaks);
+    this.streaks = [...this.streaks.slice(0, streaks), ...Array.from({ length: Math.max(0, streaks - this.streaks.length) }, () => this.streak())];
+    const fill = (n, mark) => {
+      const own = this.icons.filter((c) => !c.extra && c.icon.kind === "opencode" === mark);
+      return [...own.slice(0, n), ...Array.from({ length: Math.max(0, n - own.length) }, () => ({ ...this.icon(false, mark), age: rand(0, 30) }))];
     };
-    line(-0.62, 0.05, -0.62, 0.97, 0.02, STRIPE, 0.8);
-    line(0.42, 0.05, 0.42, 0.97, 0.02, STRIPE, 0.8);
-    for (let v = 0.2;v < 0.95; v += 0.11)
-      line(-0.1, v, -0.1, v + 0.06, 0.022, STRIPE, 0.9);
-    line(0.2, 0.18, 0.2, 0.96, 0.012, YELLOW);
-    line(-0.35, 0.3, -0.12, 0.96, 0.012, YELLOW, 0.9);
-    for (let i = 0;i < 8; i++) {
-      const u = -0.55 + i * 0.12;
-      this.polygon([D(u, 0.06), D(u + 0.07, 0.06), D(u + 0.07, 0.12), D(u, 0.12)], c(STRIPE, 0.85));
-    }
-    line(-0.1, 0.62, -0.1, 0.98, 0.006, [0.1, 0.1, 0.1]);
-    line(0.08, 0.66, 0.08, 0.98, 0.006, [0.1, 0.1, 0.1]);
-    this.polygon([D(-0.98, 0.3), D(-0.8, 0.3), D(-0.8, 0.42), D(-0.98, 0.42)], c(DECK, 0.75));
-    this.polygon([D(-0.25, 0, -0.08), D(0.25, 0, -0.08), D(0.25, 0, -0.2), D(-0.25, 0, -0.2)], this.look.night ? [0.25, 0.12, 0.03] : c([0.05, 0.05, 0.06]));
-    this.drawIsland(false);
-    if (this.look.lamp > 0.5) {
-      const [cx, cy] = D(0, 0.45);
-      lightPool(this.hdr, this.W, this.H, cx, cy, 0.18 * this.H, 0.12 * this.H, [1, 0.6, 0.25], 1.2, 0.01);
-    }
-  }
-  placeLamps() {
-    const D = (u, v, h = 0) => this.deck(u, v, h);
-    this.lamps = [];
-    const lamp = (p, color, blink = 0, size = 1) => this.lamps.push({ x: p[0] / this.px, y: p[1] / this.px, color, blink, size });
-    for (let v = 0.04;v < 0.99; v += 0.075) {
-      lamp(D(-0.97, v), AMBER3, 0, 1);
-      lamp(D(0.97, v), AMBER3, 0, 1);
-    }
-    for (let v = 0.16;v < 0.98; v += 0.1)
-      lamp(D(-0.1, v + 0.03), [1.6, 1.2, 0.5], 0, 1);
-    for (const u of [-0.7, -0.45, 0.45, 0.7])
-      lamp(D(u, 0, -0.05), AMBER3, 0, 2);
-    lamp(D(-0.97, 1), [0.3, 1.6, 0.5], 0.7, 2);
-    lamp(D(0.97, 1), [1.8, 0.25, 0.15], 0.9, 2);
-    lamp(D(0.82, 0.57, 2.1), [2, 0.3, 0.15], 1, 2);
-    lamp(D(0.74, 0.44, 0.6), AMBER3, 0, 1);
-    lamp(D(0.88, 0.44, 0.6), AMBER3, 0, 1);
-    if (this.activity !== "calm")
-      lamp(D(-0.4, 0.26), [0.3, 1.8, 0.6], 1.5, 2);
-  }
-  paintHull() {
-    const { W, H } = this;
-    if (this.px === 1 && this.hullFine) {
-      this.hull = this.hullFine;
-      this.hullFine = undefined;
-      return;
-    }
-    const hdr = this.hdr;
-    this.hdr = new Float32Array(W * H * 3);
-    this.drawCarrier();
-    if (this.activity !== "calm")
-      this.drawParked();
-    let color = this.hdr;
-    this.hdr = new Float32Array(W * H * 3);
-    this.drawCarrier(true);
-    let cover = this.hdr;
-    this.hdr = hdr;
-    if (this.px > 1) {
-      color = this.shrink(color);
-      cover = this.shrink(cover);
-    }
-    const w = W / this.px;
-    const h = H / this.px;
-    let [x0, y0, x1, y1] = [w, h, -1, -1];
-    for (let y = 0;y < h; y++)
-      for (let x = 0;x < w; x++) {
-        const o = (y * w + x) * 3;
-        if (cover[o] <= 0 && color[o] + color[o + 1] + color[o + 2] <= 0)
-          continue;
-        x0 = Math.min(x0, x);
-        y0 = Math.min(y0, y);
-        x1 = Math.max(x1, x);
-        y1 = Math.max(y1, y);
-      }
-    const sw = x1 - x0 + 1;
-    const sh = y1 - y0 + 1;
-    const rgba = new Float32Array(Math.max(0, sw * sh * 4));
-    for (let y = 0;y < sh; y++)
-      for (let x = 0;x < sw; x++) {
-        const o = ((y + y0) * w + x + x0) * 3;
-        const d = (y * sw + x) * 4;
-        rgba[d] = color[o];
-        rgba[d + 1] = color[o + 1];
-        rgba[d + 2] = color[o + 2];
-        rgba[d + 3] = clamp(cover[o], 0, 1);
-      }
-    const hull2 = { x: x0, y: y0, w: Math.max(0, sw), h: Math.max(0, sh), rgba };
-    if (this.px > 1)
-      this.hullFine = hull2;
-    else
-      this.hull = hull2;
-  }
-  stepShip() {
-    const t = this.time;
-    const H = this.H;
-    const [x, y] = this.deck(0, 0.45);
-    this.ship = {
-      x,
-      y,
-      dx: 0.008 * Math.sin(t * 0.04) * H,
-      dy: (0.0015 * Math.sin(t * 0.6) + 0.0008 * Math.sin(t * 1.03 + 2)) * H,
-      roll: 0.007 * Math.sin(t * 0.5 + 0.5),
-      pitch: 0.006 * Math.sin(t * 0.55 + 1.7)
-    };
-  }
-  onShip(p) {
-    const s = this.ship;
-    const qx = p[0] - s.x;
-    const qy = (p[1] - s.y) * (1 + s.pitch);
-    const c = Math.cos(s.roll);
-    const n = Math.sin(s.roll);
-    return [s.x + qx * c - qy * n + s.dx, s.y + qx * n + qy * c + s.dy];
-  }
-  drawHull() {
-    const h = this.hull;
-    if (!h || !h.w)
-      return;
-    const s = this.ship;
-    const box = blitHull(this.hdr, this.W, this.H, h, s.x, s.y, s.dx, s.dy, s.roll, 1 + s.pitch);
-    this.touch(box[0], box[1], box[2], box[3]);
-  }
-  drawWake() {
-    const { W, H, A, look } = this;
-    const s = this.ship;
-    const [, bowY] = this.deck(0, 1.2, WATERLINE);
-    const x0 = Math.floor(A / 2 * H - 0.4 * H + s.dx);
-    const x1 = Math.ceil(A / 2 * H + 0.4 * H + s.dx);
-    const y0 = Math.floor(bowY + s.dy - 2);
-    const box = wake(this.hdr, W, H, A, x0, x1, y0, A / 2 * H + s.dx, s.dy, this.time * ROW_RATE * 0.17, look.foam, look.night ? 0.6 : 0.55);
-    this.touch(box[0], box[1], box[2], box[3]);
-  }
-  drawIsland(mask) {
-    const D = (u, v, h = 0) => this.deck(u, v, h);
-    const c = (k) => mask ? [1, 1, 1] : this.paint([HULL[0] * k, HULL[1] * k, HULL[2] * k]);
-    const [u0, u1, v0, v1, top] = [0.66, 0.96, 0.44, 0.68, 1];
-    this.polygon([D(u0, v0, top), D(u1, v0, top), D(u1, v1, top), D(u0, v1, top)], c(1.15));
-    this.polygon([D(u0, v0), D(u0, v1), D(u0, v1, top), D(u0, v0, top)], c(0.7));
-    this.polygon([D(u0, v0), D(u1, v0), D(u1, v0, top), D(u0, v0, top)], c(0.9));
-    this.polygon([D(0.72, 0.5, top), D(0.92, 0.5, top), D(0.92, 0.5, top + 0.4), D(0.72, 0.5, top + 0.4)], c(0.85));
-    this.polygon([D(0.72, 0.5, top), D(0.72, 0.64, top), D(0.72, 0.64, top + 0.4), D(0.72, 0.5, top + 0.4)], c(0.62));
-    this.polygon([D(0.72, 0.5, top + 0.4), D(0.92, 0.5, top + 0.4), D(0.92, 0.64, top + 0.4), D(0.72, 0.64, top + 0.4)], c(1.1));
-    if (!mask)
-      this.polygon([D(0.73, 0.5, top + 0.3), D(0.91, 0.5, top + 0.3), D(0.91, 0.5, top + 0.2), D(0.73, 0.5, top + 0.2)], this.look.night ? [0.6, 0.3, 0.06] : c(0.3));
-    const w = 0.018;
-    this.polygon([D(0.82 - w, 0.57, top + 0.4), D(0.82 + w, 0.57, top + 0.4), D(0.82 + w * 0.5, 0.57, 2.1), D(0.82 - w * 0.5, 0.57, 2.1)], c(0.75));
-    this.polygon([D(0.74, 0.57, 1.82), D(0.9, 0.57, 1.82), D(0.9, 0.57, 1.76), D(0.74, 0.57, 1.76)], c(0.75));
-  }
-  drawParked() {
-    for (const [u, v] of [[0.55, 0.36], [0.6, 0.72], [0.55, 0.82]]) {
-      const [x, y] = this.deck(u, v, 0.08);
-      const s = 0.13 * BEAM * this.H / (1 + BOW * v);
-      this.planform(x, y, s, -Math.PI / 2, 0.8, JETFORM, this.paint(JET));
-    }
-  }
-  drawLamps() {
-    const look = this.look;
-    const flicker = this.gloom > 0.2 ? 1 - 0.6 * this.gloom * (hash(Math.floor(this.time * 6)) > 0.75 ? 1 : 0) : 1;
-    for (const [i, l] of this.lamps.entries()) {
-      if (look.lamp < 0.5 && !l.blink)
-        continue;
-      const pulse2 = l.blink ? 0.25 + 0.75 * Math.max(0, Math.sin(this.time * l.blink * 2 + i)) ** 4 : 0.85 + 0.15 * Math.sin(this.time * 0.6 + i * 1.3);
-      const k = look.lamp * pulse2 * flicker * 0.55;
-      const [x, y] = this.onShip([l.x, l.y]);
-      if (this.cells)
-        this.point(x, y, l.color[0] * k, l.color[1] * k, l.color[2] * k, l.size, true);
-      else
-        this.disc(x, y, (0.0018 + l.size * 0.0007) * this.H, l.color[0] * k, l.color[1] * k, l.color[2] * k, 1);
-    }
-  }
-  drawClouds() {
-    const { W, H, hdr } = this;
-    for (const c of this.clouds) {
-      const s = c.sprite;
-      if (!s)
-        continue;
-      const x = c.x * H - s.ox;
-      const y = c.y * H - s.oy;
-      blitSprite(hdr, W, H, s, x, y);
-      this.touch(x - 1, y - 1, x + s.w + 1, y + s.h + 1);
-    }
-  }
-  stepJets(dt) {
-    for (const j of this.jets)
-      j.t += dt;
-    this.jets = this.jets.filter((j) => j.t < (j.kind === "launch" ? LAUNCH : LANDING));
-    if (this.activity === "calm")
-      return;
-    const teeming = this.activity === "teeming";
-    this.nextLaunch -= dt;
-    if (this.nextLaunch <= 0 && this.launch())
-      this.nextLaunch = teeming ? rand(1.5, 3) : rand(4, 7);
-    this.nextLanding -= dt;
-    if (this.nextLanding <= 0 && !this.jets.some((j) => j.kind === "landing")) {
-      this.jets.push({ kind: "landing", t: 0, side: 0, cat: 0 });
-      this.nextLanding = teeming ? rand(6, 10) : rand(14, 22);
-    }
-  }
-  launch() {
-    const cat = CATAPULTS.find((c) => !this.jets.some((j) => j.kind === "launch" && j.cat === c && j.t < 4));
-    if (cat === undefined)
-      return false;
-    this.jets.push({ kind: "launch", t: 0, side: Math.random() < 0.5 ? -1 : 1, cat });
-    return true;
-  }
-  jetPath(j) {
-    const t = j.t;
-    if (j.kind === "launch") {
-      const spool = smoothstep(0, 1.5, t);
-      const run = smoothstep(1.5, 3.5, t) ** 2;
-      const c = Math.max(0, t - 3.5);
-      const v2 = lerp(0.22, 1.05, run) + c * 0.35 + c * c * 0.03;
-      const h2 = 0.08 + c * 0.8 + c * c * 0.9;
-      const u = j.cat + j.side * c * c * 0.3;
-      return { u, v: v2, h: h2, roll: j.side * smoothstep(0.3, 2, c) * 0.6, burn: spool, alpha: 1 - smoothstep(LAUNCH - 1, LAUNCH, t) };
-    }
-    const glide = smoothstep(0, 5, t);
-    const roll = smoothstep(5, 7, t);
-    const v = lerp(-0.9, 0.2, glide) + roll * 0.3;
-    const h = 0.08 + (1 - glide) ** 1.5 * 6.4;
-    return { u: lerp(0.6, -0.1, glide), v, h, roll: (1 - glide) * -0.3, burn: 0.15, alpha: smoothstep(0, 1, t) * (1 - smoothstep(LANDING - 1, LANDING, t)) };
-  }
-  craft(c) {
-    const k = this.look.night ? 3.2 : this.look.tint[0] === 1 ? 0.6 : 1;
-    const p = this.paint(c);
-    return [p[0] * k, p[1] * k, p[2] * k];
-  }
-  drawJet(j) {
-    const p = this.jetPath(j);
-    const z = 1 + BOW * p.v;
-    const [x, y] = this.onShip(this.deck(p.u, p.v, p.h));
-    const s = BEAM * this.H / z;
-    if (p.alpha <= 0 || y < -s || y > this.H + s)
-      return;
-    const H = this.H;
-    const k = (0.35 + p.burn * 1.4) * p.alpha;
-    if (p.h < 0.3 && p.burn > 0.3)
-      lightPool(this.hdr, this.W, H, x, y + s * 0.1, s * 1.2, s * 0.45, [1, 0.5, 0.15], 2.2 * p.burn, 0.03 * p.burn);
-    else if (this.look.lamp > 0.5)
-      lightPool(this.hdr, this.W, H, x, y, s * 0.35, s * 0.3, [1, 0.5, 0.15], 0, 0.06 * k);
-    if (s < 3) {
-      this.splat(x, y, BURNER[0] * k * 0.5, BURNER[1] * k * 0.5, BURNER[2] * k * 0.5);
-      return;
-    }
-    if (j.kind === "launch" && j.t > 3) {
-      const q = this.jetPath({ ...j, t: j.t - 0.35 });
-      const [tx, ty] = this.onShip(this.deck(q.u, q.v, q.h));
-      const sq = lerp(0.55, 0.3, clamp(p.h / 4, 0, 1));
-      trail(this.hdr, this.W, H, x, y + 0.5 * sq * s, tx, ty + 0.5 * sq * s, Math.max(0.8, 0.05 * s), this.look.lamp > 0.5 ? BURNER : this.look.trail, 0.5 * p.alpha);
-      this.touch(Math.min(x, tx) - s * 0.1 - 2, Math.min(y, ty) - 2, Math.max(x, tx) + s * 0.1 + 2, Math.max(y, ty) + s * 0.3 + 2);
-    }
-    const squash = lerp(0.55, 0.3, clamp(p.h / 4, 0, 1));
-    this.planform(x, y, s, -Math.PI / 2, squash, JETFORM, this.craft(JET), p.alpha, p.roll);
-    const ca = Math.cos(p.roll);
-    const sa = Math.sin(p.roll);
-    const Q = (a, b) => [x + (a * ca - b * sa) * s, y + (a * sa + b * ca) * s];
-    const fin = this.craft([JET[0] * 0.7, JET[1] * 0.7, JET[2] * 0.75]);
-    const tail = 0.45 * squash;
-    for (const side of [-1, 1])
-      this.polygon([Q(side * 0.05, tail), Q(side * 0.06, tail - 0.08 * squash), Q(side * 0.12, tail - 0.24), Q(side * 0.1, tail - 0.25)], fin, p.alpha);
-    for (const side of [-1, 1]) {
-      const [bx, by] = Q(side * 0.035, 0.5 * squash);
-      this.disc(bx, by, Math.max(1.2, 0.09 * s), BURNER[0] * 0.3 * k, BURNER[1] * 0.3 * k, BURNER[2] * 0.3 * k, 0.6);
-      this.disc(bx, by, Math.max(0.8, 0.035 * s), BURNER[0] * k, BURNER[1] * k, BURNER[2] * k, 1);
-      const [wx, wy] = Q(side * 0.42, 0.19 * squash);
-      const nav = this.look.lamp * p.alpha * 0.7;
-      this.disc(wx, wy, Math.max(0.6, 0.014 * s), side < 0 ? 1.8 * nav : 0.2 * nav, side < 0 ? 0.25 * nav : 1.6 * nav, side < 0 ? 0.15 * nav : 0.5 * nav, 1);
-    }
-  }
-  planform(x, y, s, heading, squash, form2, color, alpha = 1, roll = 0) {
-    const cr = Math.cos(roll);
-    const sr = Math.sin(roll);
-    const fx = Math.cos(heading);
-    const fy = Math.sin(heading) * squash;
-    const sx = -Math.sin(heading);
-    const sy = Math.cos(heading) * squash;
-    for (const poly of form2)
-      this.polygon(poly.map(([a, b]) => {
-        const px = (a * fx + b * sx) * s;
-        const py = (a * fy + b * sy) * s;
-        return [x + px * cr - py * sr, y + px * sr + py * cr];
-      }), color, alpha);
-  }
-  drawCircling() {
-    const { A, H, look } = this;
-    const loops = this.activity === "teeming" ? LOOPS : LOOPS.slice(0, 6);
-    for (const [i, l] of loops.entries()) {
-      const cx = l.cx < 0 ? A + l.cx : l.cx === 0 ? volcanoX(A) : l.cx;
-      const a2 = this.time * l.rate + l.phase;
-      const x2 = (cx + Math.cos(a2) * l.rx) * H;
-      const y2 = (l.cy + Math.sin(a2) * l.ry) * H;
-      const heading2 = Math.atan2(Math.cos(a2) * l.ry * l.rate, -Math.sin(a2) * l.rx * l.rate);
-      const s2 = l.size * (1 + 0.25 * Math.sin(a2)) * H;
-      if (l.cy < 0.1) {
-        const b = a2 - Math.sign(l.rate) * 0.35;
-        const tx = (cx + Math.cos(b) * l.rx) * H;
-        const ty = (l.cy + Math.sin(b) * l.ry) * H;
-        trail(this.hdr, this.W, H, x2, y2, tx, ty, Math.max(0.7, 0.003 * H), look.trail, 0.3);
-        this.touch(Math.min(x2, tx) - 3, Math.min(y2, ty) - 3, Math.max(x2, tx) + 3, Math.max(y2, ty) + 3);
-      }
-      this.planform(x2, y2, s2, heading2, 0.45, JETFORM, this.craft(JET), 1, -Math.sign(l.rate) * 0.25);
-      this.navLights(x2, y2, s2, heading2, i);
-    }
-    if (this.activity !== "teeming")
-      return;
-    const a = this.time * 0.04 + 2;
-    const x = (0.4 + Math.cos(a) * 0.3) * H;
-    const y = (0.085 + Math.sin(a) * 0.02) * H;
-    const heading = Math.atan2(Math.cos(a) * 0.02, -Math.sin(a) * 0.3);
-    const s = 0.065 * H;
-    this.planform(x, y, s, heading, 0.4, CARGOFORM, this.craft(HAWKEYE));
-    const dome2 = this.craft([HAWKEYE[0] * 0.8, HAWKEYE[1] * 0.8, HAWKEYE[2] * 0.85]);
-    this.ellipse(x - Math.cos(heading) * s * 0.05, y - 0.06 * s, 0.18 * s, 0.045 * s, dome2[0], dome2[1], dome2[2], 1);
-    this.navLights(x, y, s, heading, 11);
-  }
-  navLights(x, y, s, heading, seed) {
-    const k = this.look.lamp;
-    if (k < 0.5)
-      return;
-    const blink = Math.sin(this.time * 4 + seed * 1.7) > 0.6 ? 0.8 : 0.15;
-    const bx = x - Math.cos(heading) * s * 0.5;
-    const by = y - Math.sin(heading) * s * 0.2;
-    this.splat(bx, by, BURNER[0] * 0.25, BURNER[1] * 0.25, BURNER[2] * 0.25);
-    this.splat(x, y, 1.6 * blink, 0.3 * blink, 0.12 * blink);
-  }
-  makeTraffic(t) {
-    const kinds = this.activity === "teeming" ? ["formation", "formation", "formation", "break", "break", "cargo", "tanker", "helo", "flock", "flock"] : ["formation", "formation", "break", "cargo", "flock", "helo"];
-    const kind = kinds[Math.floor(Math.random() * kinds.length)];
-    const dir = Math.random() < 0.5 ? 1 : -1;
-    const seed = Math.random() * 100;
-    if (kind === "formation") {
-      const y = rand(0.05, 0.22);
-      return { kind, t, span: rand(12, 18), y, dir, size: lerp(0.026, 0.06, (y - 0.05) / 0.17), n: 2 + Math.floor(Math.random() * 3), seed };
-    }
-    if (kind === "break")
-      return { kind, t, span: rand(11, 15), y: rand(0.16, 0.26), dir, size: 0.065, n: 1, seed };
-    if (kind === "cargo")
-      return { kind, t, span: rand(34, 44), y: rand(0.12, 0.22), dir, size: 0.075, n: 1, seed };
-    if (kind === "tanker")
-      return { kind, t, span: rand(50, 60), y: rand(0.06, 0.1), dir, size: 0.06, n: 1, seed };
-    if (kind === "helo")
-      return { kind, t, span: rand(30, 40), y: this.openRow(0.5, 0.58), dir, size: 0.06, n: 1, seed };
-    return { kind, t, span: rand(26, 34), y: rand(0.12, 0.3), dir, size: 0.016, n: 7 + Math.floor(Math.random() * 5), seed };
-  }
-  stepTraffic(dt) {
-    for (const c of this.traffic)
-      c.t += dt / c.span;
-    this.traffic = this.traffic.filter((c) => c.t < 1);
-    if (this.activity === "calm")
-      return;
-    const teeming = this.activity === "teeming";
-    this.nextTraffic -= dt;
-    if (this.nextTraffic > 0 || this.traffic.length >= (teeming ? 14 : 6))
-      return;
-    this.traffic.push(this.makeTraffic(0));
-    this.nextTraffic = teeming ? rand(0.6, 1.5) : rand(2, 4);
-  }
-  drawTraffic(c) {
-    const { A, H, look } = this;
-    const u = c.dir > 0 ? c.t : 1 - c.t;
-    const x = lerp(-0.3, A + 0.3, u) * H;
-    const y = c.y * H;
-    const heading = c.dir > 0 ? 0 : Math.PI;
-    const s = c.size * H;
-    if (c.kind === "formation") {
-      for (let i = 0;i < c.n; i++) {
-        const jx = x - c.dir * i * s * 1.3;
-        const jy = y + (i % 2 ? 1 : -1) * Math.ceil(i / 2) * s * 0.5 + Math.sin(this.time * 0.7 + i + c.seed) * s * 0.04;
-        if (c.y < 0.12) {
-          trail(this.hdr, this.W, H, jx - c.dir * s * 0.5, jy, jx - c.dir * s * 7, jy, Math.max(0.7, 0.0028 * H), look.trail, 0.3);
-          this.touch(Math.min(jx, jx - c.dir * s * 7) - 3, jy - 3, Math.max(jx, jx - c.dir * s * 7) + 3, jy + 3);
-        }
-        this.planform(jx, jy, s, heading, 0.4, JETFORM, this.craft(JET));
-        this.navLights(jx, jy, s, heading, i + c.seed);
-      }
-      return;
-    }
-    if (c.kind === "break") {
-      const dip = Math.sin(Math.PI * c.t) * 0.08;
-      const by = y + dip * H;
-      const climb = Math.cos(Math.PI * c.t) * c.dir;
-      const h = heading - climb * 0.25 * c.dir;
-      this.planform(x, by, s, h, 0.45, JETFORM, this.craft(JET), 1, Math.sin(TAU * c.t) * 0.5);
-      const k = smoothstep(0.5, 0.7, c.t) * 1.2 + 0.2;
-      this.splat(x - Math.cos(h) * s * 0.55, by - Math.sin(h) * s * 0.25, BURNER[0] * 0.4 * k, BURNER[1] * 0.4 * k, BURNER[2] * 0.4 * k);
-      this.navLights(x, by, s, h, c.seed);
-      return;
-    }
-    if (c.kind === "cargo") {
-      this.planform(x, y, s, heading, 0.4, CARGOFORM, this.craft(CARGO));
-      this.navLights(x, y, s, heading, c.seed);
-      return;
-    }
-    if (c.kind === "tanker") {
-      this.planform(x, y, s, heading, 0.4, TANKERFORM, this.craft(CARGO));
-      this.navLights(x, y, s, heading, c.seed);
-      for (const side of [-1, 1]) {
-        const hx = x - c.dir * s * 0.45;
-        const hy = y + side * s * 0.12;
-        const jx = x - c.dir * s * 0.95;
-        const jy = y + side * s * 0.22 + s * 0.08;
-        trail(this.hdr, this.W, H, hx, hy, jx + c.dir * s * 0.2, jy, 0.5, this.craft([0.5, 0.5, 0.5]), 0.6);
-        this.touch(Math.min(hx, jx) - 2, Math.min(hy, jy) - 2, Math.max(hx, jx) + 2, Math.max(hy, jy) + 2);
-        this.planform(jx, jy, s * 0.42, heading, 0.4, JETFORM, this.craft(JET));
-        this.navLights(jx, jy, s * 0.42, heading, side + c.seed);
-      }
-      return;
-    }
-    if (c.kind === "helo") {
-      this.drawHelo(x, y, s, 0.12 * -c.dir, c.dir > 0 ? -1 : 1, c.seed);
-      return;
-    }
-    for (let i = 0;i < c.n; i++) {
-      const rank = Math.ceil(i / 2);
-      const side = i % 2 ? 1 : -1;
-      const bx = x - c.dir * rank * s * 2.2 + Math.sin(this.time * 0.6 + i * 2.1) * s * 0.4;
-      const by = y + side * rank * s * 1.1 + Math.sin(this.time * 0.8 + i) * s * 0.3;
-      this.bird(bx, by, s, Math.sin(this.time * 5 + i * 1.7 + c.seed));
-    }
-  }
-  bird(x, y, s, flap) {
-    const color = this.craft(this.look.night ? [0.3, 0.32, 0.36] : [0.8, 0.82, 0.86]);
-    const w = this.thick(0.001, 0.6);
-    const up = flap * s * 0.45;
-    const parts = [];
-    for (const side of [-1, 1]) {
-      parts.push(cap(x, y, x + side * s * 0.5, y - up, w, w * 0.8, color), cap(x + side * s * 0.5, y - up, x + side * s, y - up * 0.3 + s * 0.15, w * 0.8, w * 0.5, color));
-    }
-    this.shape(parts, FLAT2, 0);
-  }
-  drawGulls() {
-    const H = this.H;
-    const [ix, iy] = this.onShip(this.deck(0.8, 0.55, 2));
-    const n = this.activity === "teeming" ? 12 : 7;
-    for (let i = 0;i < n; i++) {
-      const a = this.time * (0.12 + hash(i) * 0.08) * (i % 2 ? 1 : -1) + i * 1.9;
-      const rx = (0.06 + hash(i + 3) * 0.1) * H;
-      const x = ix + Math.cos(a) * rx;
-      const y = iy - (0.01 + hash(i + 7) * 0.05) * H + Math.sin(a) * rx * 0.25;
-      this.bird(x, y, 0.015 * H, Math.sin(this.time * 4 + i * 2.3));
-    }
-  }
-  stepSea(dt) {
-    if (this.activity === "calm")
-      return;
-    const teeming = this.activity === "teeming";
-    for (const b of this.boats)
-      b.d += ROW_RATE * rowHeight(b.d) * dt;
-    this.boats = this.boats.filter((b) => b.d < 0.4 && Math.abs(b.x * b.d) < this.A / 2 + 0.1);
-    if (this.boats.length < (teeming ? 4 : 2))
-      this.boats.push(makeBoat(0.015));
-    const d = this.dolphin;
-    if (d.t >= 0)
-      d.t = d.t + dt / 2.2 > 1 ? -1 : d.t + dt / 2.2;
-    else if (teeming && (d.wait -= dt) <= 0) {
-      d.t = 0;
-      d.wait = rand(4, 9);
-      d.dir = Math.random() < 0.5 ? 1 : -1;
-      d.d = rand(0.22, 0.32);
-      d.x = (Math.random() < 0.5 ? -1 : 1) * rand(1.6, 2.6);
-    }
-    const w = this.spout;
-    if (w.t >= 0)
-      w.t = w.t + dt / 4 > 1 ? -1 : w.t + dt / 4;
-    else if (teeming && (w.wait -= dt) <= 0) {
-      w.t = 0;
-      w.wait = rand(20, 35);
-      w.d = rand(0.03, 0.06);
-      w.x = (Math.random() < 0.5 ? -1 : 1) * rand(6, 10);
-    }
-  }
-  drawSeaTraffic() {
-    const { A, H, look } = this;
-    const teeming = this.activity === "teeming";
-    const at = (x, d2) => [(A / 2 + x * d2) * H, (HORIZON9 + d2) * H];
-    const escorts = teeming ? [[-7, 0.05, 0.8], [6.5, 0.07, 0.9], [-4.2, 0.075, 0.9], [4.2, 0.035, 0.7]] : [[6.5, 0.07, 0.9]];
-    for (const [i, [x, d2, beam]] of escorts.entries())
-      this.drawEscort(...at(x, d2), beam * d2 * H, i === 2 ? "supply" : i % 2 ? "destroyer" : "frigate", i);
-    for (const b of this.boats) {
-      const [x, y] = at(b.x, b.d);
-      const s = 0.22 * b.d * H;
-      const bob2 = Math.sin(this.time * 1.1 + b.seed) * s * 0.06;
-      const hull2 = this.paint([0.55, 0.32, 0.22]);
-      this.polygon([[x - s, y - s * 0.25 + bob2], [x + s, y - s * 0.25 + bob2], [x + s * 0.7, y + bob2], [x - s * 0.7, y + bob2]], hull2);
-      this.polygon([[x - s * 0.3, y - s * 0.25 + bob2], [x - s * 0.3, y - s * 0.7 + bob2], [x + s * 0.2, y - s * 0.7 + bob2], [x + s * 0.2, y - s * 0.25 + bob2]], this.paint([0.75, 0.75, 0.7]));
-      if (look.lamp > 0.5)
-        this.splat(x, y - s * 0.8 + bob2, AMBER3[0] * 0.4, AMBER3[1] * 0.4, AMBER3[2] * 0.4);
-    }
-    const d = this.dolphin;
-    if (d.t >= 0) {
-      const [x0, y0] = at(d.x, d.d);
-      const s = 0.5 * d.d * H;
-      const x = x0 + d.dir * (d.t - 0.5) * s * 1.6;
-      const y = y0 - Math.sin(Math.PI * d.t) * s * 0.5;
-      const ang = Math.atan2(-Math.cos(Math.PI * d.t) * 0.5, d.dir * 1.6);
-      const ca = Math.cos(ang);
-      const sa = Math.sin(ang);
-      const P = (u, v) => [x + (u * ca - v * sa) * s * d.dir, y + (u * sa * d.dir + v * ca) * s];
-      const body2 = this.craft([0.4, 0.48, 0.56]);
-      this.shape([cap(...P(-0.25, 0), ...P(0.25, 0), 0.05 * s, 0.07 * s, body2), cap(...P(0, -0.05), ...P(-0.06, -0.13), 0.03 * s, 0.01 * s, body2)], FLAT2, 0);
-      for (const e of [0, 1]) {
-        const k = Math.max(0, 1 - Math.abs(d.t - e) * 5);
-        if (k > 0)
-          for (let i = 0;i < 5; i++)
-            this.splat(x0 + d.dir * (e - 0.5) * s * 1.6 + (i - 2) * s * 0.06, y0 - k * s * 0.1 * (1 + hash(i)), look.foam[0] * k, look.foam[1] * k, look.foam[2] * k);
+    this.icons = [...fill(count(this.cast.icons), false), ...fill(count(this.cast.marks), true), ...this.icons.filter((c) => c.extra)];
+    if (!this.stars.length)
+      this.stars = Array.from({ length: count(140) }, () => ({
+        x: rand(0, 1),
+        y: rand(0, 1),
+        b: rand(0.015, 0.07),
+        tint: [[0.9, 0.85, 0.8], [0.8, 0.85, 1], [1, 0.8, 0.6]][Math.floor(Math.random() * 3)]
+      }));
+    for (let y = 0;y < H; y++) {
+      const v = (y + 0.5) / H;
+      for (let x = 0;x < W; x++) {
+        const u = (x + 0.5) / H;
+        const dx = u - A / 2;
+        const dy = v - MIDDLE;
+        const pu = dx * Math.cos(TILT) + dy * Math.sin(TILT);
+        const pv = (-dx * Math.sin(TILT) + dy * Math.cos(TILT)) / FLAT2;
+        const disk = Math.exp(-(pu * pu + pv * pv) / 0.35);
+        const ember = Math.exp(-((u - (A - EMBER.right)) ** 2 + (v - EMBER.y) ** 2) / (EMBER.r * EMBER.r));
+        const o = (y * W + x) * 3;
+        hdr[o] = 0.026 + 0.012 * disk + EMBER.color[0] * ember;
+        hdr[o + 1] = 0.04 + 0.012 * disk + EMBER.color[1] * ember;
+        hdr[o + 2] = 0.042 + 0.016 * disk + EMBER.color[2] * ember;
       }
     }
-    const w = this.spout;
-    if (w.t >= 0) {
-      const [x, y] = at(w.x, w.d);
-      const s = 0.6 * w.d * H;
-      const hump = this.craft([0.2, 0.24, 0.28]);
-      this.ellipse(x, y, s * 0.5, s * 0.1, hump[0], hump[1], hump[2], smoothstep(0, 0.2, w.t) * (1 - smoothstep(0.8, 1, w.t)));
-      const k = Math.sin(Math.PI * w.t) * 0.6;
-      for (let i = 0;i < 9; i++) {
-        const f = (w.t * 3 + i / 9) % 1;
-        this.splat(x + (hash(i) - 0.5) * s * 0.4 * f, y - s * 0.9 * Math.sin(Math.PI * f * 0.8), look.foam[0] * k * (1 - f), look.foam[1] * k * (1 - f), look.foam[2] * k * (1 - f));
-      }
-    }
-  }
-  drawEscort(x, y, beam, kind, seed) {
-    const { look } = this;
-    const bob2 = Math.sin(this.time * 0.8 + seed * 2) * beam * 0.04;
-    const roll = Math.sin(this.time * 0.6 + seed) * 0.03;
-    const ca = Math.cos(roll);
-    const sa = Math.sin(roll);
-    const Q = (a, b) => [x + (a * ca - b * sa) * beam, y + bob2 + (a * sa + b * ca) * beam];
-    for (let i = 0;i < 10; i++) {
-      const f = (this.time * 0.3 + i / 10 + seed * 0.13) % 1;
-      const side = i % 2 ? 1 : -1;
-      const k = (1 - f) * 0.6;
-      this.splat(x + side * beam * (0.4 + f * 0.5), y + beam * (0.05 + f * 1.6), look.foam[0] * k, look.foam[1] * k, look.foam[2] * k);
-    }
-    const hull2 = this.paint(HULL);
-    const top = this.paint([HULL[0] * 1.15, HULL[1] * 1.15, HULL[2] * 1.15]);
-    this.polygon([Q(-0.55, -0.35), Q(0.55, -0.35), Q(0.42, 0), Q(-0.42, 0)], hull2);
-    if (kind === "supply") {
-      this.polygon([Q(-0.4, -0.35), Q(0.4, -0.35), Q(0.4, -0.75), Q(-0.4, -0.75)], top);
-      for (const k of [-0.3, 0, 0.3])
-        this.polygon([Q(k - 0.02, -0.75), Q(k + 0.02, -0.75), Q(k + 0.02, -1.25), Q(k - 0.02, -1.25)], hull2);
-      this.polygon([Q(-0.35, -1.15), Q(0.35, -1.15), Q(0.35, -1.2), Q(-0.35, -1.2)], hull2);
-    }
-    if (kind !== "supply") {
-      this.polygon([Q(-0.3, -0.35), Q(0.3, -0.35), Q(0.24, -0.85), Q(-0.24, -0.85)], top);
-      this.polygon([Q(-0.03, -0.85), Q(0.03, -0.85), Q(0.015, kind === "destroyer" ? -1.45 : -1.25), Q(-0.015, kind === "destroyer" ? -1.45 : -1.25)], hull2);
-    }
-    if (look.lamp > 0.5) {
-      const blink = Math.sin(this.time * 3 + seed * 1.3) > 0.5 ? 0.6 : 0.15;
-      this.splat(...Q(0, kind === "supply" ? -1.25 : kind === "destroyer" ? -1.45 : -1.25), 1.6 * blink, 0.3 * blink, 0.12 * blink);
-      this.splat(...Q(-0.5, -0.33), 0.3 * 0.5, 1.6 * 0.5, 0.5 * 0.5);
-      this.splat(...Q(0.5, -0.33), 1.8 * 0.5, 0.25 * 0.5, 0.15 * 0.5);
-    }
-  }
-  stepTaxi(dt) {
-    if (this.activity === "calm")
-      return;
-    const t = this.taxi;
-    if (t.wait > 0) {
-      t.wait -= dt;
-      return;
-    }
-    t.t += dt / 9;
-    if (t.t < 1)
-      return;
-    t.t = 0;
-    t.wait = this.activity === "teeming" ? rand(3, 6) : rand(10, 16);
-    this.launch();
-  }
-  drawDeck() {
-    const { H, look } = this;
-    const t = this.time;
-    const crew = this.activity === "teeming" ? CREW : CREW.slice(0, 6);
-    for (const [i, [u0, v0, u1, v1, color]] of crew.entries()) {
-      const f2 = 0.5 - 0.5 * Math.cos(t * (0.15 + hash(i) * 0.1) + i * 2.1);
-      const [x, y] = this.onShip(this.deck(lerp(u0, u1, f2), lerp(v0, v1, f2)));
-      const [, top] = this.onShip(this.deck(lerp(u0, u1, f2), lerp(v0, v1, f2), 0.1));
-      const c = this.craft(color);
-      this.shape([cap(x, y, x, top, this.thick(0.0012, 0.6), this.thick(0.0012, 0.6), look.night ? [c[0] * 1.2, c[1] * 1.2, c[2] * 1.2] : c)], FLAT2, 0);
-      if (look.lamp > 0.5 && i % 3 === 0)
-        this.splat(x + Math.sin(t * 2 + i) * 1.5, top, AMBER3[0] * 0.35, AMBER3[1] * 0.35, AMBER3[2] * 0.35);
-    }
-    const f = 0.5 - 0.5 * Math.cos(t * 0.06);
-    const [tx, ty] = this.onShip(this.deck(0.5, lerp(0.15, 0.4, f), 0.02));
-    const ts = 0.05 * BEAM * H / (1 + BOW * lerp(0.15, 0.4, f));
-    const tug = this.craft(YELLOW);
-    this.polygon([[tx - ts, ty - ts * 0.6], [tx + ts, ty - ts * 0.6], [tx + ts, ty + ts * 0.3], [tx - ts, ty + ts * 0.3]], tug);
-    if (look.lamp > 0.5)
-      this.splat(tx, ty - ts * 0.6, AMBER3[0] * 0.4 * (Math.sin(t * 5) > 0 ? 1 : 0.2), AMBER3[1] * 0.4 * (Math.sin(t * 5) > 0 ? 1 : 0.2), AMBER3[2] * 0.2);
-    const tx2 = this.taxi;
-    if (tx2.wait > 0)
-      return;
-    const q = smoothstep(0, 1, tx2.t);
-    const u = lerp(0.55, CATAPULTS[0], q) + Math.sin(Math.PI * q) * -0.2;
-    const v = lerp(0.85, 0.24, q);
-    const [jx, jy] = this.onShip(this.deck(u, v, 0.08));
-    const s = 0.5 * BEAM * H / (1 + BOW * v);
-    this.planform(jx, jy, s, -Math.PI / 2 - Math.cos(Math.PI * q) * 0.5, 0.55, JETFORM, this.craft(JET));
-    if (look.lamp > 0.5)
-      this.splat(jx, jy, BURNER[0] * 0.25, BURNER[1] * 0.25, BURNER[2] * 0.25);
-  }
-  drawHelicopters() {
-    const { H, look } = this;
-    const t = this.time;
-    const [x, y] = this.onShip(this.deck(1.6 + 0.08 * Math.sin(t * 0.21), 0.35, 1.7 + 0.12 * Math.sin(t * 0.33)));
-    this.drawHelo(x, y, 0.065 * H, 0.06 * Math.sin(t * 0.21 + 1.2), 1, 3);
-    if (this.activity !== "teeming")
-      return;
-    const [rx, ry] = this.onShip(this.deck(-1.9 + 0.1 * Math.sin(t * 0.17), 0.05, 1.9 + 0.15 * Math.sin(t * 0.29)));
-    const [, wy] = this.onShip(this.deck(-1.9, 0.05, WATERLINE));
-    for (let i = 0;i < 3; i++) {
-      const f = (t * 0.6 + i / 3) % 1;
-      const k = (1 - f) * 0.35;
-      this.ellipse(rx, wy, (0.02 + f * 0.05) * H, (0.004 + f * 0.01) * H, look.foam[0], look.foam[1], look.foam[2], k * 0.5);
-    }
-    this.drawHelo(rx, ry, 0.075 * H, 0.05 * Math.sin(t * 0.19), -1, 5);
-  }
-  drawHelo(x, y, s, tilt, face, seed) {
-    const look = this.look;
-    const body2 = this.craft([0.3, 0.34, 0.3]);
-    const ca = Math.cos(tilt);
-    const sa = Math.sin(tilt);
-    const Q = (a, b) => [x + (a * face * ca - b * sa) * s, y + (a * face * sa + b * ca) * s];
-    this.ellipse(...Q(-0.05, 0), 0.22 * s, 0.12 * s, body2[0], body2[1], body2[2], 1);
-    this.polygon([Q(0.1, -0.04), Q(0.55, -0.03), Q(0.55, 0), Q(0.1, 0.05)], body2);
-    this.polygon([Q(0.5, -0.03), Q(0.58, -0.17), Q(0.62, -0.17), Q(0.58, 0)], body2);
-    this.polygon([Q(-0.22, 0.17), Q(0.14, 0.17), Q(0.14, 0.19), Q(-0.22, 0.19)], body2);
-    this.polygon([Q(-0.24, -0.15), Q(0.16, -0.15), Q(0.16, -0.13), Q(-0.24, -0.13)], body2);
-    const blur2 = look.night ? look.key : look.sky[look.sky.length - 1][1];
-    this.ellipse(...Q(-0.04, -0.15), 0.5 * s, 0.035 * s, blur2[0] * 0.5 + body2[0] * 0.5, blur2[1] * 0.5 + body2[1] * 0.5, blur2[2] * 0.5 + body2[2] * 0.5, 0.45);
-    this.navLights(...Q(0.6, -0.1), s, Math.PI, seed);
-  }
-  stepFlier(f, dt, on, min, max, row) {
-    if (f.t >= 0) {
-      f.t += dt / f.span;
-      if (f.t > 1) {
-        f.t = -1;
-        f.wait = rand(min, max);
-      }
-      return;
-    }
-    if (!on)
-      return;
-    f.wait -= dt;
-    if (f.wait > 0)
-      return;
-    f.t = 0;
-    f.dir = Math.random() < 0.5 ? 1 : -1;
-    f.y = row();
-  }
-  drawWarthog(f) {
-    f.t = Math.min(f.t, 1);
-    const { A, H } = this;
-    const u = f.dir > 0 ? f.t : 1 - f.t;
-    const x = lerp(-0.2, A + 0.2, u) * H;
-    const y = f.y * H;
-    const s = 0.08 * H;
-    this.ellipse(x, y + 0.025 * H, s * 0.4, s * 0.06, 0, 0, 0, this.look.night ? 0.15 : 0.25);
-    this.planform(x, y, s, f.dir > 0 ? 0 : Math.PI, 0.38, WARTHOGFORM, this.craft(WARTHOG));
-  }
-  drawSpirit(f) {
-    f.t = Math.min(f.t, 1);
-    const { A, H } = this;
-    const u = f.dir > 0 ? f.t : 1 - f.t;
-    this.planform(lerp(-0.2, A + 0.2, u) * H, f.y * H, 0.09 * H, f.dir > 0 ? 0 : Math.PI, 0.32, SPIRITFORM, this.craft(SPIRIT));
-  }
-  drawFlyover() {
-    const { A, H, look } = this;
-    const f = this.flyover;
-    const u = f.t / 14;
-    const lead = lerp(-0.4, A + 0.9, f.dir > 0 ? u : 1 - u);
-    const heading = f.dir > 0 ? 0 : Math.PI;
-    for (let i = 0;i < 5; i++) {
-      const rank = Math.ceil(i / 2);
-      const side = i % 2 ? -1 : 1;
-      const x = (lead - f.dir * rank * 0.09) * H;
-      const y = (f.y + side * rank * 0.035) * H;
-      const len = Math.min(0.5, f.t * 0.12) * H;
-      const fade = 1 - smoothstep(10, 14, f.t);
-      trail(this.hdr, this.W, H, x - f.dir * 0.02 * H, y, x - f.dir * len, y, Math.max(1, 0.004 * H), look.trail, 0.35 * fade);
-      this.touch(Math.min(x, x - f.dir * len) - 3, y - 3, Math.max(x, x - f.dir * len) + 3, y + 3);
-      this.planform(x, y, 0.05 * H, heading, 0.4, JETFORM, this.craft(JET));
-      const k = look.lamp;
-      this.splat(x - f.dir * 0.018 * H, y, BURNER[0] * 0.3 * k, BURNER[1] * 0.3 * k, BURNER[2] * 0.3 * k);
-    }
-  }
-  drawEgg() {
-    const { A, H } = this;
-    const t = this.egg.t / 12;
-    const z = lerp(0.3, 6, t ** 1.4);
-    const x = (A / 2 + 0.05 / z) * H;
-    const s = 0.5 / z * H;
-    const fade = 1 - smoothstep(0.85, 1, t);
-    const shadow = (HORIZON9 + 0.5 / z) * H;
-    if (shadow - s * 0.3 < H)
-      this.planform(x + 0.08 * H, shadow, s, Math.PI / 2, 0.3, SPIRITFORM, [0, 0, 0], 0.3 * fade);
-    const y = (HORIZON9 - 0.12 - 0.45 / z) * H;
-    if (y + s * 0.3 < 0)
-      return;
-    if (this.look.night)
-      this.planform(x, y - 0.004 * H, s * 1.03, Math.PI / 2, 0.3, SPIRITFORM, [this.look.key[0] * 0.1, this.look.key[1] * 0.1, this.look.key[2] * 0.1], fade);
-    this.planform(x, y, s, Math.PI / 2, 0.3, SPIRITFORM, this.craft(SPIRIT), fade);
-  }
-  drawSparkles() {
-    const { H, look } = this;
-    const c = look.night ? look.spec : [1.2, 1.2, 1.1];
-    const arm = Math.max(1, 0.004 * H);
-    for (const s of this.sparkles) {
-      const f = s.age / SPARKLE;
-      for (let i = 0;i < 28; i++) {
-        const a = hash(s.seed + i) * TAU;
-        const r = (0.02 + hash(s.seed + i * 3.1) * 0.09) * Math.sqrt(f);
-        const tw = Math.max(0, Math.sin(s.age * 7 + i * 2.3));
-        const k = (1 - f) * tw * 1.6;
-        if (k <= 0.02)
-          continue;
-        const x = (s.x + Math.cos(a) * r) * H;
-        const y = (s.y + Math.sin(a) * r * 0.35 - f * 0.01) * H;
-        this.splat(x, y, c[0] * k, c[1] * k, c[2] * k);
-        for (const [dx, dy] of [[arm, 0], [-arm, 0], [0, arm], [0, -arm]])
-          this.splat(x + dx, y + dy, c[0] * k * 0.3, c[1] * k * 0.3, c[2] * k * 0.3);
-      }
-    }
-  }
-  drawRain() {
-    const { W, H, look } = this;
-    const k = smoothstep(0.2, 1, this.gloom);
-    const color = look.night ? [0.08, 0.2, 0.5] : [0.35, 0.42, 0.45];
-    const d = this.drops;
-    for (let i = 0;i < d.length; i += 3) {
-      const z = d[i + 2];
-      const x = d[i] * W;
-      const y = d[i + 1] * H;
-      const len = (0.03 + z * 0.04) * H;
-      trail(this.hdr, W, H, x, y, x - len * 0.15, y - len, 0.6, color, k * (0.25 + z * 0.4));
-    }
-    this.touch(0, 0, W - 1, H - 1);
+    this.logo = paintLogo(W, H, A / 2 * H, MIDDLE * H, LOGO * H);
   }
 }
-function volcanoX(A) {
-  return Math.min(A / 2 + 0.32, A - 0.45);
+function spin(r) {
+  return (0.5 / Math.max(r, 0.11)) ** 1.1;
 }
-var FLAT2 = { style: "front", dir: [0, 0, 1] };
-var LOOPS = [
-  { cx: 0, cy: 0.2, rx: 0.36, ry: 0.04, size: 0.05, rate: 0.13, phase: 0 },
-  { cx: 0, cy: 0.22, rx: 0.36, ry: 0.04, size: 0.05, rate: 0.13, phase: Math.PI },
-  { cx: 0.32, cy: 0.15, rx: 0.24, ry: 0.05, size: 0.07, rate: -0.14, phase: 1 },
-  { cx: 0.5, cy: 0.07, rx: 0.4, ry: 0.015, size: 0.028, rate: 0.1, phase: 2.5 },
-  { cx: -0.3, cy: 0.31, rx: 0.2, ry: 0.03, size: 0.065, rate: 0.16, phase: 4 },
-  { cx: 0.32, cy: 0.14, rx: 0.24, ry: 0.05, size: 0.07, rate: -0.14, phase: 1.5 },
-  { cx: -0.35, cy: 0.06, rx: 0.3, ry: 0.012, size: 0.026, rate: -0.11, phase: 0.4 },
-  { cx: 0, cy: 0.12, rx: 0.5, ry: 0.025, size: 0.036, rate: -0.09, phase: 3.3 },
-  { cx: 0.25, cy: 0.3, rx: 0.18, ry: 0.03, size: 0.06, rate: -0.15, phase: 5.2 },
-  { cx: -0.45, cy: 0.18, rx: 0.3, ry: 0.04, size: 0.05, rate: 0.12, phase: 2 },
-  { cx: 0, cy: 0.05, rx: 0.6, ry: 0.01, size: 0.02, rate: 0.07, phase: 1.1 }
-];
-var CREW = [
-  [-0.5, 0.3, -0.3, 0.5, [0.9, 0.75, 0.1]],
-  [0.3, 0.7, 0.45, 0.9, [0.2, 0.6, 0.2]],
-  [-0.2, 0.15, 0.1, 0.25, [0.8, 0.15, 0.1]],
-  [0.5, 0.2, 0.55, 0.45, [0.5, 0.25, 0.6]],
-  [-0.6, 0.75, -0.3, 0.85, [0.85, 0.85, 0.8]],
-  [0.2, 0.4, 0.35, 0.3, [0.9, 0.75, 0.1]],
-  [-0.4, 0.55, -0.15, 0.6, [0.2, 0.6, 0.2]],
-  [0.35, 0.55, 0.5, 0.65, [0.5, 0.35, 0.2]],
-  [-0.75, 0.2, -0.75, 0.6, [0.15, 0.35, 0.8]]
-];
-var HAWKEYE = [0.55, 0.57, 0.6];
-var CARGO = [0.48, 0.5, 0.52];
-function makeBoat(d) {
-  return { d, x: (Math.random() < 0.5 ? -1 : 1) * rand(2.2, 9), seed: Math.random() * 100 };
+function orbitX(r, a) {
+  return r * (Math.cos(a) * Math.cos(TILT) - Math.sin(a) * FLAT2 * Math.sin(TILT));
 }
-function sym(...polys) {
-  return polys.flatMap((p) => [p, p.map(([a, b]) => [a, -b])]);
+function orbitY(r, a) {
+  return r * (Math.cos(a) * Math.sin(TILT) + Math.sin(a) * FLAT2 * Math.cos(TILT));
 }
-var JETFORM = [
-  [[0.5, 0], [0.3, 0.05], [-0.5, 0.06], [-0.5, -0.06], [0.3, -0.05]],
-  [[0.12, 0.05], [-0.14, 0.42], [-0.24, 0.42], [-0.2, 0.05]],
-  [[0.12, -0.05], [-0.14, -0.42], [-0.24, -0.42], [-0.2, -0.05]],
-  [[-0.34, 0.05], [-0.48, 0.22], [-0.53, 0.22], [-0.5, 0.05]],
-  [[-0.34, -0.05], [-0.48, -0.22], [-0.53, -0.22], [-0.5, -0.05]]
-];
-var WARTHOGFORM = [
-  [[0.5, 0], [0.42, 0.05], [-0.4, 0.04], [-0.4, -0.04], [0.42, -0.05]],
-  [[0.08, 0.04], [0.06, 0.52], [-0.06, 0.5], [-0.08, 0.04]],
-  [[0.08, -0.04], [0.06, -0.52], [-0.06, -0.5], [-0.08, -0.04]],
-  [[-0.14, 0.04], [-0.14, 0.15], [-0.32, 0.15], [-0.32, 0.04]],
-  [[-0.14, -0.04], [-0.14, -0.15], [-0.32, -0.15], [-0.32, -0.04]],
-  [[-0.38, 0.2], [-0.38, -0.2], [-0.47, -0.2], [-0.47, 0.2]]
-];
-var CARGOFORM = [
-  [[0.5, 0], [0.4, 0.06], [-0.45, 0.05], [-0.45, -0.05], [0.4, -0.06]],
-  ...sym([[0.12, 0.05], [0.1, 0.55], [0, 0.55], [0, 0.05]], [[-0.36, 0.04], [-0.38, 0.2], [-0.46, 0.2], [-0.45, 0.04]], [[0.24, 0.2], [0.24, 0.26], [0, 0.26], [0, 0.2]])
-];
-var TANKERFORM = [[[0.5, 0], [0.42, 0.05], [-0.45, 0.04], [-0.45, -0.04], [0.42, -0.05]], ...sym([[0.15, 0.05], [-0.15, 0.5], [-0.22, 0.5], [-0.08, 0.05]], [[-0.34, 0.04], [-0.46, 0.18], [-0.5, 0.18], [-0.46, 0.04]])];
-var SPIRITFORM = [
-  [[0.3, 0], [-0.08, 0.55], [-0.2, 0.36], [-0.1, 0.22], [-0.22, 0.1], [-0.12, 0], [-0.22, -0.1], [-0.1, -0.22], [-0.2, -0.36], [-0.08, -0.55]]
-];
-function makeLowPolyClouds(count) {
-  return Array.from({ length: count }, (_, i) => {
-    const size = rand(0.06, 0.12);
-    const n = 3 + Math.floor(Math.random() * 3);
-    const lumps = Array.from({ length: n }, (_2, k) => {
-      const f = n === 1 ? 0 : k / (n - 1) - 0.5;
-      return { x: f * 1.6 + rand(-0.1, 0.1), y: 0, r: (0.55 - Math.abs(f) * 0.5) * rand(0.8, 1.2), seed: Math.random() * 100 };
-    });
-    for (const l of lumps)
-      l.y = -l.r * 0.6;
-    const y = i % 3 === 2 ? rand(0.36, 0.42) : rand(0.06, 0.24);
-    return { x: (i + Math.random() * 0.8) / count * 2.2, y, size: i % 3 === 2 ? size * 0.7 : size, speed: rand(0.004, 0.008), lumps };
-  });
-}
-function cloudSprite(c, H, colors, toLight) {
-  const S = 4;
-  const size = c.size * H;
-  const w = Math.ceil(size * 2.4) + 4;
-  const h = Math.ceil(size * 1.3) + 4;
-  const ox = w / 2;
-  const oy = h - 2;
-  const fine2 = new Int32Array(w * S * h * S).fill(-1);
-  const tones = [];
-  const lx = clamp(toLight * 2, -0.8, 0.8);
-  const ly = -0.75;
-  const [lit2, shade2] = colors;
-  for (const l of c.lumps) {
-    const cx = ox + l.x * size;
-    const cy = oy + l.y * size;
-    const r = l.r * size;
-    const n = 7;
-    const pts = Array.from({ length: n }, (_, k) => {
-      const a = k / n * TAU + hash(l.seed + k) * 0.5;
-      const rr = r * (0.82 + hash(l.seed + k * 2.7) * 0.3);
-      return [cx + Math.cos(a) * rr, Math.min(oy, cy + Math.sin(a) * rr * 0.85)];
-    });
-    const hub = [cx - lx * r * 0.25, cy - r * 0.2];
-    for (let k = 0;k < n; k++) {
-      const a = pts[k];
-      const b = pts[(k + 1) % n];
-      const mx = (a[0] + b[0]) / 2 - hub[0];
-      const my = (a[1] + b[1]) / 2 - hub[1];
-      const ml = Math.hypot(mx, my) || 1;
-      const tone = clamp(0.5 + 0.6 * (mx / ml * lx + my / ml * ly) + (hash(l.seed + k * 5.1) - 0.5) * 0.2, 0, 1);
-      tones.push(tone);
-      rasterTri(fine2, w * S, h * S, hub[0] * S, hub[1] * S, a[0] * S, a[1] * S, b[0] * S, b[1] * S, tones.length - 1);
-    }
-  }
-  const rgba = new Float32Array(w * h * 4);
-  for (let y = 0;y < h; y++)
-    for (let x = 0;x < w; x++) {
-      let r = 0;
-      let g = 0;
-      let b = 0;
-      let a = 0;
-      for (let j = 0;j < S; j++)
-        for (let i = 0;i < S; i++) {
-          const id = fine2[(y * S + j) * w * S + x * S + i];
-          if (id < 0)
-            continue;
-          const t = tones[id];
-          r += lerp(shade2[0], lit2[0], t);
-          g += lerp(shade2[1], lit2[1], t);
-          b += lerp(shade2[2], lit2[2], t);
-          a++;
-        }
-      const o = (y * w + x) * 4;
-      rgba[o] = r / (S * S);
-      rgba[o + 1] = g / (S * S);
-      rgba[o + 2] = b / (S * S);
-      rgba[o + 3] = a / (S * S);
-    }
-  return { w, h, ox, oy, rgba };
-}
-function blitSprite(hdr, W, H, s, x, y) {
-  const x0 = Math.floor(x);
-  const y0 = Math.floor(y);
-  const fx = x - x0;
-  const fy = y - y0;
-  const d = s.rgba;
-  for (let j = 0;j <= s.h; j++) {
-    const py = y0 + j;
-    if (py < 0 || py >= H)
-      continue;
-    for (let i = 0;i <= s.w; i++) {
-      const px = x0 + i;
-      if (px < 0 || px >= W)
-        continue;
-      let r = 0;
-      let g = 0;
-      let b = 0;
-      let a = 0;
-      for (let q = 0;q < 4; q++) {
-        const sx = i - (q & 1);
-        const sy = j - (q >> 1);
-        if (sx < 0 || sy < 0 || sx >= s.w || sy >= s.h)
-          continue;
-        const k = (q & 1 ? fx : 1 - fx) * (q >> 1 ? fy : 1 - fy);
-        const o2 = (sy * s.w + sx) * 4;
-        r += d[o2] * k;
-        g += d[o2 + 1] * k;
-        b += d[o2 + 2] * k;
-        a += d[o2 + 3] * k;
-      }
-      if (a <= 0)
-        continue;
-      const o = (py * W + px) * 3;
-      hdr[o] = hdr[o] * (1 - a) + r;
-      hdr[o + 1] = hdr[o + 1] * (1 - a) + g;
-      hdr[o + 2] = hdr[o + 2] * (1 - a) + b;
-    }
-  }
-}
-function blitHull(hdr, W, H, h, px, py, dx, dy, roll, sy) {
-  const c = Math.cos(roll);
-  const n = Math.sin(roll);
+function arc(hdr, W, H, cx, cy, r, a, span, cr, cg, cb) {
+  const n = Math.max(2, Math.min(500, Math.ceil(span * r / 0.7)));
+  const step = span / n;
+  const cs = Math.cos(step);
+  const sn = Math.sin(step);
+  const ct = Math.cos(TILT);
+  const st = Math.sin(TILT);
+  let c = Math.cos(a - span);
+  let s = Math.sin(a - span);
   let x0 = Infinity;
   let y0 = Infinity;
   let x1 = -Infinity;
   let y1 = -Infinity;
-  for (const [cx, cy] of [[h.x, h.y], [h.x + h.w, h.y], [h.x, h.y + h.h], [h.x + h.w, h.y + h.h]]) {
-    const qx = cx - px;
-    const qy = (cy - py) * sy;
-    const X = px + qx * c - qy * n + dx;
-    const Y = py + qx * n + qy * c + dy;
-    x0 = Math.min(x0, X);
-    y0 = Math.min(y0, Y);
-    x1 = Math.max(x1, X);
-    y1 = Math.max(y1, Y);
+  for (let i = 0;i <= n; i++) {
+    const t = i / n;
+    const k = t ** 1.4 * smoothstep(1, 0.93, t);
+    const x = cx + r * (c * ct - s * FLAT2 * st) - 0.5;
+    const y = cy + r * (c * st + s * FLAT2 * ct) - 0.5;
+    const nc = c * cs - s * sn;
+    s = s * cs + c * sn;
+    c = nc;
+    if (k <= 0 || x < -1 || y < -1 || x >= W || y >= H)
+      continue;
+    const xi = Math.floor(x);
+    const yi = Math.floor(y);
+    const fx = x - xi;
+    const fy = y - yi;
+    for (let j = 0;j < 2; j++) {
+      const yy = yi + j;
+      if (yy < 0 || yy >= H)
+        continue;
+      for (let q = 0;q < 2; q++) {
+        const xx = xi + q;
+        if (xx < 0 || xx >= W)
+          continue;
+        const w = (q ? fx : 1 - fx) * (j ? fy : 1 - fy) * k;
+        const o = (yy * W + xx) * 3;
+        hdr[o] += cr * w;
+        hdr[o + 1] += cg * w;
+        hdr[o + 2] += cb * w;
+      }
+    }
+    x0 = Math.min(x0, xi);
+    y0 = Math.min(y0, yi);
+    x1 = Math.max(x1, xi + 1);
+    y1 = Math.max(y1, yi + 1);
+    if (i % 16 && i < n)
+      continue;
+    if (x1 >= x0)
+      touch(hdr, x0, y0, x1, y1);
+    x0 = Infinity;
+    y0 = Infinity;
+    x1 = -Infinity;
+    y1 = -Infinity;
   }
-  const bx0 = Math.max(0, Math.floor(x0) - 1);
-  const by0 = Math.max(0, Math.floor(y0) - 1);
-  const bx1 = Math.min(W - 1, Math.ceil(x1) + 1);
-  const by1 = Math.min(H - 1, Math.ceil(y1) + 1);
-  const d = h.rgba;
+  if (x1 >= x0)
+    touch(hdr, x0, y0, x1, y1);
+}
+function tile(hdr, W, H, cx, cy, side, color, ink, kind, alpha, ss) {
+  const half = side / 2 + 1;
+  const bx0 = Math.max(0, Math.floor(cx - half));
+  const by0 = Math.max(0, Math.floor(cy - half));
+  const bx1 = Math.min(W - 1, Math.ceil(cx + half));
+  const by1 = Math.min(H - 1, Math.ceil(cy + half));
+  const share = 1 / (ss * ss);
   for (let y = by0;y <= by1; y++)
     for (let x = bx0;x <= bx1; x++) {
-      const qx = x + 0.5 - px - dx;
-      const qy = y + 0.5 - py - dy;
-      const sx = px + qx * c + qy * n - h.x - 0.5;
-      const sY = py + (-qx * n + qy * c) / sy - h.y - 0.5;
-      const ix = Math.floor(sx);
-      const iy = Math.floor(sY);
-      if (ix < -1 || iy < -1 || ix >= h.w || iy >= h.h)
-        continue;
-      const fx = sx - ix;
-      const fy = sY - iy;
       let r = 0;
       let g = 0;
       let b = 0;
-      let a = 0;
-      for (let q = 0;q < 4; q++) {
-        const u = ix + (q & 1);
-        const v = iy + (q >> 1);
-        if (u < 0 || v < 0 || u >= h.w || v >= h.h)
-          continue;
-        const k = (q & 1 ? fx : 1 - fx) * (q >> 1 ? fy : 1 - fy);
-        const o2 = (v * h.w + u) * 4;
-        r += d[o2] * k;
-        g += d[o2 + 1] * k;
-        b += d[o2 + 2] * k;
-        a += d[o2 + 3] * k;
-      }
-      if (a <= 0 && r + g + b <= 0)
-        continue;
-      const o = (y * W + x) * 3;
-      hdr[o] = hdr[o] * (1 - a) + r;
-      hdr[o + 1] = hdr[o + 1] * (1 - a) + g;
-      hdr[o + 2] = hdr[o + 2] * (1 - a) + b;
-    }
-  return [bx0, by0, bx1, by1];
-}
-function wake(hdr, W, H, A, x0, x1, y0, cx, dy, flow, foam, strength) {
-  const bx0 = Math.max(0, x0);
-  const bx1 = Math.min(W - 1, x1);
-  const by0 = Math.max(0, y0);
-  const depth2 = STERN - VANISH - WATERLINE * BEAM;
-  for (let y = by0;y < H; y++) {
-    const z = depth2 / Math.max(0.01, (y + 0.5 - dy) / H - VANISH);
-    const v = (z - 1) / BOW;
-    if (v > 1.2)
-      continue;
-    const ground = CAMERA2 * FOCAL2 / Math.max(0.01, (y + 0.5) / H - HORIZON9);
-    const tv = (Math.log(ground) + flow) * 66;
-    for (let x = bx0;x <= bx1; x++) {
-      const u = (x + 0.5 - cx) / H * z / BEAM;
-      const au = Math.abs(u);
-      const outer = 1.15 + 0.3 * clamp(1 - v, 0, 1.3);
-      const side = v < 1.02 ? smoothstep(0.84, 0.95, au) * smoothstep(outer, outer - 0.2, au) * (0.55 + 0.45 * smoothstep(0.6, 0, v)) : 0;
-      const bow = Math.exp(-(((v - 1.04) / 0.07) ** 2)) * smoothstep(0.3, 0.75, au) * smoothstep(1.55, 1.1, au);
-      const churn = smoothstep(0.02, -0.04, v) * smoothstep(1 - v * 0.8, 0.5, au);
-      const arms = v < 0.1 ? Math.exp(-(((au - (1 - v * 1.8)) / 0.14) ** 2)) : 0;
-      const f = Math.max(side, bow, churn, arms);
-      if (f <= 0.01)
-        continue;
-      const tex = foamAt(((x + 0.5) / H - A / 2) * ground * 90, tv);
-      const a = clamp(f * (0.15 + 1.4 * smoothstep(0.35, 0.6, tex)), 0, 1) * strength;
-      const o = (y * W + x) * 3;
-      hdr[o] += (foam[0] - hdr[o]) * a;
-      hdr[o + 1] += (foam[1] - hdr[o + 1]) * a;
-      hdr[o + 2] += (foam[2] - hdr[o + 2]) * a;
-    }
-  }
-  return [bx0, by0, bx1, H - 1];
-}
-var FOAM_N = 64;
-var FOAM = (() => {
-  const tex = new Float32Array(FOAM_N * FOAM_N);
-  for (let k = 0;k < 70; k++) {
-    const cx = hash(k * 3.7) * FOAM_N;
-    const cy = hash(k * 5.3 + 1) * FOAM_N;
-    const r = 2 + hash(k * 7.1 + 2) * 6;
-    for (let y = 0;y < FOAM_N; y++)
-      for (let x = 0;x < FOAM_N; x++) {
-        const dx = Math.min(Math.abs(x - cx), FOAM_N - Math.abs(x - cx));
-        const dy = Math.min(Math.abs(y - cy), FOAM_N - Math.abs(y - cy));
-        tex[y * FOAM_N + x] += Math.exp(-(dx * dx + dy * dy) / (r * r));
-      }
-  }
-  let lo = Infinity;
-  let hi = -Infinity;
-  for (const v of tex) {
-    lo = Math.min(lo, v);
-    hi = Math.max(hi, v);
-  }
-  return tex.map((v) => (v - lo) / (hi - lo));
-})();
-function foamAt(x, y) {
-  const ix = Math.floor(x);
-  const iy = Math.floor(y);
-  const fx = x - ix;
-  const fy = y - iy;
-  const x0 = ix & FOAM_N - 1;
-  const y0 = iy & FOAM_N - 1;
-  const x1 = x0 + 1 & FOAM_N - 1;
-  const y1 = y0 + 1 & FOAM_N - 1;
-  const top = FOAM[y0 * FOAM_N + x0] + (FOAM[y0 * FOAM_N + x1] - FOAM[y0 * FOAM_N + x0]) * fx;
-  const bottom = FOAM[y1 * FOAM_N + x0] + (FOAM[y1 * FOAM_N + x1] - FOAM[y1 * FOAM_N + x0]) * fx;
-  return top + (bottom - top) * fy;
-}
-function rowHeight(d) {
-  return Math.max(0.0035, d * 0.17 + 0.003);
-}
-function resolveSamples(ids, W, H, idA, idB, mix3) {
-  const SW = W * 2;
-  for (let y = 0;y < H; y++)
-    for (let x = 0;x < W; x++) {
-      const o = y * 2 * SW + x * 2;
-      const s0 = Math.max(0, ids[o]);
-      const s1 = Math.max(0, ids[o + 1]);
-      const s2 = Math.max(0, ids[o + SW]);
-      const s3 = Math.max(0, ids[o + SW + 1]);
-      const second = s1 !== s0 ? s1 : s2 !== s0 ? s2 : s3;
-      const n0 = 1 + (s1 === s0 ? 1 : 0) + (s2 === s0 ? 1 : 0) + (s3 === s0 ? 1 : 0);
-      const n1 = second === s0 ? 0 : (s1 === second ? 1 : 0) + (s2 === second ? 1 : 0) + (s3 === second ? 1 : 0);
-      const i = y * W + x;
-      idA[i] = n0 >= n1 ? s0 : second;
-      idB[i] = n0 >= n1 ? second : s0;
-      mix3[i] = Math.min(n0, n1) / 4;
-    }
-}
-function stitch(a, b, xs, tris) {
-  let i = 0;
-  let j = 0;
-  while (i < a.length - 1 || j < b.length - 1) {
-    if (j >= b.length - 1 || i < a.length - 1 && xs[a[i + 1]] < xs[b[j + 1]]) {
-      tris.push(a[i], a[i + 1], b[j]);
-      i++;
-      continue;
-    }
-    tris.push(a[i], b[j + 1], b[j]);
-    j++;
-  }
-}
-function rasterTri(ids, W, H, ax, ay, bx, by, cx, cy, id) {
-  const x0 = Math.max(0, Math.floor(Math.min(ax, bx, cx)));
-  const x1 = Math.min(W - 1, Math.ceil(Math.max(ax, bx, cx)));
-  const y0 = Math.max(0, Math.floor(Math.min(ay, by, cy)));
-  const y1 = Math.min(H - 1, Math.ceil(Math.max(ay, by, cy)));
-  const area = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
-  if (area === 0)
-    return;
-  const sign = area > 0 ? 1 : -1;
-  for (let y = y0;y <= y1; y++) {
-    const py = y + 0.5;
-    for (let x = x0;x <= x1; x++) {
-      const px = x + 0.5;
-      const w0 = ((bx - ax) * (py - ay) - (by - ay) * (px - ax)) * sign;
-      const w1 = ((cx - bx) * (py - by) - (cy - by) * (px - bx)) * sign;
-      const w2 = ((ax - cx) * (py - cy) - (ay - cy) * (px - cx)) * sign;
-      if (w0 >= 0 && w1 >= 0 && w2 >= 0)
-        ids[y * W + x] = id;
-    }
-  }
-}
-function shadeFacets(X, Z, Y, tris, colors, sky, H, ox, oy, deep, lit2, spec, glitter, spread, storm, gloom) {
-  const top = Math.ceil(HORIZON9 * H) - 1;
-  for (let t = 0, f = 0;t < tris.length; t += 3, f += 3) {
-    const a = tris[t];
-    const b = tris[t + 1];
-    const c = tris[t + 2];
-    const e1x = X[b] - X[a];
-    const e1y = Y[b] - Y[a];
-    const e1z = Z[b] - Z[a];
-    const e2x = X[c] - X[a];
-    const e2y = Y[c] - Y[a];
-    const e2z = Z[c] - Z[a];
-    let nx = e1y * e2z - e1z * e2y;
-    let ny = e1z * e2x - e1x * e2z;
-    let nz = e1x * e2y - e1y * e2x;
-    if (ny < 0) {
-      nx = -nx;
-      ny = -ny;
-      nz = -nz;
-    }
-    const tilt = Math.hypot(nx, nz) / Math.max(0.000000001, ny);
-    if (tilt > 0.7) {
-      nx *= 0.7 / tilt;
-      nz *= 0.7 / tilt;
-    }
-    const nl = Math.hypot(nx, ny, nz) || 1;
-    nx /= nl;
-    ny /= nl;
-    nz /= nl;
-    const px = (X[a] + X[b] + X[c]) / 3;
-    const pz = (Z[a] + Z[b] + Z[c]) / 3;
-    let vx = -px;
-    let vy = CAMERA2;
-    let vz = -pz;
-    const vl = Math.hypot(vx, vy, vz);
-    vx /= vl;
-    vy /= vl;
-    vz /= vl;
-    const ndv = Math.max(0, nx * vx + ny * vy + nz * vz);
-    const rx = 2 * ndv * nx - vx;
-    const ry = 2 * ndv * ny - vy;
-    const rz = 2 * ndv * nz - vz;
-    const row = ry <= 0 || rz <= 0 ? top : clamp(Math.round((HORIZON9 - FOCAL2 * ry / rz) * H), 0, top);
-    const fres = 0.12 + 0.88 * (1 - ndv) ** 3;
-    const gx = rz > 0.01 ? FOCAL2 * rx / rz - ox : 9;
-    const gy = rz > 0.01 ? HORIZON9 - FOCAL2 * ry / rz - oy : 9;
-    const s = Math.exp(-((gx / spread[0]) ** 2) - (gy / spread[1]) ** 2) * glitter * (0.3 + 0.7 * smoothstep(2, 6, pz));
-    const diffuse = clamp(0.5 + nx * 1.6 - nz * 0.8, 0, 1);
-    for (let k = 0;k < 3; k++) {
-      const body2 = deep[k] + (lit2[k] - deep[k]) * diffuse;
-      const v = (body2 * (1 - fres) + sky[row * 3 + k] * fres * 0.7) * (1 - Math.min(1, s) * 0.75) + spec[k] * s;
-      colors[f + k] = v + (storm[k] - v) * gloom;
-    }
-  }
-}
-function fillSea(hdr, W, y0, idA, idB, mix3, open, colors, glow2) {
-  const base = y0 * W * 3;
-  for (let i = 0;i < idA.length; i++) {
-    const w = open ? open[i] : 1;
-    if (w <= 0)
-      continue;
-    const a = idA[i] * 3;
-    const b = idB[i] * 3;
-    const k = mix3[i];
-    const o = base + i * 3;
-    for (let c = 0;c < 3; c++) {
-      const v = colors[a + c] + (colors[b + c] - colors[a + c]) * k + (glow2 ? glow2[i * 3 + c] : 0);
-      hdr[o + c] += (v - hdr[o + c]) * w;
-    }
-  }
-}
-function trail(hdr, W, H, hx, hy, tx, ty, width, color, k) {
-  const dx = tx - hx;
-  const dy = ty - hy;
-  const len2 = dx * dx + dy * dy || 1;
-  const x0 = Math.max(0, Math.floor(Math.min(hx, tx) - width - 1));
-  const x1 = Math.min(W - 1, Math.ceil(Math.max(hx, tx) + width + 1));
-  const y0 = Math.max(0, Math.floor(Math.min(hy, ty) - width - 1));
-  const y1 = Math.min(H - 1, Math.ceil(Math.max(hy, ty) + width + 1));
-  for (let y = y0;y <= y1; y++)
-    for (let x = x0;x <= x1; x++) {
-      const px = x + 0.5 - hx;
-      const py = y + 0.5 - hy;
-      const t = clamp((px * dx + py * dy) / len2, 0, 1);
-      const d = Math.hypot(px - dx * t, py - dy * t);
-      const a = Math.max(0, 1 - d / (width * (1 + t))) * (1 - t) * k;
-      if (a <= 0)
-        continue;
-      const o = (y * W + x) * 3;
-      hdr[o] += (color[0] - hdr[o]) * a;
-      hdr[o + 1] += (color[1] - hdr[o + 1]) * a;
-      hdr[o + 2] += (color[2] - hdr[o + 2]) * a;
-    }
-}
-var wings = {
-  id: "wings",
-  name: "Wings",
-  description: "An aircraft carrier sailing a low-poly sea below a volcano island, from Anomaly Arcade's Wings",
-  collection: "Arcade",
-  activity: {
-    calm: "The carrier underway on faceted swells, its wake, glittering water, deck lights and drifting clouds",
-    lively: "Adds launches and landings, jets circling and crossing in formation, a helicopter, deck crew, gulls, boats and an escort",
-    teeming: "A busy sky and sea: launches every few seconds, formations, an E-2, a tanker, cargo planes, helicopters, the A-10 and B-2, birds, escorts, dolphins and a whale"
-  },
-  scrim: {
-    day: [
-      [16, 40, 84],
-      [22, 52, 86],
-      [8, 36, 66]
-    ],
-    sunset: [
-      [26, 28, 70],
-      [66, 36, 60],
-      [18, 22, 56]
-    ],
-    night: [
-      [3, 6, 18],
-      [4, 9, 24],
-      [3, 6, 18]
-    ]
-  },
-  create: (settings) => new Wings(settings)
-};
-
-// wallpapers/wings-flight.ts
-var TIME_SCALE21 = 0.35;
-var CREATURE_SPEED14 = 0.25;
-var HORIZON10 = 0.44;
-var CAMERA3 = 1;
-var FOCAL3 = 1;
-var SPEED2 = { calm: 0.13, lively: 0.16, teeming: 0.19 };
-var BANK2 = { calm: 0.04, lively: 0.09, teeming: 0.11 };
-var TILT = 0.15;
-var ISLAND = 16;
-var BEAMW = 0.4;
-var LENGTH = 3.2;
-var DECK2 = 0.12;
-var RISE2 = 0.28;
-var SPAN = 0.42;
-var JET_Y = 0.75;
-var ELEVATION = 0.26;
-var ROLL = 3;
-var BARREL = 4;
-var EGG2 = 12;
-var CLOUD_E = 0.7;
-var LOOKS19 = {
-  day: {
-    sky: [
-      [0, [0.07, 0.27, 0.72]],
-      [0.25, [0.2, 0.47, 0.88]],
-      [HORIZON10, [0.62, 0.82, 0.96]]
-    ],
-    orb: { x: 0, y: 0.12, r: 0.035, core: [5, 4.6, 3.8], glow: [1, 0.95, 0.8], near: 0.45, wide: 0.12 },
-    orbX: -0.55,
-    stars: 0,
-    cloud: [
-      [1.05, 1.07, 1.1],
-      [0.6, 0.7, 0.86]
-    ],
-    sea: [
-      [0.02, 0.2, 0.42],
-      [0.06, 0.52, 0.62]
-    ],
-    mirror: 0.7,
-    glitter: 0.7,
-    spread: [0.04, 0.16],
-    spec: [1.2, 1.15, 1],
-    tint: [1, 1, 1],
-    key: [1, 0.97, 0.88],
-    lamp: 0.25,
-    foam: [0.85, 0.95, 1],
-    trail: [0.95, 0.97, 1],
-    storm: [0.1, 0.16, 0.15],
-    ambient: [0.42, 0.46, 0.55],
-    light: [0.8, 0.77, 0.7],
-    toward: norm([-0.5, 0.75, 0.35]),
-    night: false
-  },
-  sunset: {
-    sky: [
-      [0, [0.12, 0.2, 0.55]],
-      [0.18, [0.3, 0.32, 0.72]],
-      [0.3, [0.75, 0.42, 0.62]],
-      [0.38, [1.1, 0.55, 0.5]],
-      [HORIZON10, [1.25, 0.72, 0.45]]
-    ],
-    orb: { x: 0, y: 0.42, r: 0.04, core: [3, 1.7, 1], glow: [1.1, 0.5, 0.35], near: 0.5, wide: 0.25 },
-    orbX: -0.18,
-    stars: 10,
-    cloud: [
-      [1.05, 0.58, 0.55],
-      [0.36, 0.27, 0.52]
-    ],
-    sea: [
-      [0.06, 0.1, 0.32],
-      [0.2, 0.26, 0.62]
-    ],
-    mirror: 0.4,
-    glitter: 1.1,
-    spread: [0.05, 0.3],
-    spec: [1.3, 0.62, 0.42],
-    tint: [0.32, 0.24, 0.34],
-    key: [1, 0.55, 0.45],
-    lamp: 0.6,
-    foam: [1, 0.78, 0.82],
-    trail: [1.1, 0.62, 0.6],
-    storm: [0.12, 0.1, 0.14],
-    ambient: [0.2, 0.16, 0.3],
-    light: [1.1, 0.55, 0.38],
-    toward: norm([-0.3, 0.25, 0.9]),
-    night: false
-  },
-  night: {
-    sky: [
-      [0, [0.004, 0.01, 0.04]],
-      [0.25, [0.015, 0.035, 0.11]],
-      [HORIZON10, [0.05, 0.11, 0.3]]
-    ],
-    orb: { x: 0, y: 0.13, r: 0.034, core: [1.25, 0.95, 0.42], glow: [0.5, 0.38, 0.15], near: 0.3, wide: 0.1, moon: true },
-    orbX: -0.3,
-    stars: 150,
-    cloud: [
-      [0.12, 0.18, 0.4],
-      [0.03, 0.05, 0.14]
-    ],
-    sea: [
-      [0.012, 0.04, 0.13],
-      [0.06, 0.15, 0.45]
-    ],
-    mirror: 0.7,
-    glitter: 0.6,
-    spread: [0.035, 0.3],
-    spec: [1.1, 0.68, 0.1],
-    tint: [0.06, 0.08, 0.17],
-    key: [0.35, 0.5, 1.1],
-    lamp: 1,
-    foam: [0.1, 0.5, 0.75],
-    trail: [0.2, 0.42, 0.8],
-    storm: [0.02, 0.055, 0.05],
-    ambient: [0.05, 0.08, 0.22],
-    light: [0.16, 0.24, 0.6],
-    toward: norm([-0.3, 0.55, 0.75]),
-    night: true
-  }
-};
-var HULL2 = [0.36, 0.38, 0.42];
-var DECK_C = [0.2, 0.21, 0.23];
-var STRIPE2 = [0.85, 0.85, 0.8];
-var YELLOW2 = [0.85, 0.66, 0.12];
-var JET2 = [0.5, 0.53, 0.58];
-var SPIRIT2 = [0.13, 0.14, 0.17];
-var WARTHOG2 = [0.24, 0.28, 0.26];
-var HELO = [0.3, 0.34, 0.3];
-var BIRD = [0.82, 0.84, 0.86];
-var BOAT = [0.72, 0.72, 0.68];
-var RED2 = [1.6, 0.22, 0.12];
-var GREEN = [0.22, 1.4, 0.5];
-var FOREST2 = [0.1, 0.3, 0.1];
-var ROCK3 = [0.3, 0.27, 0.22];
-var AMBER4 = [2, 1.05, 0.3];
-var BURNER2 = [2.6, 1.15, 0.35];
-var SCHEDULE = {
-  cross: { lively: [4, 8], teeming: [2.5, 6], most: 5 },
-  four: { lively: [30, 50], teeming: [15, 30], most: 2 },
-  tanker: { lively: [65, 100], teeming: [40, 70], most: 1 },
-  e2: { lively: [35, 65], teeming: [30, 55], most: 1 },
-  b2: { lively: [80, 120], teeming: [55, 90], most: 1 },
-  a10: { lively: [30, 50], teeming: [20, 40], most: 1 },
-  dogfight: { lively: [25, 42], teeming: [10, 22], most: 1 },
-  overtake: { lively: [10, 17], teeming: [6, 12], most: 2 },
-  oncoming: { lively: [13, 22], teeming: [7, 12], most: 3 },
-  helo: { lively: [13, 22], teeming: [8, 14], most: 3 },
-  flock: { lively: [14, 25], teeming: [10, 18], most: 3 }
-};
-var RUN = { overtake: [2.8, 45], oncoming: [70, 3], helo: [40, 2.2], flock: [26, 1.15] };
-var SHIPS = {
-  destroyer: { length: 1.5, beam: 0.17, deck: 0.06, close: 0.6, color: HULL2, blocks: [[-0.6, 0.6, 0.3, 0.62, 0.16], [-0.35, 0.35, 0.42, 0.55, 0.3], [-0.06, 0.06, 0.46, 0.5, 0.42]] },
-  supply: { length: 2.1, beam: 0.25, deck: 0.08, close: 0.72, color: [0.4, 0.38, 0.34], blocks: [[-0.8, 0.8, 0.04, 0.24, 0.24], [-0.15, 0.15, 0.4, 0.46, 0.2], [-0.15, 0.15, 0.66, 0.72, 0.2]] },
-  boat: { length: 0.28, beam: 0.07, deck: 0.025, close: 0.9, color: BOAT, blocks: [[-0.6, 0.6, 0.25, 0.6, 0.05]] }
-};
-var SLOTS = [
-  [-1, 0.07, 0.42],
-  [1, 0.07, 0.42],
-  [-0.55, 0.17, 0.3],
-  [0.55, 0.17, 0.3],
-  [-1.05, 0.21, 0.26],
-  [1.05, 0.21, 0.26]
-];
-
-class WingsFlight extends Canvas {
-  time = 0;
-  creatureTime = 0;
-  flow = 0;
-  activity;
-  look;
-  weather;
-  speed;
-  bank;
-  orb;
-  stars;
-  clouds;
-  storm = makeStorm();
-  islands;
-  nextIsland;
-  carrier = { z: 60, wait: 0 };
-  movers = [];
-  waits = {};
-  ships = [];
-  nextShip;
-  wisps = [];
-  nextWisp = 0;
-  wingmen;
-  nextShift = 40;
-  egg = { wait: eggWait() * TIME_SCALE21, t: -1 };
-  maneuver = { kind: "none", t: 0, dir: 1 };
-  flares = [];
-  drops = new Float32Array(120 * 3);
-  lateral = 0;
-  roll = 0;
-  tilt = 0;
-  mesh = { X: new Float32Array(0), Z: new Float32Array(0), height: new Float32Array(0), tris: new Int32Array(0), colors: new Float32Array(0) };
-  sea = { y0: 0, rows: new Float64Array(0), ids: new Int32Array(0), idA: new Int32Array(0), idB: new Int32Array(0), mix: new Float32Array(0), cover: new Float32Array(0), sky: new Float32Array(0) };
-  constructor(settings) {
-    super();
-    this.activity = settings.activity;
-    this.speed = SPEED2[settings.activity];
-    this.bank = BANK2[settings.activity];
-    this.weather = new WeatherLayer(settings.weather ?? "clear", settings.time, HORIZON10);
-    const look = LOOKS19[settings.time];
-    this.look = this.weather.covered ? { ...look, glitter: look.glitter * 0.12 } : look;
-    this.orb = look.orb;
-    if (settings.time === "day")
-      this.frame = 0.3;
-    this.stars = makeStars(look.stars, HORIZON10 - 0.08);
-    this.clouds = Array.from({ length: 7 }, (_, i) => makeCloud(lerp(0.03, 0.42, (i + Math.random() * 0.6) / 7)));
-    this.islands = [
-      { kind: "volcano", d: 0.022, x: 6 },
-      { kind: "islets", d: 0.034, x: -8 },
-      { kind: "stacks", d: 0.012, x: 22 }
-    ];
-    this.nextIsland = rand(30, 50);
-    this.nextShip = rand(5, 20);
-    this.wingmen = (settings.activity === "teeming" ? [0, 1, 2, 5] : settings.activity === "lively" ? [1, 2] : []).map((slot) => ({ from: slot, to: slot, t: 1 }));
-    if (settings.activity !== "calm")
-      this.ships.push(makeShip(rand(15, 40)));
-    if (settings.activity !== "calm")
-      for (const kind of Object.keys(SCHEDULE)) {
-        const range = SCHEDULE[kind][settings.activity];
-        if (!range)
-          continue;
-        this.waits[kind] = rand(0, range[0]);
-        if (Math.random() < (settings.activity === "teeming" ? 0.5 : 0.25))
-          this.movers.push({ ...this.spawn(kind), t: rand(0.1, 0.6) });
-      }
-    for (let i = 0;i < this.drops.length; i += 3) {
-      this.drops[i] = Math.random() * TAU;
-      this.drops[i + 1] = rand(0.02, 1.2);
-      this.drops[i + 2] = Math.random();
-    }
-  }
-  step(dt) {
-    dt = clamp(dt, 0, 0.1) * TIME_SCALE21;
-    this.time += dt;
-    this.creatureTime += dt * CREATURE_SPEED14;
-    const rows = dt * this.speed;
-    this.flow += rows;
-    for (const i of this.islands)
-      i.d += rows * rowHeight2(i.d);
-    this.islands = this.islands.filter((i) => i.d < 0.6 && Math.abs(i.x * i.d) < 2.5 + ISLAND * 0.3 * i.d);
-    this.nextIsland -= dt;
-    if (this.nextIsland <= 0 && this.islands.length < 3) {
-      const kind = ["volcano", "islets", "stacks"][Math.floor(Math.random() * 3)];
-      const side = Math.random() < 0.5 ? -1 : 1;
-      this.islands.push({ kind, d: 0.006, x: side * (kind === "stacks" ? rand(12, 22) : rand(5, 9)) });
-      this.nextIsland = this.activity === "calm" ? rand(70, 110) : this.activity === "lively" ? rand(40, 65) : rand(28, 48);
-    }
-    for (const c of this.clouds) {
-      c.e += rows * rowHeight2(c.e);
-      const x = Math.abs(c.x * c.e);
-      if (HORIZON10 - c.y * c.e < -c.size * c.e * 1.4 || x > 3)
-        Object.assign(c, makeCloud(rand(0.02, 0.03)), { mips: [] });
-    }
-    this.clouds.sort((a, b) => a.e - b.e);
-    const ship = this.carrier;
-    if (ship.z > 0) {
-      ship.z -= dt * this.speed * 0.24 * Math.max(ship.z, 4) * 0.8;
-      if (ship.z + LENGTH < 0.3)
-        Object.assign(ship, { z: -1, wait: this.activity === "calm" ? rand(150, 300) : rand(60, 120) });
-    } else if ((ship.wait -= dt) <= 0)
-      ship.z = 120;
-    this.stepTraffic(dt, rows);
-    const m = this.maneuver;
-    if (m.kind !== "none" && (m.t += dt) > (m.kind === "roll" ? ROLL : BARREL))
-      m.kind = "none";
-    const e = this.egg;
-    if (e.t >= 0)
-      e.t = e.t + dt > EGG2 ? -1 : e.t + dt;
-    else if ((e.wait -= dt) <= 0) {
-      e.t = 0;
-      e.wait = eggWait(true) * TIME_SCALE21;
-    }
-    for (const f of this.flares) {
-      f.age += dt;
-      f.x += f.vx * dt;
-      f.y += f.vy * dt;
-      f.vy += 0.03 * dt;
-    }
-    this.flares = this.flares.filter((f) => f.age < 2.5);
-    if (this.gloom > 0) {
-      driftClouds(this.storm, this.A, dt);
-      for (let i = 0;i < this.drops.length; i += 3) {
-        this.drops[i + 1] *= Math.exp(dt * (2 + this.drops[i + 2] * 2));
-        if (this.drops[i + 1] > 1.3) {
-          this.drops[i] = Math.random() * TAU;
-          this.drops[i + 1] = rand(0.03, 0.12);
-        }
-      }
-    }
-    this.stepGloom(dt);
-    this.weather.step(dt);
-  }
-  poke(x) {
-    const dir = x < this.A / 2 ? -1 : 1;
-    if (this.maneuver.kind === "none")
-      this.maneuver = { kind: "roll", t: 0, dir };
-    for (let i = 0;i < 6; i++) {
-      const side = i % 2 ? -1 : 1;
-      this.flares.push({ x: this.A / 2 + side * 0.03, y: JET_Y + 0.02, r: 0.012, vx: side * rand(0.03, 0.08), vy: rand(-0.005, 0.02), age: -Math.floor(i / 2) * 0.25 });
-    }
-  }
-  visit() {
-    if (this.maneuver.kind !== "barrel")
-      this.maneuver = { kind: "barrel", t: 0, dir: Math.random() < 0.5 ? -1 : 1 };
-  }
-  render() {
-    this.restore();
-    const { W, H, look } = this;
-    this.camera();
-    if (!this.weather.covered && look.stars)
-      paintStars(this.hdr, W, H, this.stars, this.time, HORIZON10 - 0.08, look.night ? 0.55 : 0.25, this.points);
-    paintStorm(this.hdr, W, H, this.storm, look.cloud[0], look.cloud[1], this.gloom);
-    this.drawSea();
-    const far = [
-      ...this.islands.map((i) => ({ depth: i.d, draw: () => this.drawIsland(i) })),
-      ...this.clouds.map((c) => ({ depth: c.e, draw: () => this.drawCloud(c) }))
-    ];
-    if (this.carrier.z > 0)
-      far.push({ depth: 1 / Math.max(0.1, this.carrier.z), draw: () => this.drawCarrier() });
-    for (const ship of this.ships)
-      far.push({ depth: 1 / Math.max(0.1, ship.z), draw: () => this.drawShip(ship) });
-    for (const m of this.movers)
-      if (RUN[m.kind])
-        far.push({ depth: 1 / this.distance(m), draw: () => this.drawWorldMover(m) });
-    for (const w of this.wisps)
-      far.push({ depth: w.e, draw: () => this.drawCloud(w) });
-    for (const m of this.movers)
-      if (!RUN[m.kind] && m.kind !== "a10")
-        this.drawSkyMover(m);
-    for (const f of far.sort((a, b) => a.depth - b.depth))
-      f.draw();
-    for (const m of this.movers)
-      if (m.kind === "a10")
-        this.drawSkyMover(m);
-    if (this.egg.t >= 0)
-      this.drawEgg();
-    this.drawJets();
-    this.drawFlares();
-    if (this.gloom > 0)
-      this.drawRain();
-    this.weather.draw(this.hdr, W, H);
-    this.finish();
-  }
-  layout() {
-    const { W, H, A, look } = this;
-    this.orb = { ...look.orb, x: (A / 2 + look.orbX) / A };
-    paintSky(this.hdr, W, H, look.sky, this.orb, this.px);
-    this.weather.cover(this.hdr, W, H);
-    const sky = new Float32Array(H * 3);
-    for (let y = 0;y < Math.ceil(HORIZON10 * H); y++)
-      for (let x = 0;x < W; x += 2)
-        for (let c = 0;c < 3; c++)
-          sky[y * 3 + c] += this.hdr[(y * W + x) * 3 + c] / Math.ceil(W / 2);
-    const rows = [0];
-    while (rows[rows.length - 1] < 1.15 - HORIZON10)
-      rows.push(rows[rows.length - 1] + rowHeight2(rows[rows.length - 1]));
-    const y0 = Math.max(0, Math.floor((HORIZON10 - A / 2 * 0.06 - 0.01) * H));
-    const n = W * (H - y0);
-    this.sea = { y0, rows: Float64Array.from(rows), ids: new Int32Array(n * 4), idA: new Int32Array(n), idB: new Int32Array(n), mix: new Float32Array(n), cover: new Float32Array(n), sky };
-    for (const c of [...this.clouds, ...this.wisps])
-      c.mips = [];
-  }
-  paint(c) {
-    const t = this.look.tint;
-    return [c[0] * t[0], c[1] * t[1], c[2] * t[2]];
-  }
-  camera() {
-    const t = this.creatureTime;
-    const weave = 0.7 * Math.sin(t * 2.4) + 0.3 * Math.sin(t * 1.3 + 1);
-    this.lateral = -0.6 * this.bank * weave;
-    const m = this.maneuver;
-    const nudge = m.kind === "roll" ? m.dir * 0.45 * Math.sin(Math.PI * m.t / ROLL) : 0;
-    this.roll = this.bank * weave + nudge;
-    this.tilt = -TILT * this.roll;
-  }
-  turn(x, y) {
-    const cx = this.A / 2 * this.H;
-    const cy = HORIZON10 * this.H;
-    const c = Math.cos(this.tilt);
-    const s = Math.sin(this.tilt);
-    return [cx + (x - cx) * c - (y - cy) * s, cy + (x - cx) * s + (y - cy) * c];
-  }
-  drawSea() {
-    const { W, H, A, look } = this;
-    const sea = this.sea;
-    const m = this.mesh;
-    const base = Math.floor(this.flow);
-    const f = this.flow - base;
-    const table = sea.rows;
-    const xs = [];
-    const ys = [];
-    const ds = [];
-    const ids = [];
-    const rows = [];
-    for (let r = 0;r + 1 < table.length; r++) {
-      const d = table[r] + (table[r + 1] - table[r]) * f;
-      const q = r - base;
-      const h = rowHeight2(d);
-      const w = Math.max(0.018, h * 2.3);
-      const shift = this.lateral * d / w;
-      const row = [];
-      const i0 = Math.floor(shift + (-0.35 - A / 2) / w);
-      const i1 = Math.ceil(shift + (A / 2 + 0.35) / w);
-      for (let i = i0;i <= i1; i++) {
-        row.push(xs.length);
-        xs.push(A / 2 + (i + (hash2(i, q) - 0.5) * 0.7 - shift) * w);
-        ys.push(HORIZON10 + d + (hash2(i + 71, q) - 0.5) * 0.3 * h * smoothstep(0, 0.01, d));
-        ds.push(d);
-        ids.push(i * 7919 + q * 104729);
-      }
-      rows.push(row);
-    }
-    const tris = [];
-    for (let k = 0;k + 1 < rows.length; k++)
-      stitch2(rows[k], rows[k + 1], xs, tris);
-    const n = xs.length;
-    if (m.X.length < n) {
-      m.X = new Float32Array(n * 2);
-      m.Z = new Float32Array(n * 2);
-      m.height = new Float32Array(n * 2);
-    }
-    const t = this.time;
-    for (let i = 0;i < n; i++) {
-      const z = FOCAL3 * CAMERA3 / Math.max(0.002, ys[i] - HORIZON10);
-      m.Z[i] = z;
-      m.X[i] = (xs[i] - A / 2) * z / FOCAL3;
-      const amp = Math.max(0.018, rowHeight2(ds[i]) * 2.3) * 0.45 * smoothstep(0.004, 0.08, ds[i]);
-      const id = ids[i];
-      m.height[i] = amp * ((hash(id) - 0.5) * 1.6 + 0.3 * Math.sin(t * (0.5 + hash(id + 0.5) * 0.6) + hash(id + 0.3) * TAU));
-    }
-    m.tris = Int32Array.from(tris);
-    if (m.colors.length < tris.length)
-      m.colors = new Float32Array(tris.length * 2);
-    shadeFacets2(m.X, m.Z, m.height, m.tris, m.colors, sea.sky, H, this.orb.x * A - A / 2, this.orb.y, look.sea[0], look.sea[1], look.mirror, look.spec, look.glitter * (1 - 0.8 * this.gloom), look.spread, look.storm, smoothstep(0, 1, this.gloom) * 0.7);
-    const y0 = sea.y0;
-    const sx = new Float32Array(n);
-    const sy = new Float32Array(n);
-    for (let i = 0;i < n; i++) {
-      const p = this.turn(xs[i] * H, ys[i] * H);
-      sx[i] = p[0] * 2;
-      sy[i] = (p[1] - y0) * 2;
-    }
-    const SW = W * 2;
-    const SH = (H - y0) * 2;
-    sea.ids.fill(-1);
-    for (let k = 0;k < tris.length; k += 3)
-      rasterTri2(sea.ids, SW, SH, sx[tris[k]], sy[tris[k]], sx[tris[k + 1]], sy[tris[k + 1]], sx[tris[k + 2]], sy[tris[k + 2]], k / 3);
-    const top = Math.max(y0, Math.floor(HORIZON10 * H - A / 2 * H * Math.abs(Math.sin(this.tilt))) - 2);
-    resolveSamples2(sea.ids, W, H - y0, top - y0, sea.idA, sea.idB, sea.mix, sea.cover);
-    fillSea2(this.hdr, W, y0, (top - y0) * W, sea.idA, sea.idB, sea.mix, sea.cover, m.colors);
-    this.touch(0, top, W - 1, H - 1);
-  }
-  facet(c, lit2) {
-    const { look } = this;
-    const k = clamp(lit2, 0, 1);
-    if (!look.night && look.tint[0] === 1)
-      return [c[0] * (0.45 + 0.75 * k), c[1] * (0.45 + 0.75 * k), c[2] * (0.45 + 0.75 * k)];
-    const t = look.tint;
-    return [c[0] * t[0] * 2.4 + look.key[0] * 0.08 * k, c[1] * t[1] * 2.4 + look.key[1] * 0.08 * k, c[2] * t[2] * 2.4 + look.key[2] * 0.08 * k];
-  }
-  drawIsland(island) {
-    this.drawIslandShape(island);
-    this.drawGulls(island);
-  }
-  drawIslandShape(island) {
-    const { A, H } = this;
-    const bx = A / 2 + (island.x - this.lateral) * island.d;
-    const by = HORIZON10 + island.d;
-    const g = ISLAND * island.d;
-    if (bx + 0.32 * g < -0.05 || bx - 0.32 * g > A + 0.05)
-      return;
-    const P = (dx, up) => this.turn((bx + dx * g) * H, (by - up * g) * H);
-    const lightSide = this.orb.x * A < bx ? -1 : 1;
-    const color = (c, lit2) => this.facet(c, lit2);
-    if (island.kind === "volcano") {
-      this.polygon([P(-0.27, 0), P(-0.2, 0.02), P(-0.1, 0.035), P(0.12, 0.035), P(0.22, 0.018), P(0.29, 0)], color(FOREST2, 0.4));
-      const peak = P(-0.01, 0.174);
-      const feet = [-0.17, -0.1, -0.03, 0.05, 0.12, 0.18].map((dx) => P(dx, 0.029));
-      this.polygon([peak, ...feet], color(ROCK3, 0.5));
-      for (let i = 0;i + 1 < feet.length; i++) {
-        const face = (i + 0.5) / (feet.length - 1) - 0.5;
-        this.polygon([peak, feet[i], feet[i + 1]], color(ROCK3, 0.5 + face * lightSide * 0.9));
-      }
-      const slope2 = (dx) => 0.029 + (1 - Math.abs(dx + 0.01) / 0.175) * 0.17;
-      const forest = [P(-0.2, 0)];
-      for (let i = 0;i <= 24; i++) {
-        const dx = -0.19 + i / 24 * 0.39;
-        const up = Math.min(slope2(dx) - 0.045, 0.075) + (i % 2 ? 0.006 : 0) + hash(i * 2.1) * 0.006;
-        forest.push(P(dx, Math.max(up, 0.02)));
-      }
-      forest.push(P(0.21, 0));
-      this.polygon(forest, color(FOREST2, 0.5 - lightSide * 0.1));
-      if (g * H > 20)
-        for (let i = 0;i < 18; i++) {
-          const dx = -0.22 + i / 17 * 0.47;
-          const up = Math.min(slope2(dx) - 0.05, 0.06) - hash(i * 5.3) * 0.02;
-          if (up < 0.012)
+      let n = 0;
+      for (let j = 0;j < ss; j++)
+        for (let i = 0;i < ss; i++) {
+          const u = (x + (i + 0.5) / ss - cx) / side;
+          const v = (y + (j + 0.5) / ss - cy) / side;
+          if (roundBox(u, v, 0.5, 0.5, 0.15) > 0)
             continue;
-          const s = 0.012 + hash(i * 1.9) * 0.008;
-          this.polygon([P(dx, up), P(dx - s * 0.7, up - s * 1.4), P(dx + s * 0.7, up - s * 1.4)], color(FOREST2, hash(i) > 0.5 ? 0.75 : 0.3));
+          const lit2 = 1 + 0.6 * smoothstep(-0.38, -0.5, v);
+          const on = kind === "opencode" ? mark(u, v) : glyph2(kind, u, v) < 0 ? 1 : 0;
+          r += on ? ink[0] * on : color[0] * lit2;
+          g += on ? ink[1] * on : color[1] * lit2;
+          b += on ? ink[2] * on : color[2] * lit2;
+          n++;
         }
-      this.polygon([P(-0.022, 0.159), P(-0.01, 0.174), P(0.004, 0.161), P(-0.01, 0.154)], color(ROCK3, 0.15));
-      return;
-    }
-    if (island.kind === "islets") {
-      for (const [x, w, h] of [[-0.07, 0.09, 0.05], [0.07, 0.08, 0.045]]) {
-        const pts = [P(x - w, 0), P(x - w * 0.55, h * 0.55), P(x - w * 0.15, h), P(x + w * 0.2, h * 0.85), P(x + w * 0.6, h * 0.4), P(x + w, 0)];
-        this.polygon(pts, color(FOREST2, 0.5));
-        for (let i = 0;i + 1 < pts.length; i++)
-          this.polygon([P(x, 0), pts[i], pts[i + 1]], color(FOREST2, 0.55 - (i - 2) / 3 * lightSide * 0.5));
-        if (g * H > 20)
-          for (let i = 0;i < 7; i++) {
-            const dx = (i / 6 - 0.5) * w * 1.4;
-            const up = h * (1 - Math.abs(dx) / w) * 0.95;
-            this.polygon([P(x + dx, up + 0.01), P(x + dx - 0.009, up - 0.008), P(x + dx + 0.009, up - 0.008)], color(FOREST2, hash(i + x) > 0.5 ? 0.7 : 0.35));
-          }
-      }
-      return;
-    }
-    for (const [dx, w, h] of [[-0.03, 0.012, 0.035], [-0.012, 0.009, 0.05], [0.004, 0.011, 0.042], [0.03, 0.008, 0.028]])
-      this.polygon([P(dx - w, 0), P(dx - w * 0.6, h), P(dx + w * 0.3, h * 1.05), P(dx + w, 0)], color(ROCK3, 0.45 + lightSide * dx * 8));
-    this.polygon([P(-0.07, 0), P(-0.05, 0.008), P(0.06, 0.008), P(0.09, 0)], color(FOREST2, 0.4));
-  }
-  drawCloud(c) {
-    const { A, H } = this;
-    if (!c.mips.length)
-      c.mips = cloudMips(c, H, this.weather.scud ?? this.look.cloud, this.orb.x * A - A / 2 - c.x * 0.15);
-    const [x, y] = this.turn((A / 2 + (c.x - this.lateral * 0.5) * c.e) * H, (HORIZON10 - c.y * c.e) * H);
-    const box = blitScaled(this.hdr, this.W, H, c.mips, x, y, c.e / c.top, smoothstep(0.02, 0.05, c.e) * c.alpha);
-    if (box)
-      this.touch(box[0], box[1], box[2], box[3]);
-  }
-  drawCarrier() {
-    const { A, H, look } = this;
-    const zs = this.carrier.z;
-    const world = (u, v, h) => [u * BEAMW - this.lateral, zs + v * LENGTH, DECK2 + h * BEAMW * RISE2];
-    const face = (pts, color, alpha = 1) => this.face3(pts.map((p) => world(p[0], p[1], p[2])), color, alpha);
-    const c = (color, k2 = 1) => this.craft([color[0] * k2, color[1] * k2, color[2] * k2]);
-    const foam = look.night ? 0.04 : 0.12;
-    face([[-0.9, 0, -0.42], [0.9, 0, -0.42], [1.8, -1.2, -0.42], [-1.8, -1.2, -0.42]], look.foam, foam);
-    face([[-0.45, 0, -0.42], [0.45, 0, -0.42], [0.7, -0.7, -0.42], [-0.7, -0.7, -0.42]], look.foam, foam * 1.5);
-    face([[-0.92, 0, 0], [0.92, 0, 0], [0.82, 0, -0.42], [-0.82, 0, -0.42]], c(HULL2, 0.8));
-    face([[0.92, 0, 0], [0.95, 0.9, 0], [0.8, 0.9, -0.42], [0.82, 0, -0.42]], c(HULL2, 0.55));
-    face([[-0.92, 0, 0], [-0.95, 0.9, 0], [-0.8, 0.9, -0.42], [-0.82, 0, -0.42]], c(HULL2, 0.45));
-    face([[-1, 0, 0], [1, 0, 0], [1, 0.88, 0], [0.8, 1.02, 0], [-0.8, 1.02, 0], [-1, 0.88, 0]], c(HULL2, 0.6));
-    face([[-0.96, 0.01, 0], [0.96, 0.01, 0], [0.96, 0.87, 0], [0.77, 1, 0], [-0.77, 1, 0], [-0.96, 0.87, 0]], c(DECK_C));
-    const near2 = zs < 60;
-    if (near2) {
-      const line = (u02, v02, u12, v12, w, color, k2 = 1) => face([[u02 - w, v02, 0], [u02 + w, v02, 0], [u12 + w, v12, 0], [u12 - w, v12, 0]], c(color, k2));
-      line(-0.62, 0.05, -0.62, 0.97, 0.02, STRIPE2, 0.8);
-      line(0.42, 0.05, 0.42, 0.97, 0.02, STRIPE2, 0.8);
-      for (let v = 0.2;v < 0.95; v += 0.11)
-        line(-0.1, v, -0.1, v + 0.06, 0.022, STRIPE2, 0.9);
-      line(0.2, 0.18, 0.2, 0.96, 0.012, YELLOW2);
-      line(-0.35, 0.3, -0.12, 0.96, 0.012, YELLOW2, 0.9);
-      for (let i = 0;i < 8; i++) {
-        const u = -0.55 + i * 0.12;
-        face([[u, 0.06, 0], [u + 0.07, 0.06, 0], [u + 0.07, 0.12, 0], [u, 0.12, 0]], c(STRIPE2, 0.85));
-      }
-    }
-    const k = (v) => c(HULL2, v);
-    const [u0, u1, v0, v1, top] = [0.66, 0.96, 0.44, 0.68, 1];
-    face([[u0, v0, 0], [u0, v1, 0], [u0, v1, top], [u0, v0, top]], k(0.7));
-    face([[u0, v0, 0], [u1, v0, 0], [u1, v0, top], [u0, v0, top]], k(0.9));
-    face([[u0, v0, top], [u1, v0, top], [u1, v1, top], [u0, v1, top]], k(1.15));
-    face([[0.72, 0.5, top], [0.72, 0.64, top], [0.72, 0.64, top + 0.4], [0.72, 0.5, top + 0.4]], k(0.62));
-    face([[0.72, 0.5, top], [0.92, 0.5, top], [0.92, 0.5, top + 0.4], [0.72, 0.5, top + 0.4]], k(0.85));
-    face([[0.72, 0.5, top + 0.4], [0.92, 0.5, top + 0.4], [0.92, 0.64, top + 0.4], [0.72, 0.64, top + 0.4]], k(1.1));
-    face([[0.73, 0.5, top + 0.3], [0.91, 0.5, top + 0.3], [0.91, 0.5, top + 0.2], [0.73, 0.5, top + 0.2]], look.night ? [0.6, 0.3, 0.06] : k(0.3));
-    face([[0.8, 0.57, top + 0.4], [0.84, 0.57, top + 0.4], [0.83, 0.57, 2.1], [0.81, 0.57, 2.1]], k(0.75));
-    face([[0.74, 0.57, 1.82], [0.9, 0.57, 1.82], [0.9, 0.57, 1.76], [0.74, 0.57, 1.76]], k(0.75));
-    const lamp = (u, v, h, color, k2, size) => this.lamp3(world(u, v, h), color, k2, size);
-    const glow2 = look.lamp * 0.5;
-    if (look.lamp > 0.5)
-      for (let v = 0.04;v < 0.99; v += near2 ? 0.075 : 0.3) {
-        lamp(-0.97, v, 0, AMBER4, glow2, 1);
-        lamp(0.97, v, 0, AMBER4, glow2, 1);
-      }
-    const blink = 0.3 + 0.7 * Math.max(0, Math.sin(this.time * 2)) ** 4;
-    lamp(0.82, 0.57, 2.1, [2, 0.3, 0.15], blink * Math.max(0.4, glow2), 2);
-    if (look.lamp > 0.5 && zs < 12) {
-      const [cx, cy] = this.turn((A / 2 - this.lateral / (zs + 1.5)) * H, (HORIZON10 + (CAMERA3 - DECK2) / (zs + 1.5)) * H);
-      lightPool(this.hdr, this.W, H, cx, cy, 0.6 * H / (zs + 1.5), 0.3 * H / (zs + 1.5), [1, 0.6, 0.25], 1, 0.01);
-    }
-  }
-  drawJets() {
-    const { A, H } = this;
-    const t = this.creatureTime;
-    const m = this.maneuver;
-    const barrel = m.kind === "barrel" ? m.dir * TAU * smoothstep(0.3, BARREL - 0.3, m.t) : 0;
-    const surge = m.kind === "barrel" ? Math.sin(Math.PI * m.t / BARREL) : 0;
-    const shake = this.gloom * 0.008;
-    const dx = (-this.lateral * 0.05 + shake * (noise1(this.time * 4) - 0.5)) * H;
-    const dy = (0.004 * Math.sin(t * 5.3) + shake * (noise1(this.time * 4, 3) - 0.5)) * H;
-    const off = Math.min(0.6, A / 2 - 0.12);
-    const lift2 = Math.max(0, 0.5 - off) * 0.4;
-    const wing = this.wingmen.map((w, i) => {
-      const k = smoothstep(0, 1, w.t);
-      const a = SLOTS[w.from];
-      const b = SLOTS[w.to];
-      return { i, x: lerp(a[0], b[0], k), y: lerp(a[1], b[1], k), size: lerp(a[2], b[2], k), bank: Math.sign(b[0] - a[0]) * 0.3 * Math.sin(Math.PI * k) };
-    });
-    for (const w of wing.sort((a, b) => a.size - b.size)) {
-      const x = (A / 2 + w.x * off + 0.025 * Math.sin(t * 2.3 + w.i * 1.7)) * H;
-      const y = (JET_Y - w.y - lift2 + 0.012 * Math.sin(t * 3.1 + w.i * 2)) * H;
-      this.drawJet(x, y, w.size * SPAN * H, this.roll + w.bank + 0.03 * Math.sin(t * 2.9 + w.i), 0.8);
-    }
-    this.drawJet(A / 2 * H + dx, JET_Y * H + dy, SPAN * H, this.roll + barrel, 1 + 0.9 * surge);
-  }
-  drawJet(cx, cy, s, roll, burn2, front = false) {
-    const { look } = this;
-    const cr = Math.cos(roll);
-    const sr = Math.sin(roll);
-    const ce = Math.cos(ELEVATION);
-    const se = Math.sin(ELEVATION);
-    const rot = (p) => [p[0] * cr + p[1] * sr, p[1] * cr - p[0] * sr, p[2]];
-    const project2 = (p) => {
-      const depth2 = -p[1] * se + p[2] * ce;
-      const k2 = s / (1 + 0.35 * depth2);
-      return [cx + p[0] * k2, cy - (p[1] * ce + p[2] * se) * k2];
-    };
-    const drawn = FACES.flatMap((f) => {
-      const pts = f.pts.map(rot);
-      const [a, b, c] = pts;
-      let n = norm(cross([b[0] - a[0], b[1] - a[1], b[2] - a[2]], [c[0] - a[0], c[1] - a[1], c[2] - a[2]]));
-      const facing = n[1] * se - n[2] * ce;
-      if (facing <= 0 && !f.both)
-        return [];
-      if (facing <= 0)
-        n = [-n[0], -n[1], -n[2]];
-      const L = look.toward;
-      const lit2 = Math.max(0, n[0] * L[0] + n[1] * L[1] + n[2] * L[2]);
-      const up = Math.max(0, n[1]) * 0.25;
-      const color = [0, 1, 2].map((i) => f.color[i] * (look.ambient[i] * (0.8 + up) + look.light[i] * lit2));
-      const depth2 = pts.reduce((sum, p) => sum + (-p[1] * se + p[2] * ce), 0) / pts.length;
-      return [{ pts: pts.map(project2), color, depth: depth2 }];
-    });
-    for (const f of drawn.sort((a, b) => b.depth - a.depth))
-      this.polygon(f.pts, f.color);
-    if (s < 6)
-      return;
-    if (front) {
-      for (const side of [-1, 1]) {
-        const [wx, wy] = project2(rot([side * 0.5, -0.005, -0.27]));
-        this.navLight(wx, wy, side > 0 ? RED2 : GREEN, Math.max(0.8, 0.011 * s));
-      }
-      return;
-    }
-    const flick = 1 + 0.12 * (noise1(this.time * 5 + cx) - 0.5);
-    const k = burn2 * flick * (look.night ? 1 : 0.8);
-    for (const side of [-1, 1]) {
-      const [x, y] = project2(rot([side * 0.045, 0.005, -0.5]));
-      const [tx, ty] = project2(rot([side * 0.045, 0.005, -0.62 - 0.1 * burn2]));
-      trail2(this.hdr, this.W, this.H, x, y, tx, ty, 0.03 * s, BURNER2, 0.35 * Math.min(1, k));
-      this.disc(x, y, 0.045 * s, BURNER2[0] * 0.25 * k, BURNER2[1] * 0.25 * k, BURNER2[2] * 0.25 * k, 0.6);
-      this.disc(x, y, 0.024 * s, BURNER2[0] * 0.8 * k, BURNER2[1] * 0.8 * k, BURNER2[2] * 0.8 * k, 1);
-      this.touch(Math.min(x, tx) - 0.06 * s, Math.min(y, ty) - 0.06 * s, Math.max(x, tx) + 0.06 * s, Math.max(y, ty) + 0.06 * s);
-      const [wx, wy] = project2(rot([side * 0.5, -0.005, -0.27]));
-      this.navLight(wx, wy, side < 0 ? RED2 : GREEN, Math.max(0.8, 0.011 * s));
-    }
-    if (look.night) {
-      const [x, y] = project2(rot([0, 0, -0.5]));
-      lightPool(this.hdr, this.W, this.H, x, y, 0.22 * s, 0.14 * s, [1, 0.5, 0.15], 0, 0.05 * k);
-    }
-  }
-  craft(c) {
-    const k = this.look.night ? 3.2 : 1;
-    const p = this.paint(c);
-    return [p[0] * k, p[1] * k, p[2] * k];
-  }
-  stepTraffic(dt, rows) {
-    const level2 = this.activity;
-    for (const m of this.movers) {
-      m.t += dt / m.span;
-      this.fireFlares(m);
-    }
-    this.movers = this.movers.filter((m) => m.t < 1);
-    for (const ship of this.ships)
-      ship.z -= rows * 0.24 * Math.max(ship.z, 4) * SHIPS[ship.kind].close;
-    this.ships = this.ships.filter((ship) => ship.z + SHIPS[ship.kind].length > 0.4 && (ship.z > 20 || Math.abs((ship.x - this.lateral) / ship.z) < this.A / 2 + 0.6));
-    for (const w of this.wisps)
-      w.e += 3 * rows * rowHeight2(w.e);
-    this.wisps = this.wisps.filter((w) => w.e < w.top && Math.abs(w.x * w.e) < this.A / 2 + 0.7);
-    for (const w of this.wingmen)
-      w.t = Math.min(1, w.t + dt / 8);
-    if (level2 === "calm")
-      return;
-    for (const kind of Object.keys(SCHEDULE)) {
-      const range = SCHEDULE[kind][level2];
-      if (!range)
-        continue;
-      const wait = (this.waits[kind] ?? 0) - dt;
-      this.waits[kind] = wait;
-      const most = level2 === "lively" ? Math.ceil(SCHEDULE[kind].most / 2) : SCHEDULE[kind].most;
-      if (wait > 0 || this.movers.filter((m) => m.kind === kind).length >= most)
-        continue;
-      this.movers.push(this.spawn(kind));
-      this.waits[kind] = rand(range[0], range[1]);
-    }
-    if ((this.nextShip -= dt) <= 0 && this.ships.length < 4) {
-      this.ships.push(makeShip(90));
-      this.nextShip = level2 === "lively" ? rand(25, 45) : rand(10, 20);
-    }
-    if ((this.nextWisp -= dt) <= 0 && this.wisps.length < 2) {
-      this.wisps.push(makeWisp());
-      this.nextWisp = level2 === "lively" ? rand(30, 60) : rand(14, 28);
-    }
-    if ((this.nextShift -= dt) <= 0 && this.wingmen.every((w) => w.t >= 1)) {
-      const w = this.wingmen[Math.floor(Math.random() * this.wingmen.length)];
-      const free = SLOTS.map((_, i) => i).filter((i) => !this.wingmen.some((o) => o.to === i));
-      Object.assign(w, { from: w.to, to: free[Math.floor(Math.random() * free.length)], t: 0 });
-      this.nextShift = rand(30, 55);
-    }
-  }
-  spawn(kind) {
-    const dir = Math.random() < 0.5 ? -1 : 1;
-    const base = { kind, t: 0, dir, x: 0, seed: Math.random() * 100, fired: 0 };
-    if (kind === "cross") {
-      const y = rand(0.05, 0.3);
-      const f = (y - 0.05) / 0.25;
-      return { ...base, y, size: lerp(0.014, 0.034, f), span: lerp(36, 20, f) };
-    }
-    if (kind === "four")
-      return { ...base, y: rand(0.1, 0.24), size: 0.016, span: 42 };
-    if (kind === "tanker")
-      return { ...base, y: rand(0.07, 0.15), size: 0.07, span: 62 };
-    if (kind === "e2")
-      return { ...base, y: rand(0.1, 0.2), size: 0.05, span: 52 };
-    if (kind === "b2")
-      return { ...base, y: rand(0.04, 0.1), size: 0.075, span: 60 };
-    if (kind === "a10")
-      return { ...base, y: rand(0.53, 0.57), size: 0.06, span: 24 };
-    if (kind === "dogfight")
-      return { ...base, y: rand(0.11, 0.2), size: 0.02, span: 48 };
-    if (kind === "overtake")
-      return { ...base, x: dir * rand(1.4, 2.1), y: rand(0.55, 1.45), size: 1, span: 20 };
-    if (kind === "oncoming")
-      return { ...base, x: dir * rand(3, 6), y: rand(1.2, 1.7), size: 1, span: 18 };
-    if (kind === "helo")
-      return { ...base, x: dir * rand(1.6, 3.2), y: rand(0.12, 0.25), size: 1, span: 46 };
-    return { ...base, x: dir * rand(0.45, 1.3), y: rand(0.35, 0.6), size: 9 + Math.floor(Math.random() * 6), span: 30 };
-  }
-  distance(m) {
-    const run = RUN[m.kind] ?? [1, 1];
-    return run[0] * (run[1] / run[0]) ** m.t;
-  }
-  world(x, z, alt) {
-    return this.turn((this.A / 2 + (x - this.lateral) / z) * this.H, (HORIZON10 + (CAMERA3 - alt) / z) * this.H);
-  }
-  face3(pts, color, alpha = 1) {
-    const clipped = clipNear(pts, 0.35);
-    if (clipped.length < 3)
-      return;
-    this.polygon(clipped.map((p) => this.turn((this.A / 2 + p[0] / p[1]) * this.H, (HORIZON10 + (CAMERA3 - p[2]) / p[1]) * this.H)), color, alpha);
-  }
-  lamp3(p, color, k, size) {
-    if (p[1] < 0.6)
-      return;
-    const [x, y] = this.turn((this.A / 2 + p[0] / p[1]) * this.H, (HORIZON10 + (CAMERA3 - p[2]) / p[1]) * this.H);
-    if (this.cells)
-      this.point(x, y, color[0] * k, color[1] * k, color[2] * k, size, true);
-    else
-      this.disc(x, y, Math.max(0.6, 0.004 * this.H / p[1]), color[0] * k, color[1] * k, color[2] * k, 1);
-  }
-  navLight(x, y, color, r) {
-    const k = this.look.night ? 0.5 : this.look.lamp > 0.5 ? 0.35 : 0.2;
-    this.disc(x, y, r, color[0] * k, color[1] * k, color[2] * k, 1);
-  }
-  navPlan(x, y, s, heading, squash, seed) {
-    if (this.look.lamp < 0.5)
-      return;
-    const k = this.look.night ? 0.6 : 0.35;
-    for (const b of [-0.42, 0.42]) {
-      const px = x + (-0.19 * Math.cos(heading) - b * Math.sin(heading)) * s;
-      const py = y + (-0.19 * Math.sin(heading) + b * Math.cos(heading)) * squash * s;
-      const c = b < 0 ? RED2 : GREEN;
-      this.splat(px, py, c[0] * k, c[1] * k, c[2] * k);
-    }
-    if (Math.sin(this.time * 3 + seed) > 0.75)
-      this.splat(x, y, AMBER4[0] * k, AMBER4[1] * k, AMBER4[2] * k);
-  }
-  dogfighter(m, lag) {
-    const a = m.t * m.span * 0.3 - lag;
-    const cx = m.dir < 0 ? 0.42 : this.A - 0.42;
-    return [cx + 0.24 * Math.sin(a), m.y + 0.06 * Math.sin(2 * a), Math.atan2(0.12 * Math.cos(2 * a) / 0.45, 0.24 * Math.cos(a))];
-  }
-  fireFlares(m) {
-    if (m.kind === "dogfight") {
-      const k = Math.floor(m.t * m.span / 6);
-      if (k <= m.fired)
-        return;
-      m.fired = k;
-      if (hash(m.seed + k) < 0.45)
-        return;
-      const [x2, y2] = this.dogfighter(m, 0);
-      for (let i = 0;i < 4; i++)
-        this.flares.push({ x: x2, y: y2, r: 0.004, vx: rand(-0.02, 0.02), vy: rand(-0.004, 0.006), age: -i * 0.2 });
-      return;
-    }
-    if (m.kind !== "overtake" || m.fired || m.t < 0.3)
-      return;
-    m.fired = 1;
-    if (hash(m.seed) < 0.5)
-      return;
-    const z = this.distance(m);
-    const [x, y] = this.world(m.x, z, m.y);
-    for (let i = 0;i < 4; i++)
-      this.flares.push({ x: x / this.H, y: y / this.H, r: 0.04 / z, vx: (i % 2 ? -1 : 1) * rand(0.01, 0.03), vy: rand(0, 0.01), age: -Math.floor(i / 2) * 0.3 });
-  }
-  drawSkyMover(m) {
-    const { A, H, W, look } = this;
-    const u = m.dir > 0 ? m.t : 1 - m.t;
-    const heading = m.dir > 0 ? 0 : Math.PI;
-    const s = m.size * H;
-    const [x, y] = this.turn(lerp(-0.2, A + 0.2, u) * H, m.y * H);
-    const jet = this.craft(JET2);
-    if (m.kind === "cross") {
-      if (m.y < 0.15) {
-        const [hx, hy] = this.turn(lerp(-0.2, A + 0.2, u) * H - m.dir * 0.45 * s, m.y * H);
-        const run = Math.min(0.8, m.t * (A + 0.4)) * H;
-        const [tx, ty] = this.turn(lerp(-0.2, A + 0.2, u) * H - m.dir * (0.45 * s + run), m.y * H);
-        trail2(this.hdr, W, H, hx, hy, tx, ty, Math.max(0.7, 0.0035 * H), look.trail, look.night ? 0.25 : 0.32);
-        this.touch(Math.min(hx, tx) - 3, Math.min(hy, ty) - 3, Math.max(hx, tx) + 3, Math.max(hy, ty) + 3);
-      }
-      this.planform(x, y, s, heading, 0.4, JETFORM2, jet);
-      this.navPlan(x, y, s, heading, 0.4, m.seed);
-      return;
-    }
-    if (m.kind === "four") {
-      for (const [a, b] of [[0, 0], [-1.4, -1], [-1.4, 1], [-2.8, 0]]) {
-        const px = x + m.dir * a * s;
-        const py = y + b * s * 0.5;
-        this.planform(px, py, s, heading, 0.4, JETFORM2, jet);
-        this.navPlan(px, py, s, heading, 0.4, m.seed + a + b);
-      }
-      return;
-    }
-    if (m.kind === "tanker") {
-      const receivers = [[-0.85, 0.16], [-1.05, -0.12]];
-      const [bx, by] = [x - m.dir * 0.48 * s, y + 0.02 * s];
-      trail2(this.hdr, W, H, bx, by, x + m.dir * (receivers[0][0] + 0.12) * s, y + receivers[0][1] * s, Math.max(0.6, 0.012 * s), jet, 0.8);
-      this.touch(Math.min(bx, x - m.dir * s) - 2, by - 0.2 * s, Math.max(bx, x - m.dir * s) + 2, by + 0.25 * s);
-      this.planform(x, y, s, heading, 0.4, TANKERFORM2, this.craft([0.46, 0.48, 0.5]));
-      this.navPlan(x, y, s, heading, 0.4, m.seed);
-      for (const [a, b] of receivers) {
-        this.planform(x + m.dir * a * s, y + b * s, 0.32 * s, heading, 0.4, JETFORM2, jet);
-        this.navPlan(x + m.dir * a * s, y + b * s, 0.32 * s, heading, 0.4, m.seed + a);
-      }
-      return;
-    }
-    if (m.kind === "e2") {
-      const c = this.craft([0.46, 0.48, 0.5]);
-      this.planform(x, y, s, heading, 0.4, E2FORM, c);
-      this.ellipse(x - m.dir * 0.08 * s, y - 0.06 * s, 0.2 * s, 0.045 * s, c[0] * 0.7, c[1] * 0.7, c[2] * 0.7, 1);
-      this.navPlan(x, y, s, heading, 0.4, m.seed);
-      return;
-    }
-    if (m.kind === "b2") {
-      this.planform(x, y, s, heading, 0.3, SPIRITFORM2, this.craft(SPIRIT2));
-      this.navPlan(x, y, s * 0.8, heading, 0.3, m.seed);
-      return;
-    }
-    if (m.kind === "a10") {
-      this.ellipse(x, y + 0.035 * H, s * 0.4, s * 0.05, 0, 0, 0, look.night ? 0.12 : 0.22);
-      this.planform(x, y, s, heading, 0.38, WARTHOGFORM2, this.craft(WARTHOG2));
-      this.navPlan(x, y, s, heading, 0.38, m.seed);
-      return;
-    }
-    const fade = smoothstep(0, 0.05, m.t) * (1 - smoothstep(0.95, 1, m.t));
-    for (const lag of [0, 0.5]) {
-      const [dx, dy, h] = this.dogfighter(m, lag);
-      const [px, py] = this.turn(dx * H, dy * H);
-      this.planform(px, py, s, h, 0.45, JETFORM2, jet, fade);
-      if (fade > 0.5)
-        this.navPlan(px, py, s, h, 0.45, m.seed + lag);
-    }
-  }
-  drawWorldMover(m) {
-    const { H } = this;
-    const z = this.distance(m);
-    if (m.kind === "overtake" || m.kind === "oncoming") {
-      const [x, y] = this.world(m.x, z, m.y);
-      const s = 1.26 / z * H;
-      if (x < -s || x > this.W + s)
-        return;
-      if (m.kind === "overtake")
-        this.drawJet(x, y, s, -m.dir * 0.12 + 0.05 * Math.sin(this.time * 0.5 + m.seed), 1);
-      else
-        this.drawJet(x, y, s, m.dir * 0.1, 0, true);
-      return;
-    }
-    if (m.kind === "helo") {
-      const [x, y] = this.world(m.x + m.dir * 0.6 * m.t, z, m.y);
-      this.drawHelicopter(x, y, 0.5 / z * H, m.dir, m.seed);
-      return;
-    }
-    for (let i = 0;i < m.size; i++) {
-      const dz = hash(m.seed + i * 1.7) * 0.8;
-      const [x, y] = this.world(m.x + (hash(m.seed + i) - 0.5) * 0.6, z + dz, m.y + (hash(m.seed + i * 2.3) - 0.5) * 0.1);
-      this.drawBird(x, y, 0.14 / (z + dz) * H, this.creatureTime * 40 + i * 1.3);
-    }
-  }
-  drawHelicopter(x, y, s, dir, seed) {
-    const { look } = this;
-    const body2 = this.craft(HELO);
-    if (s < 3) {
-      this.splat(x, y, body2[0], body2[1], body2[2]);
-      return;
-    }
-    const tilt = 0.05 * Math.sin(this.time * 0.21 + seed);
-    const ca = Math.cos(tilt);
-    const sa = Math.sin(tilt);
-    const f = -dir;
-    const Q = (a, b) => [x + (a * f * ca - b * sa) * s, y + (a * f * sa + b * ca) * s];
-    this.ellipse(...Q(-0.05, 0), 0.22 * s, 0.12 * s, body2[0], body2[1], body2[2], 1);
-    this.polygon([Q(0.1, -0.04), Q(0.55, -0.03), Q(0.55, 0), Q(0.1, 0.05)], body2);
-    this.polygon([Q(0.5, -0.03), Q(0.58, -0.17), Q(0.62, -0.17), Q(0.58, 0)], body2);
-    this.polygon([Q(-0.22, 0.17), Q(0.14, 0.17), Q(0.14, 0.19), Q(-0.22, 0.19)], body2);
-    this.polygon([Q(-0.05, -0.12), Q(-0.03, -0.12), Q(-0.03, -0.15), Q(-0.05, -0.15)], body2);
-    const blur2 = look.night ? look.key : look.sky[look.sky.length - 1][1];
-    this.ellipse(...Q(-0.04, -0.15), 0.5 * s, 0.035 * s, blur2[0] * 0.4 + body2[0] * 0.6, blur2[1] * 0.4 + body2[1] * 0.6, blur2[2] * 0.4 + body2[2] * 0.6, 0.45);
-    if (look.lamp > 0.5 && Math.sin(this.time * 3 + seed) > 0.6)
-      this.splat(...Q(0.6, -0.1), RED2[0] * 0.6, RED2[1] * 0.6, RED2[2] * 0.6);
-  }
-  drawBird(x, y, s, phase) {
-    const c = this.craft(BIRD);
-    if (s < 2) {
-      const k = Math.max(0.2, s / 2) * 0.5;
-      this.splat(x, y, c[0] * k, c[1] * k, c[2] * k);
-      return;
-    }
-    const beat = Math.sin(phase) * (0.3 + 0.7 * smoothstep(0.35, 0.65, noise1(phase * 0.04)));
-    const tip = -beat * 0.35 * s;
-    this.polygon([[x, y], [x - 0.5 * s, y + tip], [x - 0.15 * s, y + 0.1 * s]], c);
-    this.polygon([[x, y], [x + 0.15 * s, y + 0.1 * s], [x + 0.5 * s, y + tip]], c);
-  }
-  drawGulls(island) {
-    if (this.activity === "calm")
-      return;
-    const { A, H } = this;
-    const g = ISLAND * island.d;
-    if (g * H < 100)
-      return;
-    const bx = A / 2 + (island.x - this.lateral) * island.d;
-    const by = HORIZON10 + island.d;
-    for (let k = 0;k < 3; k++) {
-      const a = this.creatureTime * 4 + k * 2.1 + island.x;
-      const [x, y] = this.turn((bx + 0.16 * g * Math.cos(a)) * H, (by - (0.16 + 0.03 * Math.sin(a) + k * 0.02) * g) * H);
-      this.drawBird(x, y, 0.025 * g * H, this.creatureTime * 40 + k * 2);
-    }
-  }
-  drawShip(ship) {
-    const def = SHIPS[ship.kind];
-    const look = this.look;
-    if (Math.abs((ship.x - this.lateral) / ship.z) > this.A / 2 + 0.5)
-      return;
-    const P = (u, v, h) => [ship.x + u * def.beam - this.lateral, ship.z + v * def.length, h];
-    const face = (pts, color, alpha = 1) => this.face3(pts.map((p) => P(p[0], p[1], p[2])), color, alpha);
-    const c = (k) => this.craft([def.color[0] * k, def.color[1] * k, def.color[2] * k]);
-    const foam = look.night ? 0.04 : 0.16;
-    const back = ship.kind === "boat" ? -3 : -1.2;
-    for (const m of [-1, 1])
-      face([[m * 0.5, 0, 0], [m, 0, 0], [m * 5.5, back, 0], [m * 4.5, back, 0]], look.foam, foam);
-    face([[-0.6, 0, 0], [0.6, 0, 0], [1, back * 0.6, 0], [-1, back * 0.6, 0]], look.foam, foam * 0.7);
-    const d = def.deck;
-    const side = ship.x - this.lateral > 0 ? -1 : 1;
-    face([[-1, 0, d], [1, 0, d], [0.8, 0, 0], [-0.8, 0, 0]], c(0.7));
-    face([[side, 0, d], [side, 0.72, d], [0, 1, d], [0, 1, 0], [side * 0.8, 0.72, 0], [side * 0.8, 0, 0]], c(0.5));
-    face([[-1, 0, d], [1, 0, d], [1, 0.72, d], [0, 1, d], [-1, 0.72, d]], c(0.9));
-    if (ship.z > 70)
-      return;
-    for (const [u0, u1, v0, v1, h] of def.blocks) {
-      const top = d + h;
-      const us = side < 0 ? u0 : u1;
-      face([[u0, v0, d], [u1, v0, d], [u1, v0, top], [u0, v0, top]], c(0.75));
-      face([[us, v0, d], [us, v1, d], [us, v1, top], [us, v0, top]], c(0.55));
-      face([[u0, v0, top], [u1, v0, top], [u1, v1, top], [u0, v1, top]], c(1.05));
-    }
-    if (look.lamp < 0.5)
-      return;
-    const b = def.blocks[def.blocks.length - 1];
-    this.lamp3(P(0, (b[2] + b[3]) / 2, d + b[4] + 0.01), AMBER4, 0.5, 1);
-    this.lamp3(P(0, 0, d), AMBER4, 0.3, 1);
-  }
-  planform(x, y, s, heading, squash, form2, color, alpha = 1) {
-    const fx = Math.cos(heading);
-    const fy = Math.sin(heading) * squash;
-    const sx = -Math.sin(heading);
-    const sy = Math.cos(heading) * squash;
-    for (const poly of form2)
-      this.polygon(poly.map(([a, b]) => [x + (a * fx + b * sx) * s, y + (a * fy + b * sy) * s]), color, alpha);
-  }
-  drawEgg() {
-    const { A, H } = this;
-    const t = this.egg.t / EGG2;
-    const z = lerp(0.3, 6, t ** 1.4);
-    const x = (A / 2 + 0.05 / z) * H;
-    const s = 0.5 / z * H;
-    const fade = 1 - smoothstep(0.85, 1, t);
-    const y = (HORIZON10 - 0.1 - 0.45 / z) * H;
-    if (y + s * 0.3 < 0)
-      return;
-    if (this.look.night)
-      this.planform(x, y - 0.004 * H, s * 1.04, Math.PI / 2, 0.3, SPIRITFORM2, [this.look.key[0] * 0.25, this.look.key[1] * 0.25, this.look.key[2] * 0.25], fade);
-    this.planform(x, y, s, Math.PI / 2, 0.3, SPIRITFORM2, this.craft(SPIRIT2), fade);
-  }
-  drawFlares() {
-    const H = this.H;
-    for (const f of this.flares) {
-      if (f.age < 0)
-        continue;
-      const k = (1 - f.age / 2.5) ** 1.5;
-      this.disc(f.x * H, f.y * H, 0.012 * H, AMBER4[0] * 0.5, AMBER4[1] * 0.5, AMBER4[2] * 0.5, 0.5 * k);
-      this.splat(f.x * H, f.y * H, BURNER2[0] * k, BURNER2[1] * k, BURNER2[2] * k);
-    }
-  }
-  drawRain() {
-    const { W, H, A, look } = this;
-    const k = smoothstep(0.2, 1, this.gloom);
-    const color = look.night ? [0.08, 0.2, 0.5] : [0.35, 0.42, 0.45];
-    const d = this.drops;
-    const cx = A / 2 * H;
-    const cy = HORIZON10 * H;
-    for (let i = 0;i < d.length; i += 3) {
-      const r = d[i + 1] * H;
-      const ax = Math.cos(d[i]) * 1.3;
-      const ay = Math.sin(d[i]) * 0.8;
-      trail2(this.hdr, W, H, cx + ax * r, cy + ay * r, cx + ax * r * 0.82, cy + ay * r * 0.82, 0.6, color, k * (0.25 + d[i + 2] * 0.4) * smoothstep(0.05, 0.25, d[i + 1]));
-    }
-    this.touch(0, 0, W - 1, H - 1);
-  }
-}
-function norm(v) {
-  const l = Math.hypot(v[0], v[1], v[2]) || 1;
-  return [v[0] / l, v[1] / l, v[2] / l];
-}
-function cross(a, b) {
-  return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
-}
-var FACES = (() => {
-  const faces = [];
-  const body2 = JET2;
-  const dark = [JET2[0] * 0.6, JET2[1] * 0.6, JET2[2] * 0.65];
-  const ring = (z, w, top, bottom) => [
-    [-w, 0, z],
-    [-w * 0.7, top, z],
-    [w * 0.7, top, z],
-    [w, 0, z],
-    [w * 0.7, -bottom, z],
-    [-w * 0.7, -bottom, z]
-  ];
-  const rings = [ring(-0.5, 0.1, 0.05, 0.04), ring(-0.05, 0.09, 0.065, 0.045), ring(0.3, 0.05, 0.05, 0.04)];
-  const nose = [0, 0, 0.62];
-  for (let r = 0;r + 1 < rings.length; r++)
-    for (let i = 0;i < 6; i++) {
-      const j = (i + 1) % 6;
-      faces.push({ pts: [rings[r][i], rings[r + 1][i], rings[r + 1][j], rings[r][j]], color: body2, both: false });
-    }
-  for (let i = 0;i < 6; i++)
-    faces.push({ pts: [rings[2][i], nose, rings[2][(i + 1) % 6]], color: body2, both: false });
-  faces.push({ pts: [...rings[0]].reverse(), color: dark, both: false });
-  for (const m of [1, -1]) {
-    const M = (pts) => m > 0 ? pts : pts.map((p) => [-p[0], p[1], p[2]]).reverse();
-    faces.push({ pts: M([[0.08, 0, 0.14], [0.09, 0, -0.32], [0.5, -0.012, -0.3], [0.5, -0.012, -0.22]]), color: body2, both: true });
-    faces.push({ pts: M([[0.07, 0, -0.34], [0.07, 0, -0.55], [0.24, -0.01, -0.53], [0.24, -0.01, -0.46]]), color: body2, both: true });
-    faces.push({ pts: M([[0.06, 0.05, -0.2], [0.11, 0.22, -0.4], [0.11, 0.22, -0.52], [0.06, 0.05, -0.46]]), color: [JET2[0] * 0.8, JET2[1] * 0.8, JET2[2] * 0.85], both: true });
-  }
-  const glass = [0.08, 0.12, 0.2];
-  faces.push({ pts: [[-0.028, 0.06, 0.1], [0.028, 0.06, 0.1], [0, 0.095, 0.17]], color: glass, both: false });
-  faces.push({ pts: [[0.028, 0.06, 0.1], [0.022, 0.055, 0.36], [0, 0.095, 0.17]], color: glass, both: false });
-  faces.push({ pts: [[-0.028, 0.06, 0.1], [0, 0.095, 0.17], [-0.022, 0.055, 0.36]], color: glass, both: false });
-  return faces;
-})();
-var JETFORM2 = [
-  [[0.5, 0], [0.3, 0.05], [-0.5, 0.06], [-0.5, -0.06], [0.3, -0.05]],
-  [[0.12, 0.05], [-0.14, 0.42], [-0.24, 0.42], [-0.2, 0.05]],
-  [[0.12, -0.05], [-0.14, -0.42], [-0.24, -0.42], [-0.2, -0.05]],
-  [[-0.34, 0.05], [-0.48, 0.22], [-0.53, 0.22], [-0.5, 0.05]],
-  [[-0.34, -0.05], [-0.48, -0.22], [-0.53, -0.22], [-0.5, -0.05]]
-];
-var WARTHOGFORM2 = [
-  [[0.5, 0], [0.42, 0.05], [-0.4, 0.04], [-0.4, -0.04], [0.42, -0.05]],
-  [[0.08, 0.04], [0.06, 0.52], [-0.06, 0.5], [-0.08, 0.04]],
-  [[0.08, -0.04], [0.06, -0.52], [-0.06, -0.5], [-0.08, -0.04]],
-  [[-0.14, 0.04], [-0.14, 0.15], [-0.32, 0.15], [-0.32, 0.04]],
-  [[-0.14, -0.04], [-0.14, -0.15], [-0.32, -0.15], [-0.32, -0.04]],
-  [[-0.38, 0.2], [-0.38, -0.2], [-0.47, -0.2], [-0.47, 0.2]]
-];
-var mirror = (forms) => forms.flatMap((f) => [f, f.map(([a, b]) => [a, -b])]);
-var TANKERFORM2 = [
-  [[0.5, 0], [0.42, 0.04], [-0.45, 0.035], [-0.5, 0], [-0.45, -0.035], [0.42, -0.04]],
-  ...mirror([
-    [[0.12, 0.04], [-0.12, 0.48], [-0.2, 0.48], [-0.08, 0.04]],
-    [[-0.36, 0.03], [-0.46, 0.17], [-0.5, 0.17], [-0.47, 0.03]],
-    [[0.06, 0.16], [0.06, 0.2], [-0.06, 0.2], [-0.06, 0.16]],
-    [[-0.03, 0.3], [-0.03, 0.34], [-0.15, 0.34], [-0.15, 0.3]]
-  ])
-];
-var E2FORM = [
-  [[0.5, 0], [0.4, 0.05], [-0.42, 0.035], [-0.42, -0.035], [0.4, -0.05]],
-  ...mirror([
-    [[0.12, 0.04], [0.1, 0.5], [0.02, 0.5], [0, 0.04]],
-    [[-0.34, 0.03], [-0.34, 0.2], [-0.42, 0.2], [-0.42, 0.03]]
-  ])
-];
-var SPIRITFORM2 = [
-  [[0.3, 0], [-0.08, 0.55], [-0.2, 0.36], [-0.1, 0.22], [-0.22, 0.1], [-0.12, 0], [-0.22, -0.1], [-0.1, -0.22], [-0.2, -0.36], [-0.08, -0.55]]
-];
-function makeCloud(e) {
-  const n = 3 + Math.floor(Math.random() * 3);
-  const lumps = Array.from({ length: n }, (_, k) => {
-    const f = k / (n - 1) - 0.5;
-    return { x: f * 1.6 + rand(-0.1, 0.1), y: 0, r: (0.55 - Math.abs(f) * 0.5) * rand(0.8, 1.2), seed: Math.random() * 100 };
-  });
-  for (const l of lumps)
-    l.y = -l.r * 0.6;
-  const side = Math.random() < 0.5 ? -1 : 1;
-  return { e, x: side * rand(0.5, 5), y: rand(0.6, 1.1), size: rand(0.18, 0.32), top: CLOUD_E, alpha: 1, lumps, mips: [] };
-}
-function makeWisp() {
-  const c = makeCloud(0);
-  for (const l of c.lumps)
-    l.r *= 0.7;
-  const x = (Math.random() < 0.5 ? -1 : 1) * rand(1.2, 2);
-  return { ...c, e: 0.5 / Math.abs(x), x, y: rand(-0.1, 0.12), size: 0.3, top: 1.6, alpha: 0.4 };
-}
-function makeShip(z) {
-  const r = Math.random();
-  const kind = r < 0.45 ? "boat" : r < 0.8 ? "destroyer" : "supply";
-  const side = Math.random() < 0.5 ? -1 : 1;
-  return { kind, z, x: side * (kind === "boat" ? rand(0.5, 2.5) : rand(1.3, 4)) };
-}
-function cloudMips(c, H, colors, toLight) {
-  const S = 4;
-  const size = c.size * CLOUD_E * H;
-  const w = Math.ceil(size * 2.4) + 4;
-  const h = Math.ceil(size * 1.3) + 4;
-  const ox = w / 2;
-  const oy = h - 2;
-  const fine2 = new Int32Array(w * S * h * S).fill(-1);
-  const tones = [];
-  const lx = clamp(toLight * 2, -0.8, 0.8);
-  const ly = -0.75;
-  const [lit2, shade2] = colors;
-  for (const l of c.lumps) {
-    const cx = ox + l.x * size;
-    const cy = oy + l.y * size;
-    const r = l.r * size;
-    const n = 7;
-    const pts = Array.from({ length: n }, (_, k) => {
-      const a = k / n * TAU + hash(l.seed + k) * 0.5;
-      const rr = r * (0.82 + hash(l.seed + k * 2.7) * 0.3);
-      return [cx + Math.cos(a) * rr, Math.min(oy, cy + Math.sin(a) * rr * 0.85)];
-    });
-    const hub = [cx - lx * r * 0.25, cy - r * 0.2];
-    for (let k = 0;k < n; k++) {
-      const a = pts[k];
-      const b = pts[(k + 1) % n];
-      const mx = (a[0] + b[0]) / 2 - hub[0];
-      const my = (a[1] + b[1]) / 2 - hub[1];
-      const ml = Math.hypot(mx, my) || 1;
-      tones.push(clamp(0.5 + 0.6 * (mx / ml * lx + my / ml * ly) + (hash(l.seed + k * 5.1) - 0.5) * 0.2, 0, 1));
-      rasterTri2(fine2, w * S, h * S, hub[0] * S, hub[1] * S, a[0] * S, a[1] * S, b[0] * S, b[1] * S, tones.length - 1);
-    }
-  }
-  const rgba = new Float32Array(w * h * 4);
-  for (let y = 0;y < h; y++)
-    for (let x = 0;x < w; x++) {
-      let a = 0;
-      const o = (y * w + x) * 4;
-      for (let j = 0;j < S; j++)
-        for (let i = 0;i < S; i++) {
-          const id = fine2[(y * S + j) * w * S + x * S + i];
-          if (id < 0)
-            continue;
-          const t = tones[id];
-          for (let k = 0;k < 3; k++)
-            rgba[o + k] += lerp(shade2[k], lit2[k], t) / (S * S);
-          a++;
-        }
-      rgba[o + 3] = a / (S * S);
-    }
-  const mips = [{ w, h, ox, oy, rgba }];
-  while (mips.length < 6) {
-    const p = mips[mips.length - 1];
-    const mw = Math.ceil(p.w / 2);
-    const mh = Math.ceil(p.h / 2);
-    if (mw < 2 || mh < 2)
-      break;
-    const m = new Float32Array(mw * mh * 4);
-    for (let y = 0;y < mh; y++)
-      for (let x = 0;x < mw; x++)
-        for (let k = 0;k < 4; k++) {
-          let sum = 0;
-          for (let j = 0;j < 2; j++)
-            for (let i = 0;i < 2; i++)
-              sum += 2 * x + i < p.w && 2 * y + j < p.h ? p.rgba[((2 * y + j) * p.w + 2 * x + i) * 4 + k] : 0;
-          m[(y * mw + x) * 4 + k] = sum / 4;
-        }
-    mips.push({ w: mw, h: mh, ox: p.ox / 2, oy: p.oy / 2, rgba: m });
-  }
-  return mips;
-}
-function blitScaled(hdr, W, H, mips, cx, cy, scale2, alpha) {
-  if (alpha <= 0 || scale2 <= 0)
-    return;
-  const level2 = clamp(Math.floor(Math.log2(1 / Math.min(1, scale2))), 0, mips.length - 1);
-  const s = mips[level2];
-  const k = Math.min(1, scale2) * 2 ** level2;
-  const x0 = Math.max(0, Math.floor(cx - s.ox * k) - 1);
-  const x1 = Math.min(W - 1, Math.ceil(cx + (s.w - s.ox) * k) + 1);
-  const y0 = Math.max(0, Math.floor(cy - s.oy * k) - 1);
-  const y1 = Math.min(H - 1, Math.ceil(cy + (s.h - s.oy) * k) + 1);
-  if (x0 > x1 || y0 > y1)
-    return;
-  const d = s.rgba;
-  for (let y = y0;y <= y1; y++) {
-    const sy = (y + 0.5 - cy) / k + s.oy - 0.5;
-    const iy = Math.floor(sy);
-    const fy = sy - iy;
-    if (iy < -1 || iy >= s.h)
-      continue;
-    for (let x = x0;x <= x1; x++) {
-      const sx = (x + 0.5 - cx) / k + s.ox - 0.5;
-      const ix = Math.floor(sx);
-      if (ix < -1 || ix >= s.w)
-        continue;
-      const fx = sx - ix;
-      let r = 0;
-      let g = 0;
-      let b = 0;
-      let a = 0;
-      for (let q = 0;q < 4; q++) {
-        const u = ix + (q & 1);
-        const v = iy + (q >> 1);
-        if (u < 0 || v < 0 || u >= s.w || v >= s.h)
-          continue;
-        const wgt = (q & 1 ? fx : 1 - fx) * (q >> 1 ? fy : 1 - fy) * alpha;
-        const o2 = (v * s.w + u) * 4;
-        r += d[o2] * wgt;
-        g += d[o2 + 1] * wgt;
-        b += d[o2 + 2] * wgt;
-        a += d[o2 + 3] * wgt;
-      }
-      if (a <= 0)
-        continue;
-      const o = (y * W + x) * 3;
-      hdr[o] = hdr[o] * (1 - a) + r;
-      hdr[o + 1] = hdr[o + 1] * (1 - a) + g;
-      hdr[o + 2] = hdr[o + 2] * (1 - a) + b;
-    }
-  }
-  return [x0, y0, x1, y1];
-}
-function clipNear(pts, near2) {
-  const out = [];
-  for (let i = 0;i < pts.length; i++) {
-    const a = pts[i];
-    const b = pts[(i + 1) % pts.length];
-    if (a[1] >= near2)
-      out.push(a);
-    if (a[1] >= near2 !== b[1] >= near2) {
-      const t = (near2 - a[1]) / (b[1] - a[1]);
-      out.push([a[0] + (b[0] - a[0]) * t, near2, a[2] + (b[2] - a[2]) * t]);
-    }
-  }
-  return out;
-}
-function rowHeight2(d) {
-  return Math.max(0.0035, d * 0.24 + 0.003);
-}
-function resolveSamples2(ids, W, H, y0, idA, idB, mix3, cover) {
-  const SW = W * 2;
-  for (let y = Math.max(0, y0);y < H; y++)
-    for (let x = 0;x < W; x++) {
-      const o = y * 2 * SW + x * 2;
-      const r0 = ids[o];
-      const r1 = ids[o + 1];
-      const r2 = ids[o + SW];
-      const r3 = ids[o + SW + 1];
-      const i = y * W + x;
-      const n = (r0 >= 0 ? 1 : 0) + (r1 >= 0 ? 1 : 0) + (r2 >= 0 ? 1 : 0) + (r3 >= 0 ? 1 : 0);
-      cover[i] = n / 4;
       if (!n)
         continue;
-      const s0 = r0 >= 0 ? r0 : r1 >= 0 ? r1 : r2 >= 0 ? r2 : r3;
-      const s1 = r1 >= 0 ? r1 : s0;
-      const s2 = r2 >= 0 ? r2 : s0;
-      const s3 = r3 >= 0 ? r3 : s0;
-      const second = s1 !== s0 ? s1 : s2 !== s0 ? s2 : s3;
-      const n0 = 1 + (s1 === s0 ? 1 : 0) + (s2 === s0 ? 1 : 0) + (s3 === s0 ? 1 : 0);
-      const n1 = second === s0 ? 0 : (s1 === second ? 1 : 0) + (s2 === second ? 1 : 0) + (s3 === second ? 1 : 0);
-      idA[i] = n0 >= n1 ? s0 : second;
-      idB[i] = n0 >= n1 ? second : s0;
-      mix3[i] = Math.min(n0, n1) / 4;
-    }
-}
-function stitch2(a, b, xs, tris) {
-  let i = 0;
-  let j = 0;
-  while (i < a.length - 1 || j < b.length - 1) {
-    if (j >= b.length - 1 || i < a.length - 1 && xs[a[i + 1]] < xs[b[j + 1]]) {
-      tris.push(a[i], a[i + 1], b[j]);
-      i++;
-      continue;
-    }
-    tris.push(a[i], b[j + 1], b[j]);
-    j++;
-  }
-}
-function rasterTri2(ids, W, H, ax, ay, bx, by, cx, cy, id) {
-  const x0 = Math.max(0, Math.floor(Math.min(ax, bx, cx)));
-  const x1 = Math.min(W - 1, Math.ceil(Math.max(ax, bx, cx)));
-  const y0 = Math.max(0, Math.floor(Math.min(ay, by, cy)));
-  const y1 = Math.min(H - 1, Math.ceil(Math.max(ay, by, cy)));
-  const area = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
-  if (area === 0)
-    return;
-  const sign = area > 0 ? 1 : -1;
-  for (let y = y0;y <= y1; y++) {
-    const py = y + 0.5;
-    for (let x = x0;x <= x1; x++) {
-      const px = x + 0.5;
-      const w0 = ((bx - ax) * (py - ay) - (by - ay) * (px - ax)) * sign;
-      const w1 = ((cx - bx) * (py - by) - (cy - by) * (px - bx)) * sign;
-      const w2 = ((ax - cx) * (py - cy) - (ay - cy) * (px - cx)) * sign;
-      if (w0 >= 0 && w1 >= 0 && w2 >= 0)
-        ids[y * W + x] = id;
-    }
-  }
-}
-function shadeFacets2(X, Z, Y, tris, colors, sky, H, ox, oy, deep, lit2, mirror2, spec, glitter, spread, storm, gloom) {
-  const top = Math.ceil(HORIZON10 * H) - 1;
-  for (let t = 0;t < tris.length; t += 3) {
-    const a = tris[t];
-    const b = tris[t + 1];
-    const c = tris[t + 2];
-    const e1x = X[b] - X[a];
-    const e1y = Y[b] - Y[a];
-    const e1z = Z[b] - Z[a];
-    const e2x = X[c] - X[a];
-    const e2y = Y[c] - Y[a];
-    const e2z = Z[c] - Z[a];
-    let nx = e1y * e2z - e1z * e2y;
-    let ny = e1z * e2x - e1x * e2z;
-    let nz = e1x * e2y - e1y * e2x;
-    if (ny < 0) {
-      nx = -nx;
-      ny = -ny;
-      nz = -nz;
-    }
-    const tilt = Math.hypot(nx, nz) / Math.max(0.000000001, ny);
-    if (tilt > 0.7) {
-      nx *= 0.7 / tilt;
-      nz *= 0.7 / tilt;
-    }
-    const nl = Math.hypot(nx, ny, nz) || 1;
-    nx /= nl;
-    ny /= nl;
-    nz /= nl;
-    const px = (X[a] + X[b] + X[c]) / 3;
-    const pz = (Z[a] + Z[b] + Z[c]) / 3;
-    let vx = -px;
-    let vy = CAMERA3;
-    let vz = -pz;
-    const vl = Math.hypot(vx, vy, vz);
-    vx /= vl;
-    vy /= vl;
-    vz /= vl;
-    const ndv = Math.max(0, nx * vx + ny * vy + nz * vz);
-    const rx = 2 * ndv * nx - vx;
-    const ry = 2 * ndv * ny - vy;
-    const rz = 2 * ndv * nz - vz;
-    const row = ry <= 0 || rz <= 0 ? top : clamp(Math.round((HORIZON10 - FOCAL3 * ry / rz) * H), 0, top);
-    const fres = 0.12 + 0.88 * (1 - ndv) ** 3;
-    const gx = rz > 0.01 ? FOCAL3 * rx / rz - ox : 9;
-    const gy = rz > 0.01 ? HORIZON10 - FOCAL3 * ry / rz - oy : 9;
-    const s = Math.exp(-((gx / spread[0]) ** 2) - (gy / spread[1]) ** 2) * glitter * (0.3 + 0.7 * smoothstep(2, 6, pz));
-    const diffuse = clamp(0.5 + nx * 1.6 - nz * 0.8, 0, 1);
-    for (let k = 0;k < 3; k++) {
-      const body2 = deep[k] + (lit2[k] - deep[k]) * diffuse;
-      const v = (body2 * (1 - fres) + sky[row * 3 + k] * fres * mirror2) * (1 - Math.min(1, s) * 0.75) + spec[k] * s;
-      colors[t + k] = v + (storm[k] - v) * gloom;
-    }
-  }
-}
-function fillSea2(hdr, W, y0, start, idA, idB, mix3, cover, colors) {
-  const base = y0 * W * 3;
-  for (let i = Math.max(0, start);i < idA.length; i++) {
-    const w = cover[i];
-    if (w <= 0)
-      continue;
-    const a = idA[i] * 3;
-    const b = idB[i] * 3;
-    const k = mix3[i];
-    const o = base + i * 3;
-    for (let c = 0;c < 3; c++) {
-      const v = colors[a + c] + (colors[b + c] - colors[a + c]) * k;
-      hdr[o + c] += (v - hdr[o + c]) * w;
-    }
-  }
-}
-function trail2(hdr, W, H, hx, hy, tx, ty, width, color, k) {
-  const dx = tx - hx;
-  const dy = ty - hy;
-  const len2 = dx * dx + dy * dy || 1;
-  const x0 = Math.max(0, Math.floor(Math.min(hx, tx) - width - 1));
-  const x1 = Math.min(W - 1, Math.ceil(Math.max(hx, tx) + width + 1));
-  const y0 = Math.max(0, Math.floor(Math.min(hy, ty) - width - 1));
-  const y1 = Math.min(H - 1, Math.ceil(Math.max(hy, ty) + width + 1));
-  for (let y = y0;y <= y1; y++)
-    for (let x = x0;x <= x1; x++) {
-      const px = x + 0.5 - hx;
-      const py = y + 0.5 - hy;
-      const t = clamp((px * dx + py * dy) / len2, 0, 1);
-      const d = Math.hypot(px - dx * t, py - dy * t);
-      const a = Math.max(0, 1 - d / (width * (1 + t))) * (1 - t) * k;
-      if (a <= 0)
-        continue;
+      const cov = n * share * alpha;
       const o = (y * W + x) * 3;
-      hdr[o] += (color[0] - hdr[o]) * a;
-      hdr[o + 1] += (color[1] - hdr[o + 1]) * a;
-      hdr[o + 2] += (color[2] - hdr[o + 2]) * a;
+      hdr[o] += (r / n - hdr[o]) * cov;
+      hdr[o + 1] += (g / n - hdr[o + 1]) * cov;
+      hdr[o + 2] += (b / n - hdr[o + 2]) * cov;
     }
 }
-var wingsFlight = {
-  id: "wings-flight",
-  name: "Wings: Flight",
-  description: "A chase camera behind a fighter jet gliding over a low-poly sea, from Anomaly Arcade's Wings",
-  collection: "Arcade",
-  activity: {
-    calm: "The jet cruising low over faceted swells, past volcano islands and now and then over the carrier",
-    lively: "A little faster, with gentle banking turns and a wingman in formation",
-    teeming: "Two wingmen, and now and then another jet crossing far ahead"
-  },
-  scrim: {
-    day: [
-      [16, 40, 84],
-      [22, 52, 86],
-      [8, 36, 66]
-    ],
-    sunset: [
-      [26, 28, 70],
-      [66, 36, 60],
-      [18, 22, 56]
-    ],
-    night: [
-      [3, 6, 18],
-      [4, 9, 24],
-      [3, 6, 18]
-    ]
-  },
-  create: (settings) => new WingsFlight(settings)
-};
-
-// wallpapers/wings-bridge.ts
-var TIME_SCALE22 = 0.35;
-var CREATURE_SPEED15 = 0.25;
-var HORIZON11 = 0.37;
-var WS = 0.6;
-var H0 = 0.44;
-var CAMERA4 = 1;
-var FOCAL4 = 1;
-var ROW_RATE2 = 0.2;
-var F = 1.2 * WS;
-var CAMX = 0.9;
-var VANISH2 = 0.18;
-var TOP = 0.2;
-var SILL = 0.6;
-var PITCH2 = 0.0022;
-var STORM_PITCH = 0.006;
-var WIPER = 0.36;
-var LAUNCH2 = 24;
-var LANDING2 = 28;
-var FLYOVER = 16;
-var EGG3 = 10;
-var LOOKS20 = {
-  day: {
-    sky: [
-      [0, [0.07, 0.27, 0.72]],
-      [0.24, [0.2, 0.47, 0.88]],
-      [H0, [0.62, 0.82, 0.96]]
-    ],
-    orb: { x: 0, y: 0.14, r: 0.033, core: [5, 4.6, 3.8], glow: [1, 0.95, 0.8], near: 0.45, wide: 0.12 },
-    stars: 0,
-    cloud: [
-      [1.05, 1.07, 1.1],
-      [0.6, 0.7, 0.86]
-    ],
-    sea: [
-      [0.02, 0.2, 0.42],
-      [0.06, 0.52, 0.62]
-    ],
-    glitter: 0.7,
-    spread: [0.04, 0.16],
-    spec: [1.2, 1.15, 1],
-    tint: [1, 1, 1],
-    key: [1, 0.97, 0.88],
-    lamp: 0.25,
-    trail: [0.95, 0.97, 1],
-    foam: [0.85, 0.95, 1],
-    storm: [0.1, 0.16, 0.15],
-    frame: [0.022, 0.027, 0.036],
-    rim: [0.1, 0.13, 0.18],
-    drop: [0.7, 0.82, 0.95],
-    panel: [0.045, 0.05, 0.058],
-    bezel: [0.1, 0.11, 0.122],
-    screen: [0.006, 0.03, 0.04],
-    glow: [0.12, 0.62, 0.6],
-    glow2: [0.25, 0.85, 0.35],
-    lamplight: [0.6, 0.8, 1],
-    night: false
-  },
-  sunset: {
-    sky: [
-      [0, [0.12, 0.2, 0.55]],
-      [0.18, [0.3, 0.32, 0.72]],
-      [0.31, [0.75, 0.42, 0.62]],
-      [0.39, [1.1, 0.55, 0.5]],
-      [H0, [1.25, 0.72, 0.45]]
-    ],
-    orb: { x: 0, y: 0.415, r: 0.038, core: [3, 1.7, 1], glow: [1.1, 0.5, 0.35], near: 0.5, wide: 0.25 },
-    stars: 10,
-    cloud: [
-      [1.05, 0.58, 0.55],
-      [0.36, 0.27, 0.52]
-    ],
-    sea: [
-      [0.06, 0.1, 0.32],
-      [0.2, 0.26, 0.62]
-    ],
-    glitter: 0.9,
-    spread: [0.04, 0.3],
-    spec: [1.3, 0.62, 0.42],
-    tint: [0.32, 0.24, 0.34],
-    key: [1, 0.55, 0.45],
-    lamp: 0.6,
-    trail: [1.1, 0.62, 0.6],
-    foam: [1, 0.78, 0.82],
-    storm: [0.12, 0.1, 0.14],
-    frame: [0.03, 0.018, 0.04],
-    rim: [0.22, 0.1, 0.12],
-    drop: [1, 0.6, 0.55],
-    panel: [0.05, 0.04, 0.054],
-    bezel: [0.11, 0.09, 0.11],
-    screen: [0.006, 0.028, 0.038],
-    glow: [0.12, 0.55, 0.55],
-    glow2: [0.25, 0.8, 0.35],
-    lamplight: [1, 0.6, 0.4],
-    night: false
-  },
-  night: {
-    sky: [
-      [0, [0.004, 0.01, 0.04]],
-      [0.24, [0.015, 0.035, 0.11]],
-      [H0, [0.05, 0.11, 0.3]]
-    ],
-    orb: { x: 0, y: 0.15, r: 0.032, core: [1.25, 0.95, 0.42], glow: [0.5, 0.38, 0.15], near: 0.3, wide: 0.1, moon: true },
-    stars: 150,
-    cloud: [
-      [0.12, 0.18, 0.4],
-      [0.03, 0.05, 0.14]
-    ],
-    sea: [
-      [0.012, 0.04, 0.13],
-      [0.06, 0.15, 0.45]
-    ],
-    glitter: 0.6,
-    spread: [0.035, 0.3],
-    spec: [1.1, 0.68, 0.1],
-    tint: [0.06, 0.08, 0.17],
-    key: [0.35, 0.5, 1.1],
-    lamp: 1,
-    trail: [0.2, 0.42, 0.8],
-    foam: [0.1, 0.5, 0.75],
-    storm: [0.02, 0.055, 0.05],
-    frame: [0.008, 0.005, 0.014],
-    rim: [0.07, 0.012, 0.01],
-    drop: [0.08, 0.22, 0.5],
-    panel: [0.02, 0.005, 0.006],
-    bezel: [0.045, 0.01, 0.01],
-    screen: [0.03, 0.006, 0.002],
-    glow: [0.6, 0.24, 0.02],
-    glow2: [0.75, 0.08, 0.02],
-    lamplight: [0.9, 0.06, 0.015],
-    night: true
-  }
-};
-var HULL3 = [0.36, 0.38, 0.42];
-var DECK3 = [0.2, 0.21, 0.23];
-var STRIPE3 = [0.85, 0.85, 0.8];
-var YELLOW3 = [0.85, 0.66, 0.12];
-var JET3 = [0.5, 0.53, 0.58];
-var ROTOR = [0.3, 0.33, 0.36];
-var FOREST3 = [0.1, 0.3, 0.1];
-var ROCK4 = [0.3, 0.27, 0.22];
-var WHALE = [0.16, 0.19, 0.24];
-var AMBER5 = [2, 1.05, 0.3];
-var BURNER3 = [2.6, 1.15, 0.35];
-var VESTS = [
-  [0.9, 0.75, 0.1],
-  [0.2, 0.62, 0.25],
-  [0.75, 0.15, 0.1],
-  [0.15, 0.3, 0.8],
-  [0.5, 0.2, 0.62]
-];
-var OUTLINE = [[0.5, 2], [0.5, 7.6], [0.3, 8.5], [-0.4, 9], [-2.8, 9], [-3.5, 8.3], [-3.8, 7], [-3.8, 5.8], [-4.8, 4.8], [-4.8, 2]];
-var ANGLED = [[-1.3, 2], [-3.75, 7]];
-var CATS = [
-  { x: -1.1, z0: 6.1 },
-  { x: -2.4, z0: 6.4 }
-];
-var PARKED = [[-0.12, 5], [-0.12, 5.85], [-0.12, 6.7], [-0.05, 7.45]];
-
-class WingsBridge extends Canvas {
-  time = 0;
-  creatureTime = 0;
-  activity;
-  look;
-  weather;
-  raining;
-  orb;
-  stars;
-  visibleStars = [];
-  clouds;
-  storm = makeStorm();
-  mesh = { X: new Float32Array(0), Z: new Float32Array(0), height: new Float32Array(0), tris: new Int32Array(0), colors: new Float32Array(0) };
-  sea = { y0: 0, y1: 0, rows: new Float64Array(0), ids: new Int32Array(0), idA: new Int32Array(0), idB: new Int32Array(0), mix: new Float32Array(0), cov: new Float32Array(0), open: new Float32Array(0), sky: new Float32Array(0) };
-  skyBuf = new Float32Array(0);
-  deckLayer = { rgba: new Float32Array(0), idx: new Int32Array(0) };
-  frameLayer = { rgba: new Float32Array(0), idx: new Int32Array(0) };
-  lamps = [];
-  leds = [];
-  inside;
-  crew = [];
-  launch = -1;
-  nextLaunch;
-  launchCat = 0;
-  landing = -1;
-  nextLanding = 45;
-  flyover = -1;
-  flash = 0;
-  egg = { wait: eggWait() * TIME_SCALE22, t: -1 };
-  drops = [];
-  wipe = { t: -1, wait: 6 };
-  pitch = 0;
-  constructor(settings) {
-    super();
-    this.supersample = 1;
-    this.activity = settings.activity;
-    this.weather = new WeatherLayer(settings.weather ?? "clear", settings.time, HORIZON11);
-    this.raining = settings.weather === "rain";
-    const look = LOOKS20[settings.time];
-    this.look = this.weather.covered ? { ...look, glitter: look.glitter * 0.12 } : look;
-    this.orb = look.orb;
-    this.stars = makeStars(look.stars * 0.6, 1).map((star) => ({ ...star, y: TOP - 0.01 + star.y * (HORIZON11 - 0.03 - TOP) }));
-    this.clouds = makeLowPolyClouds2(7);
-    this.nextLaunch = settings.activity === "teeming" ? 4 : 20;
-    const crew = settings.activity === "calm" ? 1 : settings.activity === "lively" ? 2 : 3;
-    for (let i = 0;i < crew; i++) {
-      const [x, z] = crewSpot();
-      this.crew.push({ x, z, tx: x, tz: z, wait: rand(5, 30), vest: VESTS[i % VESTS.length], walks: settings.activity !== "calm" && i < 2 });
-    }
-    for (let i = 0;i < 200; i++)
-      this.drops.push({ x: Math.random(), y: rand(TOP, SILL), r: rand(0.0028, 0.006), age: rand(0, 20), slide: 0 });
-  }
-  step(dt) {
-    dt = clamp(dt, 0, 0.1) * TIME_SCALE22;
-    this.time += dt;
-    this.creatureTime += dt * CREATURE_SPEED15;
-    for (const c of this.clouds) {
-      c.x += c.speed * dt;
-      if (c.x > this.A + c.size)
-        c.x = -c.size;
-    }
-    if (this.gloom > 0)
-      driftClouds(this.storm, this.A, dt);
-    this.stepGloom(dt);
-    this.weather.step(dt);
-    const t = this.time;
-    this.pitch = (PITCH2 + STORM_PITCH * this.gloom) * (0.75 * Math.sin(t * 0.2) + 0.25 * Math.sin(t * 0.33 + 1));
-    this.flash = Math.max(0, this.flash - dt * 0.6);
-    this.stepCrew(dt * CREATURE_SPEED15);
-    this.stepFlights(dt);
-    this.stepRain(dt);
-    const e = this.egg;
-    if (e.t >= 0)
-      e.t = e.t + dt > EGG3 ? -1 : e.t + dt;
-    if (e.t < 0) {
-      e.wait -= dt;
-      if (e.wait <= 0) {
-        e.t = 0;
-        e.wait = eggWait(true) * TIME_SCALE22;
-      }
-    }
-  }
-  poke(_x, y) {
-    if (y > TOP && y < HORIZON11 && this.launch < 0) {
-      this.startLaunch();
-      return;
-    }
-    this.flash = 1;
-  }
-  visit() {
-    if (this.flyover < 0)
-      this.flyover = 0;
-  }
-  render() {
-    this.restore(this.skyBuf);
-    this.drawOutside();
-    composite(this.hdr, this.deckLayer);
-    this.drawLamps();
-    this.drawCrew();
-    if (this.launch >= 0)
-      this.drawLaunch();
-    if (this.landing >= 0)
-      this.drawLanding();
-    this.weather.draw(this.hdr, this.W, this.H);
-    this.drawRain();
-    composite(this.hdr, this.frameLayer);
-    this.drawConsole();
-    this.finish();
-  }
-  layout() {
-    const { A, look } = this;
-    const ox = look.night ? Math.min(A / 2 + 0.38, A - 0.2) : look.orb.y > 0.3 ? Math.min(A / 2 + 0.3, A - 0.22) : Math.max(0.15, A / 2 - 0.36);
-    const squeeze = (v) => TOP - 0.03 + v * (HORIZON11 - TOP + 0.03) / H0;
-    this.orb = { ...look.orb, x: ox / A, y: squeeze(look.orb.y), r: look.orb.r * 0.7 };
-    const sky = look.sky.map(([v, c]) => [squeeze(v), c]);
-    this.skyBuf = this.fine(() => {
-      paintSky(this.hdr, this.W, this.H, sky, this.orb, this.px);
-      this.weather.cover(this.hdr, this.W, this.H);
-    });
-    this.orbs.length = 0;
-    this.orbs.push(this.orb.x * this.W, this.orb.y * this.H, this.orb.r * this.H);
-    const deckColor = this.fine(() => this.drawDeck(false));
-    const deckCover = this.fine(() => this.drawDeck(true));
-    this.deckLayer = layer(deckColor, deckCover);
-    const frameColor = this.fine(() => this.drawFrame(false));
-    const frameCover = this.fine(() => this.drawFrame(true));
-    this.frameLayer = layer(frameColor, frameCover);
-    this.placeLamps();
-    this.placeConsole();
-    this.buildSea();
-    const { W, H } = this;
-    this.visibleStars = this.stars.filter((s) => {
-      const i = Math.floor(s.y * H) * W + Math.floor(s.x * W);
-      return frameCover[i * 3] <= 0 && deckCover[i * 3] <= 0;
-    });
-    for (const c of this.clouds)
-      c.sprite = cloudSprite2(c, H, this.weather.scud ?? look.cloud, this.orb.x * A - c.x);
-    this.hdr.set(this.skyBuf);
-    this.drawOutside(true);
-    composite(this.hdr, this.deckLayer);
-    composite(this.hdr, this.frameLayer);
-  }
-  fine(draw) {
-    const { W, H, hdr } = this;
-    const S = W * H * 4 <= 600000 ? 2 : 1;
-    this.W = W * S;
-    this.H = H * S;
-    this.px = S;
-    this.hdr = new Float32Array(this.W * this.H * 3);
-    draw();
-    const big = this.hdr;
-    this.W = W;
-    this.H = H;
-    this.px = 1;
-    this.hdr = hdr;
-    return S > 1 ? shrink2(big, W, H) : big;
-  }
-  paint(c, k = 1) {
-    const t = this.look.tint;
-    return [c[0] * t[0] * k, c[1] * t[1] * k, c[2] * t[2] * k];
-  }
-  P(x, z, h = 0) {
-    const H = this.H;
-    return [(this.A / 2 + VANISH2 + F * (x - CAMX) / z) * H, (HORIZON11 + F * (1 - h) / z) * H];
-  }
-  drawOutside(still = false) {
-    const { W, H, look } = this;
-    const dy = still ? 0 : this.pitch;
-    if (!still) {
-      if (!this.weather.covered && look.stars)
-        paintStars(this.hdr, W, H, this.visibleStars, this.time, 1, look.night ? 0.6 : 0.25, this.points);
-      this.drawClouds();
-      paintStorm(this.hdr, W, H, this.storm, look.cloud[0], look.cloud[1], this.gloom);
-    }
-    this.drawSea(dy);
-    this.drawIslands(dy);
-    if (this.activity === "teeming")
-      this.drawEscorts(dy);
-    if (still)
-      return;
-    if (this.flyover >= 0)
-      this.drawFlyover();
-    if (this.egg.t >= 0)
-      this.drawWhale(dy);
-  }
-  buildSea() {
-    const { W, H } = this;
-    const rows = [0];
-    while (rows[rows.length - 1] < (SILL + 0.05 - HORIZON11) / WS)
-      rows.push(rows[rows.length - 1] + rowHeight3(rows[rows.length - 1]));
-    const y0 = Math.floor((HORIZON11 - PITCH2 - STORM_PITCH) * H) - 1;
-    const y1 = Math.min(H, Math.ceil((SILL + 0.01) * H));
-    const n = W * (y1 - y0);
-    const sky = new Float32Array(H * 3);
-    for (let y = 0;y < Math.ceil(HORIZON11 * H); y++)
-      for (let x = 0;x < W; x += 2)
-        for (let c = 0;c < 3; c++)
-          sky[y * 3 + c] += this.skyBuf[(y * W + x) * 3 + c] / Math.ceil(W / 2);
-    const open = new Float32Array(n);
-    const d = this.deckLayer.rgba;
-    const f = this.frameLayer.rgba;
-    for (let i = 0;i < n; i++) {
-      const p = (y0 * W + i) * 4;
-      open[i] = d[p + 3] >= 0.999 || f[p + 3] >= 0.999 ? 0 : 1;
-    }
-    this.sea = { y0, y1, rows: Float64Array.from(rows), ids: new Int32Array(n * 4), idA: new Int32Array(n), idB: new Int32Array(n), mix: new Float32Array(n), cov: new Float32Array(n), open, sky };
-  }
-  drawSea(dy) {
-    const { W, H, A, look } = this;
-    const sea = this.sea;
-    const m = this.mesh;
-    const phase = this.time * ROW_RATE2;
-    const base = Math.floor(phase);
-    const f = phase - base;
-    const table = sea.rows;
-    const xs = [];
-    const ys = [];
-    const ds = [];
-    const ids = [];
-    const rows = [];
-    for (let r = 0;r + 1 < table.length; r++) {
-      const d = table[r] + (table[r + 1] - table[r]) * f;
-      const q = r - base;
-      const h = rowHeight3(d);
-      const w = Math.max(0.03, h * 2.3);
-      const row = [];
-      const i0 = Math.floor((-0.25 - A / 2 / WS) / w);
-      const i1 = Math.ceil((A / 2 / WS + 0.25) / w);
-      for (let i = i0;i <= i1; i++) {
-        row.push(xs.length);
-        xs.push((i + (hash2(i, q) - 0.5) * 0.7) * w);
-        ys.push(d + (hash2(i + 71, q) - 0.5) * 0.3 * h);
-        ds.push(d);
-        ids.push(i * 7919 + q * 104729);
-      }
-      rows.push(row);
-    }
-    const tris = [];
-    for (let k = 0;k + 1 < rows.length; k++)
-      stitch3(rows[k], rows[k + 1], xs, tris);
-    const n = xs.length;
-    if (m.X.length < n) {
-      m.X = new Float32Array(n * 2);
-      m.Z = new Float32Array(n * 2);
-      m.height = new Float32Array(n * 2);
-    }
-    const t = this.time;
-    for (let i = 0;i < n; i++) {
-      const z = FOCAL4 * CAMERA4 / Math.max(0.002, ys[i]);
-      m.Z[i] = z;
-      m.X[i] = xs[i] * z / FOCAL4;
-      const amp = Math.max(0.03, rowHeight3(ds[i]) * 2.3) * 0.45 * smoothstep(0.004, 0.08, ds[i]);
-      const id = ids[i];
-      m.height[i] = amp * ((hash(id) - 0.5) * 1.6 + 0.25 * Math.sin(t * (0.4 + hash(id + 0.5) * 0.5) + hash(id + 0.3) * TAU));
-    }
-    m.tris = Int32Array.from(tris);
-    if (m.colors.length < tris.length)
-      m.colors = new Float32Array(tris.length * 2);
-    const SW = W * 2;
-    const SH = (sea.y1 - sea.y0) * 2;
-    const top = (HORIZON11 + dy) * H - sea.y0;
-    const mid = A / 2 * H;
-    const k2 = WS * H * 2;
-    sea.ids.fill(-1);
-    for (let k = 0;k < tris.length; k += 3) {
-      const a = tris[k];
-      const b = tris[k + 1];
-      const c = tris[k + 2];
-      rasterTri3(sea.ids, SW, SH, mid * 2 + xs[a] * k2, top * 2 + ys[a] * k2, mid * 2 + xs[b] * k2, top * 2 + ys[b] * k2, mid * 2 + xs[c] * k2, top * 2 + ys[c] * k2, k / 3);
-    }
-    resolveSamples3(sea.ids, W, sea.y1 - sea.y0, sea.idA, sea.idB, sea.mix, sea.cov);
-    shadeFacets3(m.X, m.Z, m.height, m.tris, m.colors, sea.sky, H, (this.orb.x * A - A / 2) / WS, (this.orb.y - HORIZON11) / WS, look.sea[0], look.sea[1], look.spec, look.glitter * (1 - 0.8 * this.gloom), look.spread, look.storm, smoothstep(0, 1, this.gloom) * 0.7);
-    fillSea3(this.hdr, W, sea.y0, sea.idA, sea.idB, sea.mix, sea.cov, sea.open, m.colors);
-    this.touch(0, sea.y0, W - 1, sea.y1 - 1);
-  }
-  drawIslands(dy) {
-    const { A, H } = this;
-    let anchor = 0;
-    const P = (x, y) => [(anchor + (x - anchor) * WS) * H, (HORIZON11 + (y - H0) * WS + dy) * H];
-    const vx = volcanoX2(A);
-    anchor = vx;
-    const base = H0 + 0.004;
-    const lightSide = this.orb.x * A < vx ? -1 : 1;
-    const hill = [P(vx - 0.27, base), P(vx - 0.2, base - 0.02), P(vx - 0.1, base - 0.035), P(vx + 0.12, base - 0.035), P(vx + 0.22, base - 0.018), P(vx + 0.29, base)];
-    this.polygon(hill, this.facet(FOREST3, 0.4));
-    const peak = P(vx - 0.01, H0 - 0.17);
-    const feet = [-0.17, -0.1, -0.03, 0.05, 0.12, 0.18].map((dx) => P(vx + dx, base - 0.025));
-    this.polygon([peak, ...feet], this.facet(ROCK4, 0.5));
-    for (let i = 0;i + 1 < feet.length; i++) {
-      const face = (i + 0.5) / (feet.length - 1) - 0.5;
-      this.polygon([peak, feet[i], feet[i + 1]], this.facet(ROCK4, 0.5 + face * lightSide * 0.9));
-    }
-    const slope2 = (dx) => base - 0.025 - (1 - Math.abs(dx + 0.01) / 0.175) * 0.17;
-    const forest = [P(vx - 0.2, base)];
-    for (let i = 0;i <= 24; i++) {
-      const dx = -0.19 + i / 24 * 0.39;
-      const top = Math.max(slope2(dx) + 0.045, base - 0.075) - (i % 2 ? 0.006 : 0) - hash(i * 2.1) * 0.006;
-      forest.push(P(vx + dx, Math.min(top, base - 0.02)));
-    }
-    forest.push(P(vx + 0.21, base));
-    this.polygon(forest, this.facet(FOREST3, 0.5 - lightSide * 0.1));
-    for (let i = 0;i < 18; i++) {
-      const dx = -0.22 + i / 17 * 0.47;
-      const top = Math.max(slope2(dx) + 0.05, base - 0.06) + hash(i * 5.3) * 0.02;
-      if (top > base - 0.012)
-        continue;
-      const s = 0.012 + hash(i * 1.9) * 0.008;
-      this.polygon([P(vx + dx, top), P(vx + dx - s * 0.7, top + s * 1.4), P(vx + dx + s * 0.7, top + s * 1.4)], this.facet(FOREST3, hash(i) > 0.5 ? 0.75 : 0.3));
-    }
-    this.polygon([P(vx - 0.022, H0 - 0.155), P(vx - 0.01, H0 - 0.17), P(vx + 0.004, H0 - 0.157), P(vx - 0.01, H0 - 0.15)], this.facet(ROCK4, 0.15));
-    const right = Math.min(A / 2 + 0.62, A - 0.2);
-    for (const [x, w, h] of [[right, 0.08, 0.045], [right + 0.1, 0.09, 0.05]]) {
-      anchor = x;
-      const pts = [P(x - w, base), P(x - w * 0.55, base - h * 0.55), P(x - w * 0.15, base - h), P(x + w * 0.2, base - h * 0.85), P(x + w * 0.6, base - h * 0.4), P(x + w, base)];
-      this.polygon(pts, this.facet(FOREST3, 0.5));
-      for (let i = 0;i + 1 < pts.length; i++)
-        this.polygon([P(x, base), pts[i], pts[i + 1]], this.facet(FOREST3, 0.55 - (i - 2) / 3 * lightSide * 0.5));
-      for (let i = 0;i < 7; i++) {
-        const dx = (i / 6 - 0.5) * w * 1.4;
-        const top = base - h * (1 - Math.abs(dx) / w) * 0.95;
-        this.polygon([P(x + dx, top - 0.01), P(x + dx - 0.009, top + 0.008), P(x + dx + 0.009, top + 0.008)], this.facet(FOREST3, hash(i + x) > 0.5 ? 0.7 : 0.35));
-      }
-    }
-    const rx = vx - 0.3;
-    anchor = rx;
-    if (rx > 0.06)
-      for (const [dx, w, h] of [[-0.03, 0.012, 0.035], [-0.012, 0.009, 0.05], [0.004, 0.011, 0.042], [0.03, 0.008, 0.028]])
-        this.polygon([P(rx + dx - w, base), P(rx + dx - w * 0.6, base - h), P(rx + dx + w * 0.3, base - h * 1.05), P(rx + dx + w, base)], this.facet(ROCK4, 0.45 + lightSide * dx * 8));
-    for (const [x, w] of [[vx + 0.22, 0.022], [vx + 0.27, 0.014]])
-      anchor = x, this.polygon([P(x - w, base), P(x, base - 0.011), P(x + w, base)], this.facet(ROCK4, 0.3));
-  }
-  facet(c, lit2) {
-    const { look } = this;
-    const k = clamp(lit2, 0, 1);
-    if (!look.night && look.tint[0] === 1)
-      return [c[0] * (0.45 + 0.75 * k), c[1] * (0.45 + 0.75 * k), c[2] * (0.45 + 0.75 * k)];
-    const t = look.tint;
-    return [c[0] * t[0] * 2.4 + look.key[0] * 0.08 * k, c[1] * t[1] * 2.4 + look.key[1] * 0.08 * k, c[2] * t[2] * 2.4 + look.key[2] * 0.08 * k];
-  }
-  drawEscorts(dy) {
-    const { A, H } = this;
-    const hull2 = this.paint(HULL3);
-    for (const [x, s] of [[A / 2 + 0.1, 0.018], [A / 2 + 0.42, 0.024]]) {
-      const y = HORIZON11 + 0.003 + dy;
-      this.polygon([[(x - s) * H, (y - s * 0.12) * H], [(x + s) * H, (y - s * 0.12) * H], [(x + s * 0.85) * H, y * H], [(x - s * 0.8) * H, y * H]], hull2);
-      this.polygon([[(x - s * 0.25) * H, (y - s * 0.12) * H], [(x - s * 0.2) * H, (y - s * 0.4) * H], [(x + s * 0.15) * H, (y - s * 0.4) * H], [(x + s * 0.25) * H, (y - s * 0.12) * H]], hull2);
-      this.polygon([[(x - s * 0.02) * H, (y - s * 0.4) * H], [(x - s * 0.01) * H, (y - s * 0.7) * H], [(x + s * 0.01) * H, (y - s * 0.7) * H], [(x + s * 0.02) * H, (y - s * 0.4) * H]], hull2);
-    }
-  }
-  drawClouds() {
-    const { W, H, hdr } = this;
-    for (const c of this.clouds) {
-      const s = c.sprite;
-      if (!s)
-        continue;
-      const x = c.x * H - s.ox;
-      const y = c.y * H - s.oy;
-      blitSprite2(hdr, W, H, s, x, y);
-      this.touch(x - 1, y - 1, x + s.w + 1, y + s.h + 1);
-    }
-  }
-  drawDeck(mask) {
-    const P = (x, z, h = 0) => this.P(x, z, h);
-    const c = (color, k = 1) => mask ? [1, 1, 1] : this.paint(color, k);
-    const flank = [P(0.5, 2), P(0.5, 7.6), P(0.3, 8.5), P(0.18, 8.4, -1), P(0.42, 7.4, -1), P(0.42, 2, -1)];
-    this.polygon(flank, c(HULL3, 0.55));
-    if (!mask) {
-      const foam = this.look.night ? [this.look.foam[0] * 0.3, this.look.foam[1] * 0.3, this.look.foam[2] * 0.3] : this.look.foam;
-      this.polygon([P(0.18, 8.4, -1), P(0.42, 7.4, -1), P(0.42, 2, -1), P(0.62, 2, -1.02), P(0.62, 7.4, -1.02), P(0.36, 8.5, -1.02)], foam, 0.35);
-    }
-    this.polygon(OUTLINE.map(([x, z]) => P(x, z)), c(HULL3, 0.6));
-    this.polygon(OUTLINE.map(([x, z]) => P(x * 0.985 - 0.03, z - 0.04, 0.001)), c(DECK3));
-    if (mask) {
-      this.drawParked(true);
-      return;
-    }
-    const line = (x0, z0, x1, z1, w, color, k = 1) => {
-      const len2 = Math.hypot(x1 - x0, z1 - z0);
-      const nx = (z1 - z0) / len2 * w;
-      const nz = -(x1 - x0) / len2 * w;
-      this.polygon([P(x0 - nx, z0 - nz), P(x0 + nx, z0 + nz), P(x1 + nx, z1 + nz), P(x1 - nx, z1 - nz)], c(color, k));
-    };
-    for (let z = 3;z < 9; z += 0.9)
-      line(-3.7, z, 0.4, z, 0.008, DECK3, 0.75);
-    const [[ax, az], [bx, bz]] = ANGLED;
-    const len = Math.hypot(bx - ax, bz - az);
-    const ux = (bx - ax) / len;
-    const uz = (bz - az) / len;
-    for (let s = 0.2;s < len - 0.2; s += 0.45)
-      line(ax + ux * s, az + uz * s, ax + ux * (s + 0.25), az + uz * (s + 0.25), 0.03, STRIPE3, 0.8);
-    for (const side of [-1, 1]) {
-      const ox = uz * 0.75 * side;
-      const oz = -ux * 0.75 * side;
-      line(ax + ox, az + oz, ax + ux * (len - 0.4) + ox, az + uz * (len - 0.4) + oz, 0.02, STRIPE3, 0.7);
-    }
-    for (let s = 0.9;s < 2.1; s += 0.4)
-      line(ax + ux * s - uz * 0.7, az + uz * s + ux * 0.7, ax + ux * s + uz * 0.7, az + uz * s - ux * 0.7, 0.008, [0.08, 0.08, 0.08]);
-    for (const cat of CATS) {
-      line(cat.x, cat.z0 - 0.1, cat.x, 8.95, 0.018, [0.06, 0.06, 0.07]);
-      line(cat.x + 0.12, cat.z0 + 0.3, cat.x + 0.12, 8.6, 0.01, YELLOW3, 0.8);
-      this.polygon([P(cat.x - 0.5, cat.z0 - 0.75), P(cat.x + 0.5, cat.z0 - 0.75), P(cat.x + 0.5, cat.z0 - 0.5), P(cat.x - 0.5, cat.z0 - 0.5)], c(HULL3, 0.5));
-    }
-    for (let i = 0;i < 12; i++) {
-      const t0 = i / 12;
-      const t1 = (i + 1) / 12;
-      const [x0, z0] = taxiPath(t0, CATS[0]);
-      const [x1, z1] = taxiPath(t1, CATS[0]);
-      line(x0, z0, x1, z1, 0.012, YELLOW3, 0.85);
-    }
-    for (const [x0, z0, x1, z1] of [[-0.6, 3.9, 0.45, 3.9], [-0.6, 4.75, 0.45, 4.75], [-0.6, 3.9, -0.6, 4.75]])
-      line(x0, z0, x1, z1, 0.012, STRIPE3, 0.45);
-    line(-2.7, 8.9, -0.5, 8.9, 0.015, STRIPE3, 0.6);
-    line(0.4, 4, 0.4, 7.5, 0.012, STRIPE3, 0.55);
-    this.drawParked(false);
-    if (this.look.night)
-      for (const [x, z] of [[-1.2, 4.6], [-2.2, 6.6], [-0.6, 7.6], [-1.6, 8.4]]) {
-        const [px, py] = P(x, z);
-        poolOn(this.hdr, this.W, this.H, px, py, 2.2 / z * this.H * 0.35 * WS, 0.9 / z * this.H * 0.35 * WS, [1, 0.55, 0.2], 2.6);
-      }
-  }
-  drawParked(mask) {
-    const tone = (c, k = 1) => mask ? [1, 1, 1] : this.paint(c, k);
-    for (const [x, z] of PARKED) {
-      if (!mask) {
-        const [sx, sy] = this.P(x - 0.15, z + 0.05);
-        const w = F * 0.55 * this.H / z;
-        this.ellipse(sx, sy, w * 0.6, w * 0.08, 0, 0, 0, 0.35);
-      }
-      this.aircraft(x, z, 0.06, -Math.PI / 2 + 0.4, 0.85, FOLDED, tone(JET3), tone(JET3, 0.7), mask, true);
-    }
-    this.box(-1.75, 5.3, 0.2, 0.12, 0.07, 0.5, tone(YELLOW3, 0.8), mask);
-    this.box(-1.78, 5.29, 0.07, 0.1, 0.12, 0.5, tone(YELLOW3, 0.6), mask);
-    this.helicopter(-0.1, 4.4, mask);
-  }
-  box(x, z, w, d, h, angle, color, mask) {
-    const ca = Math.cos(angle);
-    const sa = Math.sin(angle);
-    const corner = (u, v, k) => this.P(x + u * ca + v * sa, z - u * sa + v * ca, k);
-    const pts = [[-w / 2, -d / 2], [w / 2, -d / 2], [w / 2, d / 2], [-w / 2, d / 2]];
-    const shade2 = (k) => mask ? [1, 1, 1] : [color[0] * k, color[1] * k, color[2] * k];
-    for (let i = 0;i < 4; i++) {
-      const [u0, v0] = pts[i];
-      const [u1, v1] = pts[(i + 1) % 4];
-      this.polygon([corner(u0, v0, 0), corner(u1, v1, 0), corner(u1, v1, h), corner(u0, v0, h)], shade2(i % 2 ? 0.55 : 0.75));
-    }
-    this.polygon(pts.map(([u, v]) => corner(u, v, h)), shade2(1));
-  }
-  helicopter(x, z, mask) {
-    const tone = (c, k = 1) => mask ? [1, 1, 1] : this.paint(c, k);
-    const at = (a, b, h) => this.P(x + b, z + a, h);
-    if (!mask)
-      this.ellipse(...this.P(x, z), F * 0.32 * this.H / z, F * 0.04 * this.H / z, 0, 0, 0, 0.35);
-    this.polygon([at(0.35, -0.12, 0), at(0.35, 0.12, 0), at(-0.25, 0.12, 0), at(-0.25, -0.12, 0), at(-0.25, -0.12, 0.2), at(0.3, -0.12, 0.2)], tone(ROTOR, 0.7));
-    this.polygon([at(0.38, -0.1, 0.17), at(0.38, 0.1, 0.17), at(0.25, 0.12, 0.24), at(-0.25, 0.12, 0.24), at(-0.25, -0.12, 0.24), at(0.25, -0.12, 0.24)], tone(ROTOR));
-    this.polygon([at(-0.25, -0.04, 0.12), at(-0.25, 0.04, 0.12), at(-0.85, 0.02, 0.17), at(-0.85, -0.02, 0.17)], tone(ROTOR, 0.85));
-    this.polygon([at(-0.8, -0.01, 0.15), at(-0.9, -0.01, 0.15), at(-0.95, -0.01, 0.38), at(-0.88, -0.01, 0.38)], tone(ROTOR, 0.6));
-    for (let i = 0;i < 4; i++) {
-      const a = 0.4 + i * TAU / 4;
-      const ca = Math.cos(a);
-      const sa = Math.sin(a);
-      this.polygon([at(0, 0, 0.28), at(ca * 0.7 - sa * 0.03, sa * 0.7 + ca * 0.03, 0.25), at(ca * 0.7 + sa * 0.03, sa * 0.7 - ca * 0.03, 0.25)], tone(ROTOR, 0.5));
-    }
-  }
-  aircraft(x, z, h, heading, L, form2, color, fin, mask = false, folded = false, alpha = 1) {
-    const fx = Math.sin(heading);
-    const fz = Math.cos(heading);
-    const at = (a, b, up = 0) => this.P(x + L * (a * fx + b * fz), z + L * (a * fz - b * fx), h + L * up);
-    for (const poly of form2)
-      this.polygon(poly.map(([a, b]) => at(a, b)), color, alpha);
-    if (!mask)
-      this.polygon([at(0.32, -0.025, 0.04), at(0.32, 0.025, 0.04), at(0.12, 0.04, 0.06), at(0.12, -0.04, 0.06)], [fin[0] * 0.5, fin[1] * 0.55, fin[2] * 0.7], alpha);
-    for (const side of [-1, 1]) {
-      this.polygon([at(-0.5, side * 0.07, 0.02), at(-0.28, side * 0.07, 0.02), at(-0.42, side * 0.12, 0.3), at(-0.5, side * 0.13, 0.3)], fin, alpha);
-      if (folded)
-        this.polygon([at(0.02, side * 0.24), at(-0.16, side * 0.24), at(-0.14, side * 0.23, 0.18), at(0, side * 0.23, 0.18)], fin, alpha);
-    }
-  }
-  placeLamps() {
-    this.lamps = [];
-    const lamp = (x, z, color, blink = 0) => {
-      const [px, py] = this.P(x, z);
-      if (py < SILL * this.H - 1)
-        this.lamps.push({ x: px, y: py, color, blink });
-    };
-    for (let i = 0;i + 1 < OUTLINE.length; i++) {
-      const [x0, z0] = OUTLINE[i];
-      const [x1, z1] = OUTLINE[i + 1];
-      const n = Math.max(1, Math.round(Math.hypot(x1 - x0, z1 - z0) / 0.7));
-      for (let k = 0;k < n; k++) {
-        const z = lerp(z0, z1, k / n);
-        if (z > 3.4)
-          lamp(lerp(x0, x1, k / n) * 0.985 - 0.03, z - 0.04, AMBER5);
-      }
-    }
-    const [[ax, az], [bx, bz]] = ANGLED;
-    for (let s = 0.1;s < 0.95; s += 0.09)
-      lamp(lerp(ax, bx, s), lerp(az, bz, s), [1.6, 1.2, 0.5]);
-    lamp(-2.8, 9, AMBER5, 0.5);
-    lamp(-0.4, 9, AMBER5, 0.6);
-    lamp(CATS[0].x, 8.95, [0.3, 1.6, 0.5], 0.35);
-  }
-  drawLamps() {
-    const { look } = this;
-    const t = this.time;
-    const flicker = this.gloom > 0.3 && hash(Math.floor(t * 2)) > 0.85 ? 0.5 : 1;
-    for (const [i, l] of this.lamps.entries()) {
-      const base = l.blink ? 0.3 + 0.7 * smoothstep(0.3, 0.9, Math.sin(t * l.blink + i)) : look.lamp < 0.5 ? 0 : 1;
-      const k = (look.lamp * base * flicker + this.flash * 0.8) * (look.night ? 0.7 : 0.5);
-      if (k <= 0.01)
-        continue;
-      this.point(l.x, l.y, l.color[0] * k, l.color[1] * k, l.color[2] * k, l.blink ? 2 : 1);
-    }
-  }
-  stepCrew(dt) {
-    for (const c of this.crew) {
-      if (!c.walks)
-        continue;
-      const dx = c.tx - c.x;
-      const dz = c.tz - c.z;
-      const d = Math.hypot(dx, dz);
-      if (d > 0.01) {
-        const s = Math.min(d, 0.35 * dt);
-        c.x += dx / d * s;
-        c.z += dz / d * s;
-        continue;
-      }
-      c.wait -= dt;
-      if (c.wait > 0)
-        continue;
-      [c.tx, c.tz] = crewSpot();
-      c.wait = rand(6, 18);
-    }
-  }
-  drawCrew() {
-    const { H, look } = this;
-    for (const [i, c] of this.crew.entries()) {
-      const [x, y] = this.P(c.x, c.z);
-      const s = F * H / c.z;
-      const w = Math.max(this.cells ? 1.6 : 0.8, s * 0.05);
-      const legs = this.paint([0.12, 0.12, 0.14], look.night ? 2.5 : 1);
-      const vest = this.paint(c.vest, look.night ? 3 : 1);
-      this.polygon([[x - w * 0.4, y], [x + w * 0.4, y], [x + w * 0.4, y - s * 0.05], [x - w * 0.4, y - s * 0.05]], legs);
-      this.polygon([[x - w * 0.5, y - s * 0.05], [x + w * 0.5, y - s * 0.05], [x + w * 0.45, y - s * 0.095], [x - w * 0.45, y - s * 0.095]], vest);
-      this.disc(x, y - s * 0.11, w * 0.4, vest[0], vest[1], vest[2], 1);
-      if (look.night)
-        this.splat(x + w * 0.7, y - s * 0.08, 0.9, 0.45 + 0.2 * (i % 2), 0.1);
-    }
-  }
-  stepFlights(dt) {
-    if (this.launch >= 0)
-      this.launch = this.launch + dt > LAUNCH2 ? -1 : this.launch + dt;
-    if (this.landing >= 0)
-      this.landing = this.landing + dt > LANDING2 ? -1 : this.landing + dt;
-    if (this.flyover >= 0)
-      this.flyover = this.flyover + dt > FLYOVER ? -1 : this.flyover + dt;
-    if (this.activity === "calm")
-      return;
-    this.nextLaunch -= dt;
-    if (this.nextLaunch <= 0 && this.launch < 0) {
-      this.startLaunch();
-      this.nextLaunch = this.activity === "teeming" ? rand(30, 45) : rand(55, 85);
-    }
-    if (this.activity !== "teeming")
-      return;
-    this.nextLanding -= dt;
-    if (this.nextLanding <= 0 && this.landing < 0 && (this.launch < 0 || this.launch > 15)) {
-      this.landing = 0;
-      this.nextLanding = rand(70, 110);
-    }
-  }
-  startLaunch() {
-    this.launch = 0;
-    this.launchCat = 0;
-  }
-  drawLaunch() {
-    const t = this.launch;
-    const cat = CATS[this.launchCat];
-    const deflector = smoothstep(6.5, 8.5, t) * (1 - smoothstep(15, 17, t));
-    if (deflector > 0) {
-      const a = deflector * 1.05;
-      const hz = cat.z0 - 0.5;
-      const P = (x2, z2, h2) => this.P(x2, z2, h2);
-      const back = hz - 0.25 * Math.cos(a);
-      const up = 0.25 * Math.sin(a);
-      this.polygon([P(cat.x - 0.5, hz, 0), P(cat.x + 0.5, hz, 0), P(cat.x + 0.5, back, up), P(cat.x - 0.5, back, up)], this.paint(HULL3, 0.85));
-    }
-    let x;
-    let z;
-    let h = 0.06;
-    let heading = 0;
-    let burn2 = 0.15;
-    let alpha = 1;
-    if (t < 7) {
-      const u = smoothstep(0, 7, t);
-      [x, z] = taxiPath(u, cat);
-      const [nx, nz] = taxiPath(Math.min(1, u + 0.02), cat);
-      heading = u < 0.98 ? Math.atan2(nx - x, nz - z) : 0;
-    } else if (t < 12.5) {
-      x = cat.x;
-      z = cat.z0;
-      burn2 = 0.15 + 0.85 * smoothstep(8, 11, t);
-    } else if (t < 14) {
-      x = cat.x;
-      z = cat.z0 + (9.1 - cat.z0) * ((t - 12.5) / 1.5) ** 2;
-      burn2 = 1;
-    } else {
-      const c = t - 14;
-      x = cat.x - c * c * 0.12;
-      z = 9.1 + 4 * c + 0.6 * c * c;
-      h = 0.06 + 0.12 * c * c;
-      heading = -Math.min(0.5, c * c * 0.02);
-      burn2 = 1;
-      alpha = 1 - smoothstep(8, 10, c);
-    }
-    this.drawSteam(cat);
-    if (alpha <= 0)
-      return;
-    this.jet(x, z, h, heading, burn2, alpha);
-  }
-  drawSteam(cat) {
-    const t = this.launch;
-    const { look } = this;
-    const color = look.night ? [0.08, 0.16, 0.32] : look.tint[0] < 1 ? [0.75, 0.5, 0.55] : [0.82, 0.85, 0.88];
-    for (let i = 0;i < 7; i++) {
-      const z = cat.z0 + 0.3 + i * 0.4;
-      const born = i < 2 ? 9 + i : 12.6 + i * 0.2;
-      const age = t - born;
-      if (age < 0 || age > 6)
-        continue;
-      const k = smoothstep(0, 0.6, age) * (1 - smoothstep(2, 6, age)) * (i < 2 ? 0.25 : 0.4);
-      const [px, py] = this.P(cat.x + age * 0.06, z, 0.05 + age * 0.06);
-      const r = (0.12 + age * 0.06) * F * this.H / z;
-      this.ellipse(px, py, r, r * 0.6, color[0], color[1], color[2], k);
-    }
-  }
-  drawLanding() {
-    const t = this.landing;
-    const [[ax, az], [bx, bz]] = ANGLED;
-    const along2 = (z2) => ax + (bx - ax) * (z2 - az) / (bz - az);
-    const toward = Math.atan2(ax - bx, az - bz);
-    let x;
-    let z;
-    let h = 0.06;
-    let heading = toward;
-    let burn2 = 0.35;
-    let light3 = 1;
-    if (t < 12) {
-      z = lerp(70, 6.6, smoothstep(0, 12, t) * 0.3 + t / 12 * 0.7);
-      x = along2(z);
-      h = 0.06 + (z - 6.6) * 0.085;
-    } else if (t < 13.5) {
-      const u = (t - 12) / 1.5;
-      z = 6.6 - 1.7 * (1 - (1 - u) ** 3);
-      x = along2(z);
-    } else if (t < 19) {
-      z = 4.9;
-      x = along2(z);
-      burn2 = 0.15;
-      light3 = 0.6;
-    } else {
-      const u = smoothstep(19, LANDING2, t);
-      const p0 = [along2(4.9), 4.9];
-      const p1 = [-1.6, 3.9];
-      const p2 = [-0.8, 2.4];
-      [x, z] = bezier(p0, p1, p2, u);
-      const [nx, nz] = bezier(p0, p1, p2, Math.min(1, u + 0.02));
-      heading = Math.atan2(nx - x, nz - z);
-      burn2 = 0.15;
-      light3 = 0.6 * (1 - u);
-    }
-    const alpha = smoothstep(0, 1.5, t);
-    this.jet(x, z, h, heading, burn2, alpha, light3);
-  }
-  jet(x, z, h, heading, burn2, alpha, light3 = 0) {
-    const { look, H } = this;
-    if (z < 2.2)
-      return;
-    const L = 0.85;
-    const s = F * L * H / z;
-    const body2 = this.craft(JET3);
-    const fin = this.craft([JET3[0] * 0.7, JET3[1] * 0.7, JET3[2] * 0.75]);
-    if (s < 2) {
-      const [px, py] = this.P(x, z, h);
-      this.splat(px, py, body2[0] * alpha, body2[1] * alpha, body2[2] * alpha);
-      if (burn2 > 0.5)
-        this.splat(px, py, BURNER3[0] * 0.3 * alpha, BURNER3[1] * 0.3 * alpha, BURNER3[2] * 0.3 * alpha);
-      return;
-    }
-    if (h < 0.5 && z < 9.2) {
-      const [sx, sy] = this.P(x, z);
-      this.ellipse(sx, sy, s * 0.45, s * 0.07, 0, 0, 0, 0.3 * alpha * (1 - h * 2));
-    }
-    this.aircraft(x, z, h, heading, L, JETFORM3, body2, fin, false, false, alpha);
-    const fx = Math.sin(heading);
-    const fz = Math.cos(heading);
-    const k = (0.3 + burn2 * 1.3) * alpha;
-    for (const side of [-1, 1]) {
-      const [bx, by] = this.P(x + L * (-0.52 * fx + side * 0.04 * fz), z + L * (-0.52 * fz - side * 0.04 * fx), h + L * 0.03);
-      if (fz > -0.3)
-        this.disc(bx, by, Math.max(1, 0.06 * s), BURNER3[0] * 0.3 * k, BURNER3[1] * 0.3 * k, BURNER3[2] * 0.3 * k, 0.6);
-      if (fz > -0.3)
-        this.disc(bx, by, Math.max(0.7, 0.025 * s), BURNER3[0] * k, BURNER3[1] * k, BURNER3[2] * k, 1);
-    }
-    if (light3 > 0) {
-      const [lx, ly] = this.P(x + L * 0.35 * fx, z + L * 0.35 * fz, h - 0.02);
-      const b = light3 * alpha * (look.night ? 1 : 0.5);
-      this.disc(lx, ly, Math.max(1, 0.03 * s), AMBER5[0] * b, AMBER5[1] * b, AMBER5[2] * b, 1);
-    }
-  }
-  craft(c) {
-    return this.paint(c, this.look.night ? 3.2 : 1);
-  }
-  drawFlyover() {
-    const { look, H } = this;
-    const t = this.flyover;
-    const lead = lerp(-26, 30, t / FLYOVER);
-    const fade = 1 - smoothstep(FLYOVER - 2, FLYOVER, t);
-    for (let i = 0;i < 5; i++) {
-      const rank = Math.ceil(i / 2);
-      const side = i % 2 ? -1 : 1;
-      const x = lead - rank * 1.6;
-      const z = 16 + side * rank * 1.1;
-      const [hx, hy] = this.P(x - 0.5, z, 3);
-      const [tx, ty] = this.P(x - 0.5 - Math.min(10, t * 2), z, 3);
-      trail3(this.hdr, this.W, H, hx, hy, tx, ty, Math.max(1, 0.003 * H), look.trail, 0.35 * fade);
-      this.touch(Math.min(hx, tx) - 3, hy - 3, Math.max(hx, tx) + 3, hy + 3);
-      this.aircraft(x, z, 3, Math.PI / 2, 0.85, JETFORM3, this.craft(JET3), this.craft(JET3), false, false, fade);
-    }
-  }
-  drawWhale(dy) {
-    const { A, H, look } = this;
-    const p = this.egg.t / EGG3;
-    const wx = Math.min(A / 2 + VANISH2 + 0.25, A - 0.12) * H;
-    const wy = (HORIZON11 + 0.035 + dy) * H;
-    const s = 0.03 * H;
-    const foam = look.night ? [look.foam[0] * 0.6, look.foam[1] * 0.6, look.foam[2] * 0.6] : look.foam;
-    const breach = clamp((p - 0.08) / 0.6, 0, 1);
-    if (breach > 0 && breach < 1) {
-      const angle = lerp(1.35, 0.15, breach);
-      const rise = Math.sin(breach * Math.PI) * 1.3;
-      const cx = wx + breach * 0.5 * s;
-      const cy = wy - rise * s;
-      const ca = Math.cos(angle);
-      const sa = Math.sin(angle);
-      const Q = (u, v) => [cx + (u * ca + v * sa * 0.3) * s, Math.min(wy, cy - (u * sa - v * ca) * s)];
-      this.polygon(WHALE_BODY.map(([u, v]) => Q(u, v)), this.craft(WHALE));
-      this.polygon(WHALE_BELLY.map(([u, v]) => Q(u, v)), this.paint(WHALE, look.night ? 5 : 2.2));
-      this.polygon(WHALE_FIN.map(([u, v]) => Q(u, v)), this.paint(WHALE, look.night ? 4 : 1.8));
-    }
-    for (const [start, k] of [[0.06, 0.6], [0.66, 1]]) {
-      const age = p - start;
-      if (age < 0 || age > 0.3)
-        continue;
-      const f = age / 0.3;
-      for (let i = 0;i < 14; i++) {
-        const a = Math.PI * (0.1 + 0.8 * hash(i * 3.1 + start));
-        const r = s * (0.4 + 1.4 * hash(i * 1.7 + start)) * Math.sqrt(f);
-        const up = Math.sin(f * Math.PI) * s * (0.6 + hash(i) * 0.8) * k;
-        this.disc(wx + start * s + Math.cos(a) * r, wy - up * Math.sin(a), s * 0.12 * (1 - f * 0.5), foam[0], foam[1], foam[2], (1 - f) * 0.7);
-      }
-      this.ellipse(wx + start * s, wy, s * (0.6 + f * 1.4), s * 0.12, foam[0], foam[1], foam[2], (1 - f) * 0.45);
-    }
-  }
-  stepRain(dt) {
-    const rain = this.rainAmount();
-    if (rain <= 0)
-      return;
-    const w = this.wipe;
-    if (w.t >= 0) {
-      w.t += dt;
-      if (w.t > 3) {
-        w.t = -1;
-        w.wait = rand(14, 22);
-      }
-    } else {
-      w.wait -= dt;
-      if (w.wait <= 0 && rain > 0.3)
-        w.t = 0;
-    }
-    const angle = this.wiperAngle();
-    const { A } = this;
-    for (const d of this.drops) {
-      d.age += dt;
-      if (d.slide > 0) {
-        d.y += d.slide * dt;
-        if (d.y > SILL)
-          Object.assign(d, { x: Math.random(), y: rand(TOP, SILL), age: 0, slide: 0 });
-        continue;
-      }
-      if (d.age > 6 && Math.random() < dt * 0.02 * rain)
-        d.slide = rand(0.02, 0.05);
-      if (angle !== undefined) {
-        const dx = d.x * A - A / 2;
-        const dy = SILL + 0.005 - d.y;
-        if (Math.hypot(dx, dy) < WIPER && Math.abs(Math.atan2(dx, dy) - angle) < 0.08)
-          d.age = 0;
-      }
-    }
-  }
-  rainAmount() {
-    return Math.max(this.raining ? 1 : 0, smoothstep(0.2, 1, this.gloom));
-  }
-  wiperAngle() {
-    const t = this.wipe.t;
-    if (t < 0)
-      return;
-    return -1.25 + 2.5 * Math.sin(t / 3 * Math.PI);
-  }
-  drawRain() {
-    const rain = this.rainAmount();
-    if (rain <= 0)
-      return;
-    const { A, H, look } = this;
-    const c = look.drop;
-    const count = Math.min(this.drops.length, Math.round(35 * A * rain));
-    for (let i = 0;i < count; i++) {
-      const d = this.drops[i];
-      const k = smoothstep(0, 4, d.age) * rain;
-      if (k <= 0.02)
-        continue;
-      const x = d.x * A * H;
-      const y = d.y * H;
-      const r = Math.max(this.cells ? 1.2 : 0.6, d.r * H);
-      if (d.slide > 0)
-        trail3(this.hdr, this.W, H, x, y, x, y - 0.04 * H, r * 0.5, c, 0.25 * k);
-      this.disc(x, y + r * 0.25, r, c[0] * 0.15, c[1] * 0.15, c[2] * 0.15, 0.3 * k);
-      this.disc(x, y - r * 0.2, r * 0.7, c[0], c[1], c[2], 0.35 * k);
-      if (d.slide > 0)
-        this.touch(x - r - 2, y - 0.04 * H - 2, x + r + 2, y + r + 2);
-    }
-    const angle = this.wiperAngle();
-    if (angle === undefined)
-      return;
-    const px = A / 2 * H;
-    const py = (SILL + 0.005) * H;
-    const ux = Math.sin(angle);
-    const uy = -Math.cos(angle);
-    const len = WIPER * H;
-    const w = this.thick(0.004, 1);
-    const arm = this.look.frame;
-    this.polygon([[px - uy * w, py + ux * w], [px + uy * w, py - ux * w], [px + ux * len + uy * w, py + uy * len - ux * w], [px + ux * len - uy * w, py + uy * len + ux * w]], arm);
-    this.polygon([[px + ux * len * 0.3 - uy * w * 1.6, py + uy * len * 0.3 + ux * w * 1.6], [px + ux * len * 0.3 + uy * w * 1.6, py + uy * len * 0.3 - ux * w * 1.6], [px + ux * len + uy * w * 1.6, py + uy * len - ux * w * 1.6], [px + ux * len - uy * w * 1.6, py + uy * len + ux * w * 1.6]], arm);
-  }
-  paneEdges(x) {
-    const side = Math.max(0, Math.abs(x - this.A / 2) - 0.5);
-    return [TOP + side * 0.035, SILL - side * 0.03];
-  }
-  mullions() {
-    const { A } = this;
-    return [0.5, 1.15, 1.8, 2.45, 3.1].flatMap((d) => [-d, d]).filter((d) => Math.abs(d) < A / 2 + 0.1);
-  }
-  spots() {
-    return spotsFor(this.A);
-  }
-  drawFrame(mask) {
-    const { A, H, look } = this;
-    const s = this.spots();
-    const col = (c, k = 1) => mask ? [1, 1, 1] : [c[0] * k, c[1] * k, c[2] * k];
-    const P = (x, y) => [x * H, y * H];
-    const rect = (x0, y0, x1, y1, c) => this.polygon([P(x0, y0), P(x1, y0), P(x1, y1), P(x0, y1)], c);
-    const xs = [0, ...this.mullions().map((d) => A / 2 + d), A / 2, A].sort((a, b) => a - b);
-    const top = (x) => this.paneEdges(x)[0];
-    const sill = (x) => this.paneEdges(x)[1];
-    const band = (y0, y1, c) => this.polygon([...xs.map((x) => P(x, y0(x))), ...xs.slice().reverse().map((x) => P(x, y1(x)))], c);
-    this.polygon([P(0, 0), P(A, 0), ...xs.slice().reverse().map((x) => P(x, top(x)))], col(look.panel));
-    rect(0, 0, A, 0.04, col(look.frame, 1.3));
-    if (!mask) {
-      for (let x = -0.3;x < A + 0.3; x += 0.24)
-        this.polygon([P(x - 0.002, 0), P(x + 0.002, 0), P(A / 2 + (x - A / 2) * 0.88 + 0.002, 0.04), P(A / 2 + (x - A / 2) * 0.88 - 0.002, 0.04)], col(look.frame, 0.55));
-      rect(0, 0.019, A, 0.022, col(look.frame, 0.6));
-      rect(A / 2 - 0.09, 0.006, A / 2 + 0.09, 0.032, col(look.frame, 2.2));
-      for (let i = 0;i < 6; i++)
-        rect(A / 2 - 0.08, 0.01 + i * 0.0035, A / 2 + 0.08, 0.0115 + i * 0.0035, col(look.frame, 0.7));
-      for (const x of [A / 2 - 0.6, A / 2 + 0.6]) {
-        rect(x - 0.08, 0.026, x + 0.08, 0.033, col(look.bezel, 1.2));
-        rect(x - 0.075, 0.028, x + 0.075, 0.031, col(look.lamplight, look.night ? 0.5 : 0.9));
-        poolOn(this.hdr, this.W, H, x * H, 0.06 * H, 0.32 * H, 0.1 * H, look.lamplight, look.night ? 0.8 : 0.5);
-      }
-    }
-    for (const y of [0.045, 0.062]) {
-      rect(0, y, A, y + 0.011, col(look.frame, 1.8));
-      if (!mask)
-        for (let k = 0;k < 3; k++)
-          rect(0, y + 0.002 + k * 0.003, A, y + 0.0035 + k * 0.003, col(k === 1 ? look.bezel : look.frame, k === 1 ? 0.9 : 3));
-    }
-    if (!mask)
-      for (let x = 0.12;x < A; x += 0.33)
-        rect(x, 0.04, x + 0.008, 0.078, col(look.bezel, 0.8));
-    band((x) => top(x) - 0.022, top, col(look.frame, 1));
-    band((x) => top(x) - 0.006, (x) => top(x) + 0.004, mask ? col(look.frame) : this.rimmed(1.6, 0.3));
-    rect(A / 2 - 0.2, 0.176, A / 2 + 0.2, 0.19, col(look.bezel, 0.7));
-    for (const d of this.mullions()) {
-      const x = A / 2 + d;
-      const lean = Math.abs(d) > 0.6 ? 0.92 : 0.95;
-      const [t, b] = this.paneEdges(x);
-      const tx = A / 2 + d * lean;
-      const inner = -Math.sign(d);
-      this.polygon([P(x - 0.026, b + 0.01), P(x + 0.026, b + 0.01), P(tx + 0.02, t - 0.02), P(tx - 0.02, t - 0.02)], col(look.frame));
-      if (!mask)
-        this.polygon([P(x + inner * 0.026, b), P(x + inner * 0.019, b), P(tx + inner * 0.014, t), P(tx + inner * 0.02, t)], this.rimmed(1.2, 0.35));
-    }
-    this.drawOverhead(s, mask);
-    this.drawConsoleBody(s, mask, band, sill);
-  }
-  drawOverhead(s, mask) {
-    const { H, look } = this;
-    const col = (c2, k = 1) => mask ? [1, 1, 1] : [c2[0] * k, c2[1] * k, c2[2] * k];
-    const P = (x, y) => [x * H, y * H];
-    const rect = (x0, y0, x1, y1, c2) => this.polygon([P(x0, y0), P(x1, y0), P(x1, y1), P(x0, y1)], c2);
-    const disc = (x, y, r, c2, ry = r) => this.ellipse(x * H, y * H, r * H, ry * H, c2[0], c2[1], c2[2], 1);
-    const g = look.glow;
-    rect(0, 0.08, this.A, 0.172, col(look.panel, 1.25));
-    rect(0, 0.08, this.A, 0.084, mask ? col(look.frame) : this.rimmed(1.6, 0.2));
-    for (const r of [s.rack, s.rack2]) {
-      if (!r)
-        continue;
-      plate(r.x0, 0.088, r.x1, 0.166);
-      rect(r.x0 + 0.008, 0.093, r.x1 - 0.008, 0.103, col(look.screen, 1.4));
-      if (!mask)
-        rect(r.x0 + 0.012, 0.096, r.x0 + 0.012 + (r.x1 - r.x0) * 0.4, 0.1, col(g, 0.6));
-      if (!mask)
-        for (const [x, y] of keyGrid(r))
-          rect(x - 0.008, y - 0.006, x + 0.008, y + 0.006, col(look.bezel, 1.3));
-    }
-    const hx = s.rack.x1 - 0.022;
-    rect(hx - 0.003, 0.166, hx + 0.003, 0.178, col(look.bezel, 1.4));
-    if (!mask) {
-      for (let i = 0;i < 7; i++) {
-        const a0 = Math.PI * (i / 7);
-        const a1 = Math.PI * ((i + 1) / 7);
-        const arc = (a, r) => P(hx - Math.cos(a) * r, 0.2 - Math.sin(a) * r * 0.9);
-        this.polygon([arc(a0, 0.026), arc(a1, 0.026), arc(a1, 0.021), arc(a0, 0.021)], col(look.frame, 3));
-      }
-    }
-    for (const side of [-1, 1])
-      disc(hx + side * 0.024, 0.205, 0.009, col(look.frame, 3.4), 0.013);
-    if (!mask)
-      this.polygon([P(hx - 0.03, 0.208), P(hx - 0.027, 0.206), P(hx - 0.005, 0.226), P(hx - 0.008, 0.229)], col(look.frame, 3.4));
-    for (const [i, cx] of s.screens.entries()) {
-      const hw = s.sw / 2;
-      plate(cx - hw, 0.092, cx + hw, 0.158);
-      rect(cx - hw + 0.007, 0.099, cx + hw - 0.007, 0.151, col(look.screen));
-      if (mask)
-        continue;
-      if (i === 0) {
-        for (let k = -4;k <= 4; k++)
-          rect(cx + k * hw * 0.2 - 0.0012, k % 2 ? 0.118 : 0.112, cx + k * hw * 0.2 + 0.0012, 0.126, col(g, 0.6));
-        rect(cx - hw + 0.012, 0.128, cx + hw - 0.012, 0.13, col(g, 0.5));
-        this.polygon([P(cx - 0.006, 0.142), P(cx + 0.006, 0.142), P(cx, 0.132)], col(look.glow2));
-        continue;
-      }
-      if (i === 1) {
-        rect(cx - hw + 0.014, 0.115, cx + hw - 0.014, 0.133, col(g, 0.35));
-        rect(cx - hw + 0.016, 0.117, cx - hw + 0.016 + (s.sw - 0.032) * 0.62, 0.131, col(g, 0.85));
-        for (let k = 0;k <= 5; k++)
-          rect(cx - hw + 0.014 + k / 5 * (s.sw - 0.028) - 0.001, 0.136, cx - hw + 0.014 + k / 5 * (s.sw - 0.028) + 0.001, 0.142, col(g, 0.5));
-        continue;
-      }
-      disc(cx, 0.125, 0.021, col(g, 0.5));
-      disc(cx, 0.125, 0.018, col(look.screen));
-      this.polygon([P(cx - 0.012, 0.132), P(cx + 0.011, 0.117), P(cx + 0.006, 0.124), P(cx + 0.015, 0.113), P(cx + 0.002, 0.12), P(cx + 0.008, 0.115)], col(look.glow2));
-    }
-    const c = s.clock;
-    plate(c.x0, 0.095, c.x1, 0.155);
-    rect(c.x0 + 0.008, 0.102, c.x1 - 0.008, 0.148, col(look.screen, 0.6));
-    if (!mask) {
-      const dw = (c.x1 - c.x0 - 0.04) / 4;
-      for (let d = 0;d < 4; d++) {
-        const x = c.x0 + 0.014 + d * dw + (d > 1 ? 0.012 : 0);
-        sevenSegment((pts, color) => this.polygon(pts, color), x, 0.108, dw * 0.7, 0.034, DIGITS[d], col(g, 0.95), col(g, 0.12), H);
-      }
-    }
-    const gd = s.guards;
-    plate(gd.x0, 0.09, gd.x1, 0.166);
-    if (!mask)
-      for (const y of [0.104, 0.138])
-        for (let x = gd.x0 + 0.018;x < gd.x1 - 0.012; x += 0.03) {
-          rect(x - 0.009, y - 0.004, x + 0.009, y + 0.018, col(look.night ? [0.2, 0.02, 0.01] : [0.32, 0.05, 0.04]));
-          rect(x - 0.006, y - 0.001, x + 0.006, y + 0.015, col(look.panel, 0.9));
-          rect(x - 0.0015, y + 0.002, x + 0.0015, y + 0.012, col(look.bezel, 1.6));
-        }
-    function plate(x0, y0, x1, y1) {
-      rect(x0, y0, x1, y1, col(look.bezel, 0.75));
-      rect(x0 + 0.003, y0 + 0.003, x1 - 0.003, y1 - 0.003, col(look.panel, 1.6));
-    }
-  }
-  drawConsoleBody(s, mask, band, sill) {
-    const { A, H, look } = this;
-    const col = (c, k = 1) => mask ? [1, 1, 1] : [c[0] * k, c[1] * k, c[2] * k];
-    const P = (x, y) => [x * H, y * H];
-    const rect = (x0, y02, x1, y12, c) => this.polygon([P(x0, y02), P(x1, y02), P(x1, y12), P(x0, y12)], c);
-    const rounded = (x0, y02, x1, y12, r, c) => this.polygon([P(x0 + r, y02), P(x1 - r, y02), P(x1, y02 + r), P(x1, y12 - r), P(x1 - r, y12), P(x0 + r, y12), P(x0, y12 - r), P(x0, y02 + r)], c);
-    const disc = (x, y, r, c, ry = r) => this.ellipse(x * H, y * H, r * H, ry * H, c[0], c[1], c[2], 1);
-    const g = look.glow;
-    const g2 = look.glow2;
-    band((x) => sill(x) - 0.006, () => 0.7, col(look.panel, 1.6));
-    rect(0, 0.7, A, 0.714, mask ? col(look.frame) : this.rimmed(2.6, 0.45));
-    rect(0, 0.714, A, 0.9, col(look.panel, 0.9));
-    rect(0, 0.9, A, 1, col(look.panel, 1.35));
-    rect(0, 0.9, A, 0.908, mask ? col(look.frame) : this.rimmed(2.4, 0.4));
-    for (const [x0, x1] of s.keyPanels) {
-      rounded(x0, 0.618, x1, 0.69, 0.006, col(look.screen, 1.6));
-      if (!mask)
-        for (let x = x0 + 0.015;x < x1 - 0.01; x += 0.03) {
-          rect(x - 0.009, 0.628, x + 0.009, 0.642, col(look.bezel, 1.1));
-          rect(x - 0.009, 0.67, x + 0.009, 0.682, col(look.bezel, 0.9));
-        }
-    }
-    const [y0, y1] = [DISPLAY_TOP, DISPLAY_BOTTOM];
-    for (const [i, dx] of s.displays.entries()) {
-      const x1 = dx + s.dw;
-      rounded(dx - 0.01, y0 - 0.012, x1 + 0.01, y1 + 0.03, 0.012, col(look.bezel));
-      rect(dx, y0, x1, y1, col(look.screen));
-      if (!mask)
-        for (let k = 0;k < 6; k++)
-          rect(dx + 0.01 + k * (s.dw - 0.02) / 6, y1 + 0.009, dx + 0.01 + (k + 0.7) * (s.dw - 0.02) / 6, y1 + 0.019, col(look.bezel, 1.8));
-      if (mask)
-        continue;
-      const cx = dx + s.dw / 2;
-      const cy = (y0 + y1) / 2;
-      if (i === 0) {
-        const r = s.scope.r;
-        disc(cx, cy, r + 0.004, col(g, 0.35));
-        disc(cx, cy, r, col(look.screen, 0.6));
-        for (const side of [-1, 1])
-          if (s.dw > 0.26)
-            for (let k = 0;k < 5; k++)
-              rect(cx + side * (r + 0.015), y0 + 0.02 + k * 0.022, cx + side * (r + 0.015) + side * (s.dw / 2 - r - 0.03), y0 + 0.027 + k * 0.022, col(g, 0.25 + 0.15 * (k % 2)));
-        continue;
-      }
-      if (i === 1) {
-        const land = [P(dx, y0), P(x1, y0), P(x1, y0 + 0.02)];
-        for (let k = 8;k >= 0; k--)
-          land.push(P(dx + k / 8 * s.dw, y0 + 0.035 + Math.sin(k * 1.1) * 0.012 + hash(k * 2.9) * 0.015 - k / 8 * 0.02));
-        this.polygon(land, col(g, 0.22));
-        for (let k = 0;k < 8; k++) {
-          const xa = dx + k / 8 * s.dw;
-          const xb = dx + (k + 1) / 8 * s.dw;
-          const ya = y0 + 0.035 + Math.sin(k * 1.1) * 0.012 + hash(k * 2.9) * 0.015 - k / 8 * 0.02;
-          const yb = y0 + 0.035 + Math.sin((k + 1) * 1.1) * 0.012 + hash((k + 1) * 2.9) * 0.015 - (k + 1) / 8 * 0.02;
-          this.polygon([P(xa, ya), P(xb, yb), P(xb, yb + 0.003), P(xa, ya + 0.003)], col(g, 0.7));
-          for (const off of [0.03, 0.06])
-            if (k % 2 === 0)
-              this.polygon([P(xa, ya + off), P(xb, yb + off), P(xb, yb + off + 0.0015), P(xa, ya + off + 0.0015)], col(g, 0.25));
-        }
-        disc(dx + s.dw * 0.72, y0 + 0.07, 0.014, col(g, 0.22), 0.009);
-        const [ax, ay, bx, by] = s.track;
-        for (let k = 0;k < 10; k += 2) {
-          const f0 = k / 10;
-          const f1 = (k + 1) / 10;
-          this.polygon([P(lerp(ax, bx, f0), lerp(ay, by, f0) - 0.001), P(lerp(ax, bx, f1), lerp(ay, by, f1) - 0.001), P(lerp(ax, bx, f1), lerp(ay, by, f1) + 0.001), P(lerp(ax, bx, f0), lerp(ay, by, f0) + 0.001)], col(g2, 0.8));
-        }
-        for (const f of [0, 0.5, 1])
-          disc(lerp(ax, bx, f), lerp(ay, by, f), 0.004, col(g2, 0.6));
-        continue;
-      }
-      if (i === 2) {
-        const L = s.dw * 0.4;
-        const Q = (u, v) => P(cx + u * L, cy + v * L);
-        const deck = [Q(-1, -0.12), Q(0.75, -0.16), Q(1, -0.08), Q(1, 0.12), Q(0.6, 0.2), Q(-0.3, 0.2), Q(-1, 0.32), Q(-1.02, 0.18)];
-        this.polygon(deck, col(g, 0.55));
-        this.polygon(deck.map(([x, y]) => [cx * H + (x - cx * H) * 0.94, cy * H + (y - cy * H) * 0.85]), col(look.screen, 1.2));
-        this.polygon([Q(-0.95, 0.24), Q(0.4, -0.02), Q(0.42, 0.01), Q(-0.92, 0.27)], col(g, 0.4));
-        this.polygon([Q(0.05, -0.2), Q(0.25, -0.2), Q(0.25, -0.13), Q(0.05, -0.13)], col(g, 0.7));
-        for (let k = 0;k < 4; k++)
-          rect(cx + (0.3 + k * 0.32 - 0.8) * L - 0.003, y1 - 0.025, cx + (0.3 + k * 0.32 - 0.8) * L + 0.003, y1 - 0.019, col(g, 0.5));
-        continue;
-      }
-      for (let k = 0;k < 4; k++) {
-        const bx = dx + 0.02 + k * (s.dw - 0.04) / 4;
-        const bw = (s.dw - 0.04) / 4 - 0.012;
-        const level2 = [0.72, 0.68, 0.8, 0.45][k];
-        rect(bx, y0 + 0.05, bx + bw, y1 - 0.012, col(g, 0.22));
-        rect(bx + 0.002, y1 - 0.014 - (y1 - y0 - 0.064) * level2, bx + bw - 0.002, y1 - 0.014, col(k === 3 ? g2 : g, 0.75));
-      }
-      for (let k = 0;k < 10; k++) {
-        const xa = dx + 0.02 + k / 10 * (s.dw - 0.04);
-        const xb = dx + 0.02 + (k + 1) / 10 * (s.dw - 0.04);
-        const ya = y0 + 0.03 - Math.sin(k * 0.9) * 0.008;
-        const yb = y0 + 0.03 - Math.sin((k + 1) * 0.9) * 0.008;
-        this.polygon([P(xa, ya), P(xb, yb), P(xb, yb + 0.002), P(xa, ya + 0.002)], col(g, 0.6));
-      }
-    }
-    const kb = s.keyboard;
-    rounded(kb.x - kb.w / 2, 0.922, kb.x + kb.w / 2, 0.978, 0.008, col(look.panel, 2.2));
-    if (!mask)
-      for (let row = 0;row < 3; row++)
-        for (let x = kb.x - kb.w / 2 + 0.012;x < kb.x + kb.w / 2 - 0.012; x += 0.016)
-          rect(x, 0.93 + row * 0.015, x + 0.011, 0.94 + row * 0.015, col(look.panel, 3.4));
-    disc(s.trackball, 0.95, 0.03, col(look.panel, 2.4), 0.02);
-    disc(s.trackball, 0.946, 0.014, col(look.screen, 4), 0.011);
-    const j = s.joystick;
-    disc(j, 0.958, 0.04, col(look.panel, 2.6), 0.016);
-    this.polygon([P(j - 0.006, 0.958), P(j + 0.006, 0.958), P(j + 0.004, 0.9), P(j - 0.004, 0.9)], col(look.frame, 3.5));
-    rounded(j - 0.013, 0.86, j + 0.013, 0.905, 0.008, col(look.panel, 3));
-    disc(j, 0.868, 0.004, col(g2, 0.8));
-    const t = s.throttle;
-    rounded(t - 0.045, 0.925, t + 0.045, 0.975, 0.01, col(look.panel, 2.4));
-    for (const dx of [-0.016, 0.016]) {
-      rect(t + dx - 0.003, 0.93, t + dx + 0.003, 0.97, col(look.frame, 2));
-      this.polygon([P(t + dx - 0.004, 0.95), P(t + dx + 0.004, 0.95), P(t + dx + 0.002, 0.9), P(t + dx - 0.006, 0.9)], col(look.bezel, 1.4));
-      rounded(t + dx - 0.012, 0.888, t + dx + 0.008, 0.904, 0.004, col(look.panel, 3.4));
-    }
-    rounded(0.012, 0.74, 0.1, 0.795, 0.015, col(look.frame, 2.4));
-    for (const x of [0.04, 0.072])
-      rect(x - 0.003, 0.795, x + 0.003, 0.812, col(look.bezel, 1));
-    this.polygon([P(0, 0.81), P(0.11, 0.812), P(0.128, 0.84), P(0.13, 1), P(0, 1)], col(look.frame, 2));
-    if (!mask)
-      this.polygon([P(0.11, 0.812), P(0.128, 0.84), P(0.13, 1), P(0.124, 1), P(0.122, 0.842), P(0.106, 0.818)], this.rimmed(2.4, 0.35));
-    rounded(0.06, 0.9, 0.2, 0.93, 0.012, col(look.frame, 2.8));
-    if (!mask && look.night)
-      for (const [x, y, rx] of [[A / 2, 0.66, 0.5], [s.joystick, 0.95, 0.15], [s.throttle, 0.95, 0.15], [A / 2, 0.95, 0.3]])
-        poolOn(this.hdr, this.W, H, x * H, y * H, rx * H, Math.min(0.1, rx * 0.5) * H, look.lamplight, 0.8);
-  }
-  rimmed(k, rim) {
-    const { frame, rim: r } = this.look;
-    return [frame[0] * k + r[0] * rim, frame[1] * k + r[1] * rim, frame[2] * k + r[2] * rim];
-  }
-  placeConsole() {
-    const s = this.spots();
-    this.inside = s;
-    const night = this.look.night;
-    const colors = night ? [
-      [1.4, 0.12, 0.04],
-      [1.3, 0.55, 0.08],
-      [0.25, 0.8, 0.3]
-    ] : [
-      [0.3, 1.3, 0.5],
-      [1.4, 0.8, 0.15],
-      [0.3, 0.9, 1.4]
-    ];
-    this.leds = [];
-    let k = 0;
-    const led = (x, y) => {
-      const h = hash(k * 7.7);
-      this.leds.push({ x: x * this.H, y: y * this.H, color: colors[Math.floor(hash(k * 3.1) * 3)], rate: h > 0.8 ? 0.5 + hash(k) : 0, phase: hash(k * 1.3) * TAU });
-      k++;
-    };
-    for (const [x0, x1] of s.keyPanels)
-      for (let x = x0 + 0.015;x < x1 - 0.01; x += 0.03)
-        led(x, 0.656);
-    for (const r of [s.rack, s.rack2])
-      if (r) {
-        for (const [x, y] of keyGrid(r))
-          if (hash(x * 13 + y * 7) > 0.45)
-            led(x, y);
-      }
-    for (const dx of s.displays)
-      led(dx + s.dw - 0.012, DISPLAY_BOTTOM + 0.014);
-  }
-  drawConsole() {
-    const { H, look } = this;
-    const s = this.inside;
-    if (!s)
-      return;
-    const t = this.time;
-    const k = look.night ? 0.35 : 0.6;
-    for (const l of this.leds) {
-      const on2 = l.rate ? smoothstep(-0.3, 0.3, Math.sin(t * l.rate + l.phase)) : 1;
-      const b = (0.25 + 0.75 * on2) * k;
-      this.point(l.x, l.y, l.color[0] * b, l.color[1] * b, l.color[2] * b, 1);
-    }
-    const sc = s.scope;
-    const box = radarScope(this.hdr, this.W, H, sc.x * H, sc.y * H, sc.r * H, sc.r * H, t * TAU / 3, look.night ? [1.1, 0.45, 0.05] : [0.2, 1, 0.9]);
-    this.touch(box[0], box[1], box[2], box[3]);
-    const [ax, ay, bx, by] = s.track;
-    const f = 0.15 + Math.floor(t / 6) * 0.02 % 0.7;
-    const ox = lerp(ax, bx, f);
-    const oy = lerp(ay, by, f);
-    const g2 = look.glow2;
-    const ang = Math.atan2(by - ay, bx - ax);
-    const ca = Math.cos(ang);
-    const sa = Math.sin(ang);
-    const Q = (u, v) => [(ox + u * ca - v * sa) * H, (oy + u * sa + v * ca) * H];
-    this.polygon([Q(0.012, 0), Q(-0.007, -0.006), Q(-0.007, 0.006)], [g2[0] * 1.3, g2[1] * 1.3, g2[2] * 1.3]);
-    const st = s.displays[2] + s.dw / 2;
-    const on = smoothstep(-0.2, 0.2, Math.sin(t * 0.8));
-    for (let i = 0;i < 5; i++) {
-      const L = s.dw * 0.4;
-      const x = st + (-0.7 + i * 0.32) * L;
-      const y = (DISPLAY_TOP + DISPLAY_BOTTOM) / 2 + (i % 2 ? 0.02 : 0.05) * L * 4;
-      const c2 = i === 2 ? AMBER5 : g2;
-      const b = i === 2 ? 0.25 + 0.35 * on : 0.6;
-      this.ellipse(x * H, y * H, 0.004 * H, 0.004 * H, c2[0] * b, c2[1] * b, c2[2] * b, 1);
-    }
-    const c = s.clock;
-    const cxm = (c.x0 + c.x1) / 2 + 0.003;
-    const colon = Math.floor(t) % 2 ? 0.95 : 0.2;
-    for (const y of [0.117, 0.133])
-      this.ellipse(cxm * H, y * H, 0.0025 * H, 0.0025 * H, look.glow[0] * colon, look.glow[1] * colon, look.glow[2] * colon, 1);
-    for (let i = 0;i < STRIP.length; i++) {
-      const x = this.A / 2 - 0.18 + i * 0.36 / (STRIP.length - 1);
-      const kind = STRIP[i];
-      const col = kind === 2 ? [1.6, 0.12, 0.05] : kind === 1 ? [1.4, 0.75, 0.1] : look.night ? [0.25, 0.7, 0.25] : [0.3, 1.2, 0.45];
-      const pulse2 = 0.85 + 0.15 * Math.sin(t * 0.6 + i) + (kind === 2 ? this.gloom * (0.6 + 0.6 * Math.sin(t * 2.5)) : 0);
-      const b = pulse2 * (look.night ? 0.3 : 0.45);
-      this.ellipse(x * H, 0.183 * H, 0.0045 * H, 0.0035 * H, col[0] * b, col[1] * b, col[2] * b, 1);
-    }
-    this.drawHeadsetCord(s.rack.x1 - 0.022 - 0.024, 0.218);
-  }
-  drawHeadsetCord(ax, ay) {
-    const { H, look } = this;
-    const a = clamp(this.pitch / PITCH2 * 0.08, -0.35, 0.35);
-    const ux = Math.sin(a);
-    const uy = Math.cos(a);
-    const cord = [look.frame[0] * 3.2, look.frame[1] * 3.2, look.frame[2] * 3.2];
-    const w = this.thick(0.0016, 0.7);
-    const len = 0.07;
-    let px = ax * H;
-    let py = ay * H;
-    for (let i = 1;i <= 11; i++) {
-      const f = i / 11;
-      const side = i === 11 ? 0 : (i % 2 ? 1 : -1) * 0.005;
-      const qx = (ax + ux * len * f + uy * side) * H;
-      const qy = (ay + uy * len * f - ux * side) * H;
-      this.polygon([[px - w, py], [px + w, py], [qx + w, qy], [qx - w, qy]], cord);
-      px = qx;
-      py = qy;
-    }
-    this.polygon([[px - w * 2, py], [px + w * 2, py], [px + w * 2, py + 0.012 * H], [px - w * 2, py + 0.012 * H]], cord);
-  }
+function mark(u, v) {
+  const U = u / 0.13;
+  const V = v / 0.13;
+  if (Math.abs(U) >= 2 || Math.abs(V) >= 2.5)
+    return 0;
+  if (Math.abs(U) >= 1 || Math.abs(V) >= 1.5)
+    return 1;
+  return V < -0.5 ? 0 : 0.35;
 }
-function spotsFor(A) {
-  const sw = clamp((A - 0.68) / 3.3, 0.1, 0.17);
-  const left = A / 2 - 1.5 * sw - 0.025;
-  const right = A / 2 + 1.5 * sw + 0.025;
-  const rack = { x0: 0.035, x1: Math.min(0.3, left - 0.04) };
-  const clock2 = { x0: right + 0.035, x1: right + 0.035 + Math.min(0.13, A - right - 0.2) };
-  const guards = { x0: Math.max(clock2.x1 + 0.03, A - 0.27), x1: A - 0.035 };
-  const rack2 = guards.x0 - clock2.x1 - 0.08 > 0.12 ? { x0: clock2.x1 + 0.04, x1: guards.x0 - 0.04 } : undefined;
-  const dw = clamp((A - 0.31) / 4, 0.2, 0.36);
-  const dx0 = A / 2 - (4 * dw + 0.09) / 2;
-  const displays = [0, 1, 2, 3].map((i) => dx0 + i * (dw + 0.03));
-  const narrow = A < 1.3;
-  const panels = Math.max(1, Math.round((Math.min(A - 0.05, A / 2 + 0.42) - Math.max(0.05, A / 2 - 0.42)) / 0.3));
-  const p0 = Math.max(0.05, A / 2 - 0.42);
-  const pw = (Math.min(A - 0.05, A / 2 + 0.42) - p0) / panels;
-  return {
-    screens: [-1, 0, 1].map((i) => A / 2 + i * (sw + 0.025)),
-    sw,
-    rack,
-    rack2,
-    clock: clock2,
-    guards,
-    keyPanels: Array.from({ length: panels }, (_, i) => [p0 + i * pw + 0.01, p0 + (i + 1) * pw - 0.01]),
-    displays,
-    dw,
-    scope: { x: displays[0] + dw / 2, y: (DISPLAY_TOP + DISPLAY_BOTTOM) / 2, r: Math.min(dw * 0.42, (DISPLAY_BOTTOM - DISPLAY_TOP) * 0.42) },
-    track: [displays[1] + dw * 0.15, DISPLAY_BOTTOM - 0.02, displays[1] + dw * 0.88, DISPLAY_TOP + 0.075],
-    keyboard: { x: A / 2, w: narrow ? 0.2 : 0.3 },
-    trackball: A / 2 - (narrow ? 0.15 : 0.21),
-    joystick: A / 2 - (narrow ? 0.29 : 0.34),
-    throttle: A / 2 + (narrow ? 0.23 : 0.3)
-  };
+function glyph2(kind, u, v) {
+  const w = 0.055;
+  if (kind === "key")
+    return Math.min(Math.abs(Math.hypot(u + 0.1, v - 0.1) - 0.1), seg(u, v, -0.03, 0.03, 0.2, -0.2), seg(u, v, 0.11, -0.11, 0.18, -0.04)) - w;
+  if (kind === "lock")
+    return Math.min(roundBox(u, v - 0.08, 0.16, 0.12, 0.03), v < 0 ? Math.abs(Math.hypot(u, v + 0.02) - 0.1) - w : Infinity);
+  if (kind === "shield")
+    return Math.max(Math.abs(u) - 0.16 + Math.max(0, v) * 0.6, v - 0.2, -v - 0.2);
+  if (kind === "person")
+    return Math.min(Math.hypot(u, v + 0.09) - 0.09, Math.max(Math.hypot(u, v - 0.24) - 0.17, v - 0.19));
+  if (kind === "globe")
+    return Math.min(Math.abs(Math.hypot(u, v) - 0.19), Math.abs(Math.hypot(u * 2.2, v) - 0.19), Math.abs(v) + (Math.abs(u) > 0.19 ? 1 : 0)) - w * 0.8;
+  if (kind === "doc")
+    return Math.min(Math.abs(roundBox(u, v, 0.14, 0.19, 0.03)) - w * 0.8, seg(u, v, -0.06, -0.04, 0.06, -0.04) - w * 0.7, seg(u, v, -0.06, 0.06, 0.06, 0.06) - w * 0.7);
+  if (kind === "terminal")
+    return Math.min(seg(u, v, -0.16, -0.11, -0.04, 0), seg(u, v, -0.04, 0, -0.16, 0.11), seg(u, v, 0.02, 0.12, 0.17, 0.12)) - w;
+  if (kind === "image")
+    return Math.min(Math.abs(roundBox(u, v, 0.19, 0.16, 0.03)) - w * 0.8, Math.hypot(u - 0.07, v + 0.05) - 0.04, seg(u, v, -0.14, 0.12, -0.02, 0) - w, seg(u, v, -0.02, 0, 0.12, 0.12) - w);
+  if (kind === "anthropic")
+    return Math.min(seg(u, v, -0.19, 0.18, -0.06, -0.18), seg(u, v, -0.06, -0.18, 0.05, 0.18), seg(u, v, -0.14, 0.06, 0.01, 0.06), seg(u, v, 0.06, -0.18, 0.19, 0.18)) - w;
+  if (kind === "meta")
+    return Math.min(Math.abs(Math.hypot((u + 0.1) * 0.85, v) - 0.1), Math.abs(Math.hypot((u - 0.1) * 0.85, v) - 0.1)) - w;
+  if (kind === "mistral")
+    return Math.min(seg(u, v, -0.18, 0.16, -0.18, -0.16), seg(u, v, -0.18, -0.16, 0, 0.04), seg(u, v, 0, 0.04, 0.18, -0.16), seg(u, v, 0.18, -0.16, 0.18, 0.16)) - w;
+  if (kind === "azure")
+    return Math.max(Math.abs(u) * 1.1 - (v + 0.2) * 0.5, v - 0.17);
+  return Math.hypot(u, v) - 0.2;
 }
-function keyGrid(r) {
-  const keys = [];
-  for (let row = 0;row < 3; row++)
-    for (let x = r.x0 + 0.02;x < r.x1 - 0.012; x += 0.026)
-      keys.push([x, 0.115 + row * 0.018]);
-  return keys;
+function seg(u, v, ax, ay, bx, by) {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const t = clamp(((u - ax) * dx + (v - ay) * dy) / (dx * dx + dy * dy || 1), 0, 1);
+  return Math.hypot(u - ax - dx * t, v - ay - dy * t);
 }
-function sevenSegment(draw, x, y, w, h, mask, on, off, H) {
-  const t = Math.min(w, h) * 0.16;
-  const half = h / 2;
-  const bars = [
-    [x + t, y, x + w - t, y + t],
-    [x + w - t, y + t, x + w, y + half - t / 2],
-    [x + w - t, y + half + t / 2, x + w, y + h - t],
-    [x + t, y + h - t, x + w - t, y + h],
-    [x, y + half + t / 2, x + t, y + h - t],
-    [x, y + t, x + t, y + half - t / 2],
-    [x + t, y + half - t / 2, x + w - t, y + half + t / 2]
-  ];
-  for (const [i, [x0, y0, x1, y1]] of bars.entries())
-    draw([
-      [x0 * H, y0 * H],
-      [x1 * H, y0 * H],
-      [x1 * H, y1 * H],
-      [x0 * H, y1 * H]
-    ], mask & 1 << i ? on : off);
+function roundBox(u, v, hx, hy, rad) {
+  const qx = Math.abs(u) - hx + rad;
+  const qy = Math.abs(v) - hy + rad;
+  return Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - rad;
 }
-var DIGITS = [6, 102, 79, 63];
-var STRIP = [0, 0, 0, 1, 0, 0, 2, 0, 0];
-var DISPLAY_TOP = 0.728;
-var DISPLAY_BOTTOM = 0.86;
-function crewSpot() {
-  return [rand(-2.4, -0.5), rand(4.6, 8.3)];
-}
-function taxiPath(u, cat) {
-  return bezier([-2.3, 4.1], [cat.x, 4.8], [cat.x, cat.z0], u);
-}
-function bezier(a, b, c, u) {
-  const v = 1 - u;
-  return [v * v * a[0] + 2 * u * v * b[0] + u * u * c[0], v * v * a[1] + 2 * u * v * b[1] + u * u * c[1]];
-}
-function volcanoX2(A) {
-  return Math.max(0.24, A / 2 - 0.25);
-}
-var JETFORM3 = [
-  [[0.5, 0], [0.3, 0.05], [-0.5, 0.06], [-0.5, -0.06], [0.3, -0.05]],
-  [[0.12, 0.05], [-0.14, 0.42], [-0.24, 0.42], [-0.2, 0.05]],
-  [[0.12, -0.05], [-0.14, -0.42], [-0.24, -0.42], [-0.2, -0.05]],
-  [[-0.34, 0.05], [-0.48, 0.22], [-0.53, 0.22], [-0.5, 0.05]],
-  [[-0.34, -0.05], [-0.48, -0.22], [-0.53, -0.22], [-0.5, -0.05]]
-];
-var FOLDED = [
-  [[0.5, 0], [0.3, 0.05], [-0.5, 0.06], [-0.5, -0.06], [0.3, -0.05]],
-  [[0.08, 0.05], [0.02, 0.24], [-0.16, 0.24], [-0.2, 0.05]],
-  [[0.08, -0.05], [0.02, -0.24], [-0.16, -0.24], [-0.2, -0.05]],
-  [[-0.34, 0.05], [-0.48, 0.22], [-0.53, 0.22], [-0.5, 0.05]],
-  [[-0.34, -0.05], [-0.48, -0.22], [-0.53, -0.22], [-0.5, -0.05]]
-];
-var WHALE_BODY = [[1, 0], [0.7, 0.16], [0.1, 0.24], [-0.5, 0.16], [-0.85, 0.06], [-1.05, 0.22], [-1.2, 0.24], [-1.02, 0], [-1.2, -0.18], [-1.05, -0.16], [-0.85, -0.05], [-0.4, -0.18], [0.4, -0.2], [0.85, -0.1]];
-var WHALE_BELLY = [[0.95, -0.04], [0.85, -0.1], [0.4, -0.2], [-0.2, -0.17], [0.3, -0.1]];
-var WHALE_FIN = [[0.45, -0.08], [0.3, -0.12], [-0.05, -0.62], [0.05, -0.64]];
-function makeLowPolyClouds2(count) {
-  return Array.from({ length: count }, (_, i) => {
-    const size = rand(0.06, 0.11) * WS;
-    const n = 3 + Math.floor(Math.random() * 3);
-    const lumps = Array.from({ length: n }, (_2, k) => {
-      const f = n === 1 ? 0 : k / (n - 1) - 0.5;
-      return { x: f * 1.6 + rand(-0.1, 0.1), y: 0, r: (0.55 - Math.abs(f) * 0.5) * rand(0.8, 1.2), seed: Math.random() * 100 };
-    });
-    for (const l of lumps)
-      l.y = -l.r * 0.6;
-    const y = i % 3 === 2 ? rand(0.32, 0.345) : rand(0.235, 0.29);
-    return { x: (i + Math.random() * 0.8) / count * 2.2, y, size: i % 3 === 2 ? size * 0.7 : size, speed: rand(0.003, 0.006), lumps };
-  });
-}
-function cloudSprite2(c, H, colors, toLight) {
-  const S = 4;
-  const size = c.size * H;
-  const w = Math.ceil(size * 2.4) + 4;
-  const h = Math.ceil(size * 1.3) + 4;
-  const ox = w / 2;
-  const oy = h - 2;
-  const fine2 = new Int32Array(w * S * h * S).fill(-1);
-  const tones = [];
-  const lx = clamp(toLight * 2, -0.8, 0.8);
-  const ly = -0.75;
-  const [lit2, shade2] = colors;
-  for (const l of c.lumps) {
-    const cx = ox + l.x * size;
-    const cy = oy + l.y * size;
-    const r = l.r * size;
-    const n = 7;
-    const pts = Array.from({ length: n }, (_, k) => {
-      const a = k / n * TAU + hash(l.seed + k) * 0.5;
-      const rr = r * (0.82 + hash(l.seed + k * 2.7) * 0.3);
-      return [cx + Math.cos(a) * rr, Math.min(oy, cy + Math.sin(a) * rr * 0.85)];
-    });
-    const hub = [cx - lx * r * 0.25, cy - r * 0.2];
-    for (let k = 0;k < n; k++) {
-      const a = pts[k];
-      const b = pts[(k + 1) % n];
-      const mx = (a[0] + b[0]) / 2 - hub[0];
-      const my = (a[1] + b[1]) / 2 - hub[1];
-      const ml = Math.hypot(mx, my) || 1;
-      const tone = clamp(0.5 + 0.6 * (mx / ml * lx + my / ml * ly) + (hash(l.seed + k * 5.1) - 0.5) * 0.2, 0, 1);
-      tones.push(tone);
-      rasterTri3(fine2, w * S, h * S, hub[0] * S, hub[1] * S, a[0] * S, a[1] * S, b[0] * S, b[1] * S, tones.length - 1);
-    }
-  }
-  const rgba = new Float32Array(w * h * 4);
-  for (let y = 0;y < h; y++)
-    for (let x = 0;x < w; x++) {
+function paintLogo(W, H, cx, cy, size) {
+  const pad = size * 0.45;
+  const x = Math.max(0, Math.floor(cx - size / 2 - pad));
+  const y = Math.max(0, Math.floor(cy - size / 2 - pad));
+  const w = Math.min(W, Math.ceil(cx + size / 2 + pad)) - x;
+  const h = Math.min(H, Math.ceil(cy + size / 2 + pad)) - y;
+  const rgba = new Float32Array(Math.max(0, w * h * 4));
+  const ss = 4;
+  const block = 0.46 / 4;
+  for (let py = 0;py < h; py++)
+    for (let px = 0;px < w; px++) {
       let r = 0;
       let g = 0;
       let b = 0;
       let a = 0;
-      for (let j = 0;j < S; j++)
-        for (let i = 0;i < S; i++) {
-          const id = fine2[(y * S + j) * w * S + x * S + i];
-          if (id < 0)
+      for (let j = 0;j < ss; j++)
+        for (let i = 0;i < ss; i++) {
+          const u = (x + px + (i + 0.5) / ss - cx) / size;
+          const v = (y + py + (j + 0.5) / ss - cy) / size;
+          const body2 = roundBox(u, v, 0.5, 0.5, 0.22);
+          if (body2 < 0) {
+            const U = u / block;
+            const V = v / block;
+            const ring = Math.abs(U) < 2 && Math.abs(V) < 2.5;
+            const counter = Math.abs(U) < 1 && Math.abs(V) < 1.5;
+            const shade2 = 0.035 + 0.035 * smoothstep(0.5, -0.5, v) + 0.25 * smoothstep(-0.03, 0, body2) * smoothstep(0.1, -0.5, v);
+            const c = !ring ? [shade2, shade2, shade2 * 1.08] : counter && V < -0.5 ? [0.01, 0.01, 0.012] : counter ? [0.3, 0.3, 0.32] : [0.82 - 0.08 * (V / 2.5), 0.82 - 0.08 * (V / 2.5), 0.86 - 0.08 * (V / 2.5)];
+            r += c[0];
+            g += c[1];
+            b += c[2];
+            a += 1;
             continue;
-          const t = tones[id];
-          r += lerp(shade2[0], lit2[0], t);
-          g += lerp(shade2[1], lit2[1], t);
-          b += lerp(shade2[2], lit2[2], t);
-          a++;
+          }
+          if (roundBox(u, v - 0.04, 0.5, 0.5, 0.22) < 0) {
+            r += 0.006;
+            g += 0.006;
+            b += 0.007;
+            a += 1;
+            continue;
+          }
+          a += 0.9 * Math.exp(-((body2 / 0.22) ** 2));
         }
-      const o = (y * w + x) * 4;
-      rgba[o] = r / (S * S);
-      rgba[o + 1] = g / (S * S);
-      rgba[o + 2] = b / (S * S);
-      rgba[o + 3] = a / (S * S);
+      const o = (py * w + px) * 4;
+      const k = 1 / (ss * ss);
+      rgba[o] = r * k;
+      rgba[o + 1] = g * k;
+      rgba[o + 2] = b * k;
+      rgba[o + 3] = a * k;
     }
-  return { w, h, ox, oy, rgba };
+  return { x, y, w, h, rgba };
 }
-function blitSprite2(hdr, W, H, s, x, y) {
-  const x0 = Math.floor(x);
-  const y0 = Math.floor(y);
-  const fx = x - x0;
-  const fy = y - y0;
-  const d = s.rgba;
-  for (let j = 0;j <= s.h; j++) {
-    const py = y0 + j;
-    if (py < 0 || py >= H)
+function composite(hdr, W, H, x, y, w, h, rgba) {
+  for (let py = 0;py < h; py++) {
+    if (y + py < 0 || y + py >= H)
       continue;
-    for (let i = 0;i <= s.w; i++) {
-      const px = x0 + i;
-      if (px < 0 || px >= W)
+    for (let px = 0;px < w; px++) {
+      if (x + px < 0 || x + px >= W)
         continue;
-      let r = 0;
-      let g = 0;
-      let b = 0;
-      let a = 0;
-      for (let q = 0;q < 4; q++) {
-        const sx = i - (q & 1);
-        const sy = j - (q >> 1);
-        if (sx < 0 || sy < 0 || sx >= s.w || sy >= s.h)
-          continue;
-        const k = (q & 1 ? fx : 1 - fx) * (q >> 1 ? fy : 1 - fy);
-        const o2 = (sy * s.w + sx) * 4;
-        r += d[o2] * k;
-        g += d[o2 + 1] * k;
-        b += d[o2 + 2] * k;
-        a += d[o2 + 3] * k;
-      }
-      if (a <= 0)
-        continue;
-      const o = (py * W + px) * 3;
-      hdr[o] = hdr[o] * (1 - a) + r;
-      hdr[o + 1] = hdr[o + 1] * (1 - a) + g;
-      hdr[o + 2] = hdr[o + 2] * (1 - a) + b;
+      const s = (py * w + px) * 4;
+      const o = ((y + py) * W + x + px) * 3;
+      const keep = 1 - rgba[s + 3];
+      hdr[o] = hdr[o] * keep + rgba[s];
+      hdr[o + 1] = hdr[o + 1] * keep + rgba[s + 1];
+      hdr[o + 2] = hdr[o + 2] * keep + rgba[s + 2];
     }
   }
 }
-function shrink2(big, W, H) {
-  const out = new Float32Array(W * H * 3);
-  const BW = W * 2;
-  for (let y = 0;y < H; y++)
-    for (let x = 0;x < W; x++) {
-      const a = (y * 2 * BW + x * 2) * 3;
-      const b = a + BW * 3;
-      const o = (y * W + x) * 3;
-      for (let c = 0;c < 3; c++)
-        out[o + c] = (big[a + c] + big[a + 3 + c] + big[b + c] + big[b + 3 + c]) * 0.25;
-    }
-  return out;
-}
-function layer(color, cover) {
-  const n = color.length / 3;
-  const rgba = new Float32Array(n * 4);
-  const idx = [];
-  for (let i = 0;i < n; i++) {
-    const a = clamp(cover[i * 3], 0, 1);
-    rgba[i * 4] = color[i * 3];
-    rgba[i * 4 + 1] = color[i * 3 + 1];
-    rgba[i * 4 + 2] = color[i * 3 + 2];
-    rgba[i * 4 + 3] = a;
-    if (a > 0 || color[i * 3] + color[i * 3 + 1] + color[i * 3 + 2] > 0)
-      idx.push(i);
-  }
-  return { rgba, idx: Int32Array.from(idx) };
-}
-function composite(hdr, l) {
-  const d = l.rgba;
-  const idx = l.idx;
-  for (let k = 0;k < idx.length; k++) {
-    const i = idx[k];
-    const o = i * 3;
-    const q = i * 4;
-    const a = 1 - d[q + 3];
-    hdr[o] = hdr[o] * a + d[q];
-    hdr[o + 1] = hdr[o + 1] * a + d[q + 1];
-    hdr[o + 2] = hdr[o + 2] * a + d[q + 2];
-  }
-}
-function poolOn(hdr, W, H, cx, cy, rx, ry, color, k, from = 0) {
-  const x0 = Math.max(0, Math.floor(cx - rx));
-  const x1 = Math.min(W - 1, Math.ceil(cx + rx));
-  const y0 = Math.max(0, Math.floor(Math.max(from, cy - ry)));
-  const y1 = Math.min(H - 1, Math.ceil(cy + ry));
-  for (let y = y0;y <= y1; y++)
-    for (let x = x0;x <= x1; x++) {
-      const d = 1 - ((x + 0.5 - cx) / rx) ** 2 - ((y + 0.5 - cy) / ry) ** 2;
-      if (d <= 0)
-        continue;
-      const o = (y * W + x) * 3;
-      if (hdr[o] + hdr[o + 1] + hdr[o + 2] <= 0)
-        continue;
-      const f = d * d * k;
-      hdr[o] += color[0] * f * 0.1;
-      hdr[o + 1] += color[1] * f * 0.1;
-      hdr[o + 2] += color[2] * f * 0.1;
-    }
-}
-function radarScope(hdr, W, H, cx, cy, rx, ry, sweep, color) {
-  const x0 = Math.max(0, Math.floor(cx - rx));
-  const x1 = Math.min(W - 1, Math.ceil(cx + rx));
-  const y0 = Math.max(0, Math.floor(cy - ry));
-  const y1 = Math.min(H - 1, Math.ceil(cy + ry));
-  const s = sweep % TAU;
-  for (let y = y0;y <= y1; y++)
-    for (let x = x0;x <= x1; x++) {
-      const u = (x + 0.5 - cx) / rx;
-      const v = (y + 0.5 - cy) / ry;
-      const r = Math.hypot(u, v);
-      if (r >= 1)
-        continue;
-      const edge = smoothstep(1, 0.9, r);
-      const a = Math.atan2(u, -v);
-      let behind = (s - a) % TAU;
-      if (behind < 0)
-        behind += TAU;
-      const glow2 = Math.exp(-behind / 0.9) * smoothstep(TAU, TAU - 0.15, behind) * 0.22;
-      const ring = Math.max(Math.exp(-(((r - 0.5) / 0.04) ** 2)), Math.exp(-(((r - 0.85) / 0.04) ** 2))) * 0.05;
-      let blip = 0;
-      for (let b = 0;b < BLIPS.length; b += 2) {
-        const d = Math.hypot(u - BLIPS[b], v - BLIPS[b + 1]);
-        if (d > 0.12)
-          continue;
-        let since = (s - Math.atan2(BLIPS[b], -BLIPS[b + 1])) % TAU;
-        if (since < 0)
-          since += TAU;
-        blip = Math.max(blip, Math.exp(-((d / 0.07) ** 2)) * Math.exp(-since / 2.5) * 0.9);
-      }
-      const k = (glow2 + ring + blip) * edge;
-      const o = (y * W + x) * 3;
-      hdr[o] += color[0] * k;
-      hdr[o + 1] += color[1] * k;
-      hdr[o + 2] += color[2] * k;
-    }
-  return [x0, y0, x1, y1];
-}
-var BLIPS = [0.4, -0.3, -0.55, 0.2, 0.15, 0.6, -0.2, -0.65];
-function rowHeight3(d) {
-  return Math.max(0.005, d * 0.17 + 0.003);
-}
-function resolveSamples3(ids, W, H, idA, idB, mix3, cov) {
-  const SW = W * 2;
-  for (let y = 0;y < H; y++)
-    for (let x = 0;x < W; x++) {
-      const o = y * 2 * SW + x * 2;
-      const s0 = ids[o];
-      const s1 = ids[o + 1];
-      const s2 = ids[o + SW];
-      const s3 = ids[o + SW + 1];
-      const i = y * W + x;
-      const hit = (s0 >= 0 ? 1 : 0) + (s1 >= 0 ? 1 : 0) + (s2 >= 0 ? 1 : 0) + (s3 >= 0 ? 1 : 0);
-      cov[i] = hit / 4;
-      if (!hit)
-        continue;
-      const first = s0 >= 0 ? s0 : s1 >= 0 ? s1 : s2 >= 0 ? s2 : s3;
-      const second = s1 >= 0 && s1 !== first ? s1 : s2 >= 0 && s2 !== first ? s2 : s3 >= 0 && s3 !== first ? s3 : first;
-      const n0 = (s0 === first ? 1 : 0) + (s1 === first ? 1 : 0) + (s2 === first ? 1 : 0) + (s3 === first ? 1 : 0);
-      const n1 = hit - n0;
-      idA[i] = n0 >= n1 ? first : second;
-      idB[i] = n0 >= n1 ? second : first;
-      mix3[i] = Math.min(n0, n1) / hit;
-    }
-}
-function stitch3(a, b, xs, tris) {
-  let i = 0;
-  let j = 0;
-  while (i < a.length - 1 || j < b.length - 1) {
-    if (j >= b.length - 1 || i < a.length - 1 && xs[a[i + 1]] < xs[b[j + 1]]) {
-      tris.push(a[i], a[i + 1], b[j]);
-      i++;
-      continue;
-    }
-    tris.push(a[i], b[j + 1], b[j]);
-    j++;
-  }
-}
-function rasterTri3(ids, W, H, ax, ay, bx, by, cx, cy, id) {
-  const x0 = Math.max(0, Math.floor(Math.min(ax, bx, cx)));
-  const x1 = Math.min(W - 1, Math.ceil(Math.max(ax, bx, cx)));
-  const y0 = Math.max(0, Math.floor(Math.min(ay, by, cy)));
-  const y1 = Math.min(H - 1, Math.ceil(Math.max(ay, by, cy)));
-  const area = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
-  if (area === 0)
-    return;
-  const sign = area > 0 ? 1 : -1;
-  for (let y = y0;y <= y1; y++) {
-    const py = y + 0.5;
-    for (let x = x0;x <= x1; x++) {
-      const px = x + 0.5;
-      const w0 = ((bx - ax) * (py - ay) - (by - ay) * (px - ax)) * sign;
-      const w1 = ((cx - bx) * (py - by) - (cy - by) * (px - bx)) * sign;
-      const w2 = ((ax - cx) * (py - cy) - (ay - cy) * (px - cx)) * sign;
-      if (w0 >= 0 && w1 >= 0 && w2 >= 0)
-        ids[y * W + x] = id;
-    }
-  }
-}
-function shadeFacets3(X, Z, Y, tris, colors, sky, H, ox, oy, deep, lit2, spec, glitter, spread, storm, gloom) {
-  const top = Math.ceil(HORIZON11 * H) - 1;
-  for (let t = 0, f = 0;t < tris.length; t += 3, f += 3) {
-    const a = tris[t];
-    const b = tris[t + 1];
-    const c = tris[t + 2];
-    const e1x = X[b] - X[a];
-    const e1y = Y[b] - Y[a];
-    const e1z = Z[b] - Z[a];
-    const e2x = X[c] - X[a];
-    const e2y = Y[c] - Y[a];
-    const e2z = Z[c] - Z[a];
-    let nx = e1y * e2z - e1z * e2y;
-    let ny = e1z * e2x - e1x * e2z;
-    let nz = e1x * e2y - e1y * e2x;
-    if (ny < 0) {
-      nx = -nx;
-      ny = -ny;
-      nz = -nz;
-    }
-    const tilt = Math.hypot(nx, nz) / Math.max(0.000000001, ny);
-    if (tilt > 0.7) {
-      nx *= 0.7 / tilt;
-      nz *= 0.7 / tilt;
-    }
-    const nl = Math.hypot(nx, ny, nz) || 1;
-    nx /= nl;
-    ny /= nl;
-    nz /= nl;
-    const px = (X[a] + X[b] + X[c]) / 3;
-    const pz = (Z[a] + Z[b] + Z[c]) / 3;
-    let vx = -px;
-    let vy = CAMERA4;
-    let vz = -pz;
-    const vl = Math.hypot(vx, vy, vz);
-    vx /= vl;
-    vy /= vl;
-    vz /= vl;
-    const ndv = Math.max(0, nx * vx + ny * vy + nz * vz);
-    const rx = 2 * ndv * nx - vx;
-    const ry = 2 * ndv * ny - vy;
-    const rz = 2 * ndv * nz - vz;
-    const row = ry <= 0 || rz <= 0 ? top : clamp(Math.round((HORIZON11 - WS * FOCAL4 * ry / rz) * H), 0, top);
-    const fres = 0.12 + 0.88 * (1 - ndv) ** 3;
-    const gx = rz > 0.01 ? FOCAL4 * rx / rz - ox : 9;
-    const gy = rz > 0.01 ? -(FOCAL4 * ry) / rz - oy : 9;
-    const s = Math.exp(-((gx / spread[0]) ** 2) - (gy / spread[1]) ** 2) * glitter * (0.3 + 0.7 * smoothstep(2, 6, pz));
-    const diffuse = clamp(0.5 + nx * 1.6 - nz * 0.8, 0, 1);
-    for (let k = 0;k < 3; k++) {
-      const body2 = deep[k] + (lit2[k] - deep[k]) * diffuse;
-      const v = (body2 * (1 - fres) + sky[row * 3 + k] * fres * 0.7) * (1 - Math.min(1, s) * 0.75) + spec[k] * s;
-      colors[f + k] = v + (storm[k] - v) * gloom;
-    }
-  }
-}
-function fillSea3(hdr, W, y0, idA, idB, mix3, cov, open, colors) {
-  const base = y0 * W * 3;
-  for (let i = 0;i < idA.length; i++) {
-    const w = open[i] * cov[i];
-    if (w <= 0)
-      continue;
-    const a = idA[i] * 3;
-    const b = idB[i] * 3;
-    const k = mix3[i];
-    const o = base + i * 3;
-    for (let c = 0;c < 3; c++) {
-      const v = colors[a + c] + (colors[b + c] - colors[a + c]) * k;
-      hdr[o + c] += (v - hdr[o + c]) * w;
-    }
-  }
-}
-function trail3(hdr, W, H, hx, hy, tx, ty, width, color, k) {
-  const dx = tx - hx;
-  const dy = ty - hy;
-  const len2 = dx * dx + dy * dy || 1;
-  const x0 = Math.max(0, Math.floor(Math.min(hx, tx) - width - 1));
-  const x1 = Math.min(W - 1, Math.ceil(Math.max(hx, tx) + width + 1));
-  const y0 = Math.max(0, Math.floor(Math.min(hy, ty) - width - 1));
-  const y1 = Math.min(H - 1, Math.ceil(Math.max(hy, ty) + width + 1));
-  for (let y = y0;y <= y1; y++)
-    for (let x = x0;x <= x1; x++) {
-      const px = x + 0.5 - hx;
-      const py = y + 0.5 - hy;
-      const t = clamp((px * dx + py * dy) / len2, 0, 1);
-      const d = Math.hypot(px - dx * t, py - dy * t);
-      const a = Math.max(0, 1 - d / (width * (1 + t))) * (1 - t) * k;
-      if (a <= 0)
-        continue;
-      const o = (y * W + x) * 3;
-      hdr[o] += (color[0] - hdr[o]) * a;
-      hdr[o + 1] += (color[1] - hdr[o + 1]) * a;
-      hdr[o + 2] += (color[2] - hdr[o + 2]) * a;
-    }
-}
-var wingsBridge = {
-  id: "wings-bridge",
-  name: "Wings: Bridge",
-  description: "A modern carrier's bridge, its displays, comms and helm around windows on the flight deck and a low-poly sea, from Anomaly Arcade's Wings",
-  collection: "Arcade",
+var universe = {
+  id: "universe",
+  name: "Universe",
+  description: "A galaxy of light streaks swirling around the OpenCode icon, with app icons and little colored OpenCode marks drifting on its orbits",
+  fixedTime: "day",
   activity: {
-    calm: "The bridge's displays and lit keys, the radar sweep, a headset cord swaying, and the sea on a slow swell beyond the deck",
-    lively: "Adds deck crew walking and a jet launching off the bow now and then",
-    teeming: "Adds launches more often, a jet landing now and then and escort ships on the horizon"
+    calm: "A thin swirl of streaks and a few icons",
+    lively: "A fuller swirl with more icons drifting through it",
+    teeming: "The whole galaxy, dense with streaks and icons"
   },
   scrim: {
     day: [
-      [14, 26, 46],
-      [20, 44, 78],
-      [10, 12, 18]
+      [4, 4, 6],
+      [3, 3, 5],
+      [4, 2, 2]
     ],
     sunset: [
-      [20, 16, 38],
-      [60, 34, 58],
-      [14, 10, 20]
+      [4, 4, 6],
+      [3, 3, 5],
+      [4, 2, 2]
     ],
     night: [
-      [3, 4, 12],
-      [4, 8, 22],
-      [8, 3, 6]
+      [4, 4, 6],
+      [3, 3, 5],
+      [4, 2, 2]
     ]
   },
-  create: (settings) => new WingsBridge(settings)
+  create: (settings) => new Universe(settings)
 };
 
 // wallpapers/zen.ts
-var TIME_SCALE23 = 0.35;
-var CREATURE_SPEED16 = 0.25;
-var HORIZON12 = 0.52;
-var GROUND2 = 0.565;
+var TIME_SCALE21 = 0.35;
+var CREATURE_SPEED14 = 0.25;
+var HORIZON9 = 0.52;
+var GROUND = 0.565;
 var TANUKI = { arrive: 15, leave: 38, gone: 62 };
-var LOOKS21 = {
+var LOOKS18 = {
   day: {
     style: "front",
     light: [1, 0.95, 0.85],
     sky: [
       [0, [0.12, 0.32, 0.7]],
       [0.3, [0.28, 0.52, 0.84]],
-      [HORIZON12, [0.66, 0.8, 0.9]]
+      [HORIZON9, [0.66, 0.8, 0.9]]
     ],
     orb: { x: 0.4, y: 0.12, r: 0.035, core: [5, 4.6, 3.8], glow: [1, 0.95, 0.8], near: 0.45, wide: 0.12 },
     stars: 0,
@@ -25916,7 +20649,7 @@ var LOOKS21 = {
       [0, [0.05, 0.055, 0.15]],
       [0.16, [0.2, 0.18, 0.36]],
       [0.3, [0.85, 0.48, 0.36]],
-      [HORIZON12, [1, 0.62, 0.36]]
+      [HORIZON9, [1, 0.62, 0.36]]
     ],
     orb: { x: 0.52, y: 0.39, r: 0.045, core: [2.2, 1.35, 0.75], glow: [1, 0.58, 0.36], near: 0.38, wide: 0.22 },
     stars: 10,
@@ -25945,7 +20678,7 @@ var LOOKS21 = {
       [0, [0.004, 0.008, 0.03]],
       [0.3, [0.014, 0.024, 0.07]],
       [0.42, [0.035, 0.055, 0.14]],
-      [HORIZON12, [0.07, 0.1, 0.24]]
+      [HORIZON9, [0.07, 0.1, 0.24]]
     ],
     orb: { x: 0.6, y: 0.16, r: 0.032, core: [1, 0.72, 0.3], glow: [0.45, 0.3, 0.12], near: 0.2, wide: 0.08, moon: true },
     stars: 130,
@@ -25973,11 +20706,11 @@ var DAYLIGHT10 = (() => {
   return [-0.4 / l, -0.6 / l, 0.6 / l];
 })();
 var STONE = [0.62, 0.6, 0.55];
-var ROCK5 = [0.46, 0.44, 0.4];
+var ROCK2 = [0.46, 0.44, 0.4];
 var VERMILION = [0.85, 0.2, 0.07];
 var BAMBOO = [0.55, 0.6, 0.22];
 var PAD = [0.18, 0.45, 0.14];
-var AMBER6 = [1.6, 0.8, 0.25];
+var AMBER3 = [1.6, 0.8, 0.25];
 var KOI = [
   [[0.95, 0.92, 0.86], [0.9, 0.18, 0.06]],
   [[1, 0.45, 0.1], null],
@@ -26017,42 +20750,36 @@ class Zen extends Canvas {
   dragonflies = [];
   fireflies = [];
   drip = 2;
-  season;
-  weather;
   lights = new LightMap;
   storm = makeStorm();
   sparrows = [];
-  tanuki = { wait: eggWait() * TIME_SCALE23, t: -1 };
+  tanuki = { wait: eggWait() * TIME_SCALE21, t: -1 };
   trees = new SwayLayer(-1);
   constructor(settings) {
     super();
     this.activity = settings.activity;
-    this.look = LOOKS21[settings.time];
+    this.look = LOOKS18[settings.time];
     if (settings.time === "day")
       this.frame = 0.4;
-    this.season = settings.season ?? "spring";
-    this.weather = new WeatherLayer(settings.weather ?? (this.season === "winter" ? "snow" : "clear"), settings.time, HORIZON12, !settings.weather);
-    this.shade = sunShade(settings.time, this.look.orb, this.weather.covered);
+    this.shade = sunShade(settings.time, this.look.orb);
     this.stars = makeStars(this.look.stars, 0.45);
     this.clouds = makeClouds(4, "wisp", 0.06, 0.24);
     const count = { calm: 0, lively: 3, teeming: 6 }[settings.activity];
     this.koi = Array.from({ length: count }, (_, i) => ({ a: rand(0, TAU), r: 0.32 + i % 3 * 0.16, dir: i === 4 ? -1 : 1, phase: rand(0, TAU), size: rand(0.85, 1.1), colors: KOI[i] }));
-    const falling = this.season === "spring" || this.season === "autumn";
-    this.petals = Array.from({ length: falling ? { calm: 16, lively: 22, teeming: 30 }[settings.activity] : 0 }, () => this.newPetal(true));
+    this.petals = Array.from({ length: { calm: 16, lively: 22, teeming: 30 }[settings.activity] }, () => this.newPetal(true));
     if (settings.activity === "teeming" && !this.look.night)
       this.dragonflies = [[0.85, 0.18, 0.08], [0.15, 0.4, 0.9]].map((color) => ({ x: rand(0.8, 1.4), y: rand(0.6, 0.75), tx: 1, ty: 0.7, face: 1, rest: rand(0, 2), phase: rand(0, TAU), color }));
     const flies = this.look.night ? { calm: 10, lively: 16, teeming: 26 }[settings.activity] : 0;
     this.fireflies = Array.from({ length: flies }, () => ({ x: Math.random() * 2, y: 0.58 + Math.random() * 0.36, vx: 0, vy: 0, phase: Math.random() * TAU }));
   }
   step(dt) {
-    dt = clamp(dt, 0, 0.1) * TIME_SCALE23;
+    dt = clamp(dt, 0, 0.1) * TIME_SCALE21;
     this.time += dt;
-    const cdt = dt * CREATURE_SPEED16;
+    const cdt = dt * CREATURE_SPEED14;
     this.creatureTime += cdt;
     driftClouds(this.clouds, this.A, dt);
     driftClouds(this.storm, this.A, dt);
     this.stepGloom(dt);
-    this.weather.step(dt);
     this.sparrows = flyAway(this.sparrows, dt, this.A);
     this.stepTanuki(dt);
     for (const r of this.rings)
@@ -26093,10 +20820,8 @@ class Zen extends Canvas {
   render() {
     this.restore();
     this.trees.draw(this.hdr, this.W, this.H, this.time);
-    if (!this.weather.covered)
-      paintStars(this.hdr, this.W, this.H, this.stars, this.time, 0.45, this.look.stars > 50 ? 0.5 : 0.3, this.points);
-    const [top, bottom] = this.weather.scud ?? [this.look.clouds.top, this.look.clouds.bottom];
-    paintClouds(this.hdr, this.W, this.H, this.clouds, top, bottom, this.look.clouds.alpha, this.weather.covered ? undefined : this.look.orb);
+    paintStars(this.hdr, this.W, this.H, this.stars, this.time, 0.45, this.look.stars > 50 ? 0.5 : 0.3, this.points);
+    paintClouds(this.hdr, this.W, this.H, this.clouds, this.look.clouds.top, this.look.clouds.bottom, this.look.clouds.alpha, this.look.orb);
     paintStorm(this.hdr, this.W, this.H, this.storm, this.look.clouds.top, this.look.clouds.bottom, this.gloom);
     this.drawWater();
     for (const r of this.rings)
@@ -26134,7 +20859,6 @@ class Zen extends Canvas {
       }
     this.lights.apply(this.hdr);
     this.drawFireflies();
-    this.weather.draw(this.hdr, this.W, this.H);
     this.finish();
   }
   visit() {
@@ -26144,7 +20868,7 @@ class Zen extends Canvas {
   poke(x, y) {
     if (this.wetAt(x, y) > 0.5)
       return void this.rings.push({ x, y, age: 0, life: 4, strength: 1.2 });
-    startle(this.sparrows, x, Math.max(y, GROUND2 + 0.03), 4);
+    startle(this.sparrows, x, Math.max(y, GROUND + 0.03), 4);
   }
   layout() {
     const { W, H, A, look } = this;
@@ -26163,15 +20887,14 @@ class Zen extends Canvas {
       [-0.3, 0.2, 0.028]
     ].map(([u, v, r]) => ({ x: p.x + u * p.rx, y: p.y + v * p.ry, r }));
     paintSky(this.hdr, W, H, look.sky, look.orb, this.px);
-    this.weather.cover(this.hdr, W, H);
     const clear = this.hdr.slice();
     this.drawHills();
-    if (look === LOOKS21.day)
-      haze(this.hdr, clear, W, H, HORIZON12, GROUND2, 0.15);
+    if (look === LOOKS18.day)
+      haze(this.hdr, clear, W, H, HORIZON9, GROUND, 0.15);
     const sky = this.hdr.slice();
     this.drawGround();
-    if (look === LOOKS21.day)
-      mottle(this.hdr, W, H, GROUND2, 1, 0.5, [1.08, 1, 0.84], [0.76, 0.84, 0.96]);
+    if (look === LOOKS18.day)
+      mottle(this.hdr, W, H, GROUND, 1, 0.5, [1.08, 1, 0.84], [0.76, 0.84, 0.96]);
     const ground = (x, y, w, h, tip) => groundShadow(this.hdr, W, H, this.shade, x * H, y * H, w * H, h * H, tip);
     ground(0.07 * A, 0.66, 0.1, 0.4, 1.6);
     ground(this.cherry.x + 0.08, 0.66, 0.12, 0.38, 2);
@@ -26188,7 +20911,7 @@ class Zen extends Canvas {
       hdr[i] = black[i] + (white[i] - black[i]) * hdr[i];
     this.trees.seal(this.hdr, W);
     if (this.px > 1) {
-      this.layers = [sky, bank, black, white].map((layer2) => this.shrink(layer2));
+      this.layers = [sky, bank, black, white].map((layer) => this.shrink(layer));
       return;
     }
     const [skyLayer, bankLayer, onBlack, onWhite] = this.layers ?? [sky, bank, black, white];
@@ -26214,7 +20937,7 @@ class Zen extends Canvas {
     const lamps = this.lanterns();
     const y0 = pool.length ? Math.floor(pool[0] / W) : H;
     for (let y = y0;y < H; y++) {
-      const sy = clamp(Math.round(2 * HORIZON12 * H - y), 0, H - 1);
+      const sy = clamp(Math.round(2 * HORIZON9 * H - y), 0, H - 1);
       const m = look.mirror * (1 - 0.4 * clamp((y / H - 0.62) / 0.32, 0, 1));
       for (let x = 0;x < W; x++) {
         const o = (y * W + x) * 3;
@@ -26224,9 +20947,9 @@ class Zen extends Canvas {
         let b = look.water[2] * (1 - m) + skyLayer[s + 2] * m;
         for (const l of lamps) {
           const k = Math.exp(-(((x - l.x * H) / (0.012 * H)) ** 2) - ((y - (2 * l.base - l.light) * H) / (0.035 * H)) ** 2) * look.lamps * 0.7;
-          r += AMBER6[0] * k;
-          g += AMBER6[1] * k;
-          b += AMBER6[2] * k;
+          r += AMBER3[0] * k;
+          g += AMBER3[1] * k;
+          b += AMBER3[2] * k;
         }
         this.mirror[o] = r;
         this.mirror[o + 1] = g;
@@ -26285,7 +21008,7 @@ class Zen extends Canvas {
     const [far, near2] = look.hills;
     const peak = 0.42 * A;
     const fuji = (u) => 0.255 + 0.24 * (1 - Math.exp(-Math.max(0, Math.abs(u - peak) - 0.012) / 0.17));
-    const bottom = Math.min(H, Math.ceil((GROUND2 + 0.004) * H));
+    const bottom = Math.min(H, Math.ceil((GROUND + 0.004) * H));
     for (let x = 0;x < W; x++) {
       const u = x / H;
       const range = 0.41 - 0.035 * fbm1(u * 1.3, 3) - 0.015 * Math.sin(u * 2.5 + 1);
@@ -26296,8 +21019,8 @@ class Zen extends Canvas {
         this.blend((y * W + x) * 3, c[0], c[1], c[2], clamp(y + 1 - top, 0, 1));
       }
     }
-    for (let y = Math.floor(0.36 * H);y < Math.min(H, GROUND2 * H); y++) {
-      const k = smoothstep(0.36, HORIZON12, y / H) * 0.55;
+    for (let y = Math.floor(0.36 * H);y < Math.min(H, GROUND * H); y++) {
+      const k = smoothstep(0.36, HORIZON9, y / H) * 0.55;
       for (let x = 0;x < W; x++)
         this.blend((y * W + x) * 3, look.mist[0], look.mist[1], look.mist[2], k * (0.8 + 0.2 * Math.sin(x / H * 6 + y / this.px * 0.1)));
     }
@@ -26337,19 +21060,19 @@ class Zen extends Canvas {
     const { W, H, look, pond: p } = this;
     const rocks = this.rocks();
     const s0 = 0.011;
-    const k = (0.03 - s0) / (1 - GROUND2);
+    const k = (0.03 - s0) / (1 - GROUND);
     const px = this.px;
     const least = this.cells ? Math.max(s0, 8 * px / H) : s0;
-    const near2 = GROUND2 + (least - s0) / k;
-    for (let y = Math.floor(GROUND2 * H);y < H; y++) {
+    const near2 = GROUND + (least - s0) / k;
+    for (let y = Math.floor(GROUND * H);y < H; y++) {
       const v = (y + 0.5) / H;
-      const perspective = s0 + k * (v - GROUND2);
+      const perspective = s0 + k * (v - GROUND);
       const spacing = Math.max(least, perspective);
       const ring = this.cells ? Math.max(perspective, 6 * px / (0.42 * H)) : perspective;
-      const lines2 = v < near2 ? (v - GROUND2) / least : (near2 - GROUND2) / least + Math.log(spacing / least) / k;
+      const lines2 = v < near2 ? (v - GROUND) / least : (near2 - GROUND) / least + Math.log(spacing / least) / k;
       for (let x = 0;x < W; x++) {
         const u = (x + 0.5) / H;
-        const top = GROUND2 + 0.004 * Math.sin(u * 9);
+        const top = GROUND + 0.004 * Math.sin(u * 9);
         if (v < top)
           continue;
         const pd = Math.hypot((u - p.x) / p.rx, (v - p.y) / p.ry);
@@ -26388,7 +21111,7 @@ class Zen extends Canvas {
     }
     for (const [x, y, r] of [[0.33 * A, 0.6, 0.045], [this.pond.x + this.pond.rx * 0.62, 0.635, 0.05]]) {
       this.shape([ell(x * H, y * H, r * H, r * 0.6 * H, 0, this.paint([0.16, 0.36, 0.12]))], this.lighting, 0.9);
-      for (let k = 0;k < (this.season === "spring" || this.season === "summer" ? 40 : 0); k++) {
+      for (let k = 0;k < 40; k++) {
         const a = hash(k * 3.7 + x) * TAU;
         const d = Math.sqrt(hash(k * 5.1 + y));
         const c = this.paint([0.95, 0.3, 0.5]);
@@ -26396,7 +21119,7 @@ class Zen extends Canvas {
       }
     }
     for (const r of this.rocks()) {
-      const c = this.paint(ROCK5);
+      const c = this.paint(ROCK2);
       this.shape([ell(r.x * H, (r.y - r.r * 0.55) * H, r.r * H, r.r * 0.75 * H, -0.15, c), ell((r.x + r.r * 0.75) * H, (r.y - r.r * 0.25) * H, r.r * 0.55 * H, r.r * 0.45 * H, 0.2, this.paint([0.4, 0.38, 0.35]))], this.lighting, 0.8);
     }
     this.trees.begin(this.hdr);
@@ -26415,8 +21138,6 @@ class Zen extends Canvas {
       cap((x + 0.06) * H, 0.38 * H, (x + 0.16) * H, 0.3 * H, 0.008 * H, 0.004 * H, bark),
       cap((x + 0.04) * H, 0.42 * H, (x + 0.08) * H, 0.24 * H, 0.007 * H, 0.004 * H, bark)
     ], this.lighting, 0.6);
-    if (this.season === "winter")
-      return;
     const reds = [[0.62, 0.09, 0.05], [0.82, 0.16, 0.07], [0.95, 0.3, 0.1]];
     for (const [cx, cy, w] of [[x + 0.05, 0.2, 0.09], [x + 0.13, 0.28, 0.08], [x - 0.03, 0.3, 0.08], [x + 0.07, 0.36, 0.1], [x - 0.02, 0.41, 0.06]])
       for (let shade2 = 0;shade2 < 3; shade2++) {
@@ -26439,15 +21160,7 @@ class Zen extends Canvas {
       cap((c.x + 0.05) * H, 0.48 * H, (c.x + 0.14) * H, (c.y + 0.04) * H, 0.01 * H, 0.006 * H, bark),
       cap(c.x * H, (c.y + 0.06) * H, (c.x - 0.14) * H, (c.y + 0.08) * H, 0.007 * H, 0.004 * H, bark)
     ], this.lighting, 0.6);
-    if (this.season === "winter")
-      return;
-    const foliage = {
-      spring: [[0.8, 0.42, 0.55], [0.95, 0.6, 0.72], [1.05, 0.76, 0.84]],
-      summer: [[0.14, 0.32, 0.1], [0.2, 0.42, 0.13], [0.28, 0.52, 0.17]],
-      autumn: [[0.66, 0.16, 0.06], [0.88, 0.36, 0.08], [0.98, 0.58, 0.14]],
-      winter: []
-    };
-    const pinks = foliage[this.season];
+    const pinks = [[0.8, 0.42, 0.55], [0.95, 0.6, 0.72], [1.05, 0.76, 0.84]];
     for (let shade2 = 0;shade2 < 3; shade2++) {
       const parts = [];
       for (let i = 0;i < 9; i++) {
@@ -26457,8 +21170,6 @@ class Zen extends Canvas {
       }
       this.shape(parts, this.lighting, 0.7);
     }
-    if (this.season !== "spring")
-      return;
     const bloom2 = this.paint([1.15, 0.85, 0.92]);
     for (let k = 0;k < 90; k++) {
       const a = hash(k * 1.9) * TAU;
@@ -26478,7 +21189,7 @@ class Zen extends Canvas {
         continue;
       const edge = 1 + 0.05 * Math.sin(3 * a + 1) + 0.03 * Math.sin(5 * a + 2);
       const r = (0.016 + hash(i * 5.3) * 0.014) * H;
-      stones.push(ell((p.x + Math.cos(a) * edge * p.rx * 1.01) * H, (p.y + Math.sin(a) * edge * p.ry * 1.03) * H, r * 1.4, r * 0.75, (hash(i) - 0.5) * 0.4, this.paint(i % 3 ? ROCK5 : STONE)));
+      stones.push(ell((p.x + Math.cos(a) * edge * p.rx * 1.01) * H, (p.y + Math.sin(a) * edge * p.ry * 1.03) * H, r * 1.4, r * 0.75, (hash(i) - 0.5) * 0.4, this.paint(i % 3 ? ROCK2 : STONE)));
     }
     this.shape(stones, this.lighting, 0.8);
     for (const [i, pad] of this.pads.entries()) {
@@ -26512,7 +21223,7 @@ class Zen extends Canvas {
     }
     const f = this.pivot();
     const bamboo = this.paint(BAMBOO);
-    this.shape([ell((f.x + 0.015) * H, (f.y + 0.04) * H, 0.04 * H, 0.016 * H, 0, this.paint(ROCK5))], this.lighting, 0.7);
+    this.shape([ell((f.x + 0.015) * H, (f.y + 0.04) * H, 0.04 * H, 0.016 * H, 0, this.paint(ROCK2))], this.lighting, 0.7);
     this.shape([
       cap((f.x - 0.004) * H, (f.y + 0.035) * H, (f.x - 0.004) * H, (f.y - 0.004) * H, 0.003 * H, 0.003 * H, bamboo),
       cap((f.x + 0.07) * H, (f.y + 0.04) * H, (f.x + 0.07) * H, (f.y - 0.08) * H, 0.006 * H, 0.006 * H, bamboo),
@@ -26583,7 +21294,7 @@ class Zen extends Canvas {
   lamp(a, b) {
     const k = this.look.lamps;
     const dark = this.paint([0.12, 0.1, 0.08]);
-    this.polygon([a, [b[0], a[1]], b, [a[0], b[1]]], [lerp(dark[0], AMBER6[0], k), lerp(dark[1], AMBER6[1], k), lerp(dark[2], AMBER6[2], k)]);
+    this.polygon([a, [b[0], a[1]], b, [a[0], b[1]]], [lerp(dark[0], AMBER3[0], k), lerp(dark[1], AMBER3[1], k), lerp(dark[2], AMBER3[2], k)]);
     if (k <= 0)
       return;
     const cx = (a[0] + b[0]) / 2;
@@ -26599,7 +21310,7 @@ class Zen extends Canvas {
       }
   }
   drawWater() {
-    const { W, H, hdr, look, mirror: mirror2, under, wave: wave2, pool, wet } = this;
+    const { W, H, hdr, look, mirror, under, wave: wave2, pool, wet } = this;
     const t = this.time;
     for (let x = 0;x < W; x++)
       wave2[x] = 2 * Math.sin(x / H * 9 + t * 0.35);
@@ -26615,9 +21326,9 @@ class Zen extends Canvas {
       const x0 = sx | 0;
       const f = sx - x0;
       const a = (y * W + x0) * 3;
-      let r = mirror2[a] + (mirror2[a + 3] - mirror2[a]) * f;
-      let g = mirror2[a + 1] + (mirror2[a + 4] - mirror2[a + 1]) * f;
-      let b = mirror2[a + 2] + (mirror2[a + 5] - mirror2[a + 2]) * f;
+      let r = mirror[a] + (mirror[a + 3] - mirror[a]) * f;
+      let g = mirror[a + 1] + (mirror[a + 4] - mirror[a + 1]) * f;
+      let b = mirror[a + 2] + (mirror[a + 5] - mirror[a + 2]) * f;
       const spread = (0.015 + (y / H - 0.6) * 0.25) * H;
       const along2 = Math.abs(x - ox) / spread;
       if (along2 < 1 && hash2(x, (y >> 1) + tick) > 0.88 + along2 * 0.1) {
@@ -26708,8 +21419,7 @@ class Zen extends Canvas {
     if (p.age < 0)
       return;
     const H = this.H;
-    const pink = this.look.petal;
-    const c = this.season === "autumn" ? [pink[0], pink[1] * 0.7, pink[2] * 0.25] : pink;
+    const c = this.look.petal;
     const s = 0.006 * H;
     if (p.state === 0)
       return this.ellipse(p.x * H, p.y * H, s * (0.3 + 0.7 * Math.abs(Math.cos(p.spin))), s * 0.55, c[0], c[1], c[2], 0.9);
@@ -26858,7 +21568,7 @@ class Zen extends Canvas {
     if (k.t < TANUKI.gone)
       return;
     k.t = -1;
-    k.wait = eggWait(true) * TIME_SCALE23;
+    k.wait = eggWait(true) * TIME_SCALE21;
   }
   drawTanuki() {
     const { A, H } = this;
@@ -27022,7 +21732,6 @@ var zen = {
   id: "zen",
   name: "Zen garden",
   description: "A koi pond under a red bridge, raked gravel, stone lanterns and falling cherry petals, with a heron now and then",
-  collection: "Landscapes",
   activity: {
     calm: "Garden, pond ripples, petals and a bamboo fountain",
     lively: "Adds koi circling under the lily pads",
@@ -27049,7 +21758,7 @@ var zen = {
 };
 
 // wallpapers/index.ts
-var WALLPAPERS = [ocean, desert, jungle, space, farm, tundra, beach, city, zen, prehistoric, hauntedHouse, rider, megacity, dome, flowerbox, maze, pipes, mystify, flyingOpenCode, matrix, wings, wingsFlight, wingsBridge];
+var WALLPAPERS = [ocean, desert, jungle, space, farm, tundra, beach, city, zen, prehistoric, hauntedHouse, rider, megacity, dome, flowerbox, maze, pipes, mystify, flyingOpenCode, universe, matrix];
 
 // tui.tsx
 var tui_default = Plugin.define({
@@ -27072,7 +21781,6 @@ ${external.skipped.join(`
         variant: "error"
       });
     const wallpapers = [...WALLPAPERS, ...external.wallpapers];
-    const collections = [...new Set(wallpapers.map(collectionOf))];
     const engine = createEngine(context, {
       dump: process.env.WALLPAPER_DUMP,
       dumpFade: process.env.WALLPAPER_DUMP_FADE
@@ -27080,8 +21788,6 @@ ${external.skipped.join(`
     const pinned = process.env.WALLPAPER;
     const pinnedActivity = process.env.WALLPAPER_ACTIVITY;
     const pinnedTime = process.env.WALLPAPER_TIME;
-    const pinnedSeason = SEASONS.find((s) => s === process.env.WALLPAPER_SEASON);
-    const pinnedWeather = WEATHER_SETTINGS.find((w) => w === process.env.WALLPAPER_WEATHER);
     const activity = () => stored.activity ?? "calm";
     const timeSetting = () => stored.time ?? "auto";
     const power = () => stored.power ?? "saver";
@@ -27104,29 +21810,27 @@ ${external.skipped.join(`
       };
     };
     const due = (state) => Date.now() - (state.changed?.[scope(state)] ?? state.changed?.[""] ?? 0) >= HOUR;
-    const collection = (state) => collections.find((c) => c === (state.collections?.[scope(state)] ?? state.collections?.[""])) ?? "all";
-    const inCollection = (state) => wallpapers.filter((w) => collection(state) === "all" || collectionOf(w) === collection(state));
-    const other = (state, id) => {
-      const others = inCollection(state).filter((w) => w.id !== id);
+    const other = (id) => {
+      const others = wallpapers.filter((w) => w.id !== id);
       return others.length ? others[Math.floor(Math.random() * others.length)].id : id;
     };
     const shuffle = () => update((draft) => {
       const id = current(draft);
       if (id && due(draft))
-        choose(draft, other(draft, id));
+        choose(draft, other(id));
     });
-    const [session, mark] = context.storage.memory("session", {
+    const [session, mark2] = context.storage.memory("session", {
       initial: {
         shuffled: false
       }
     });
     const [picked, setPicked] = createSignal();
     if (!session.shuffled && shuffleSetting() === "session" && current(stored)) {
-      const id = other(stored, current(stored));
+      const id = other(current(stored));
       setPicked(id);
       update((draft) => choose(draft, id)).finally(() => setPicked(undefined));
     }
-    mark((draft) => {
+    mark2((draft) => {
       draft.shuffled = true;
     });
     const shown = () => picked() ?? current(stored);
@@ -27136,23 +21840,6 @@ ${external.skipped.join(`
     const [now, setNow] = createSignal(new Date(Date.now() + skew));
     const clock2 = setInterval(() => setNow(new Date(Date.now() + skew)), 60000);
     const timeChoice = () => TIMES.find((t) => t === pinnedTime) ?? timeSetting();
-    const seasonSetting = () => stored.season ?? "auto";
-    const weatherSetting = () => stored.weather ?? "off";
-    const location = () => stored.location || process.env.WALLPAPER_LOCATION || "";
-    const [local, setLocal] = createSignal();
-    const south = () => (coordinatesOf(location())?.latitude ?? local()?.latitude ?? 0) < 0;
-    const season = () => {
-      const setting = pinnedSeason ?? seasonSetting();
-      return setting === "auto" ? seasonAt(now(), south()) : setting;
-    };
-    const weather = () => {
-      const setting = pinnedWeather ?? weatherSetting();
-      if (setting === "off")
-        return;
-      if (setting === "local")
-        return local()?.weather ?? "clear";
-      return setting;
-    };
     const running = new Map;
     let outcome = "idle";
     const started = (sessionID) => {
@@ -27184,27 +21871,6 @@ ${external.skipped.join(`
           message: "Wallpaper off"
         };
       }
-      if (arg.startsWith("collection ")) {
-        const name = arg.slice("collection ".length).trim();
-        const chosen = name === "all" ? "all" : collections.find((c) => c.toLowerCase() === name);
-        if (!chosen)
-          return {
-            message: `No collection "${name}". Available: all, ${collections.map((c) => c.toLowerCase()).join(", ")}`,
-            error: true
-          };
-        await update((draft) => {
-          draft.collections = {
-            ...draft.collections,
-            [scope(draft)]: chosen
-          };
-          const members = inCollection(draft);
-          if (current(draft) && !members.some((w2) => w2.id === current(draft)))
-            choose(draft, members[0].id);
-        });
-        return {
-          message: chosen === "all" ? "Wallpapers from every collection" : `Wallpaper collection: ${chosen}`
-        };
-      }
       const level2 = ACTIVITIES.find((a) => a === arg);
       if (level2) {
         await update((draft) => {
@@ -27212,38 +21878,6 @@ ${external.skipped.join(`
         });
         return {
           message: `Wallpaper activity: ${level2}`
-        };
-      }
-      if (arg === "location" || arg.startsWith("location ")) {
-        const place = arg.slice("location".length).trim();
-        await update((draft) => {
-          draft.location = place;
-        });
-        return {
-          message: place ? `Wallpaper location: ${place}` : "Wallpaper location cleared"
-        };
-      }
-      const s = SEASONS.find((value) => value === arg || `season ${value}` === arg);
-      if (s || arg === "season auto") {
-        await update((draft) => {
-          draft.season = s ?? "auto";
-        });
-        return {
-          message: s ? `Wallpaper season: ${s}` : `Wallpaper season follows the calendar (${seasonAt(new Date, south())} now)`
-        };
-      }
-      const w = WEATHER_SETTINGS.find((value) => value === arg && value !== "off" || `weather ${value}` === arg);
-      if (w) {
-        await update((draft) => {
-          draft.weather = w;
-        });
-        if (w === "local" && !location())
-          return {
-            message: "Local weather needs a place: /wallpaper location <city or lat,lon>. Showing clear until then",
-            error: true
-          };
-        return {
-          message: w === "off" ? "Wallpaper weather: the wallpaper's own" : `Wallpaper weather: ${w}`
         };
       }
       const t = TIMES.find((value) => value === arg);
@@ -27273,20 +21907,13 @@ ${external.skipped.join(`
           message: `Wallpaper brightness: ${b}`
         };
       }
-      const wallpaper = wallpapers.find((w2) => w2.id === arg);
+      const wallpaper = wallpapers.find((w) => w.id === arg);
       if (!wallpaper)
         return {
-          message: `No wallpaper "${arg}". Available: ${wallpapers.map((w2) => w2.id).join(", ")}`,
+          message: `No wallpaper "${arg}". Available: ${wallpapers.map((w) => w.id).join(", ")}`,
           error: true
         };
-      await update((draft) => {
-        if (!inCollection(draft).includes(wallpaper))
-          draft.collections = {
-            ...draft.collections,
-            [scope(draft)]: collectionOf(wallpaper)
-          };
-        choose(draft, arg);
-      });
+      await update((draft) => choose(draft, arg));
       return {
         message: `${wallpaper.name} wallpaper on`
       };
@@ -27299,15 +21926,8 @@ ${external.skipped.join(`
       notify(result.message, result.error ? "error" : "info");
     };
     const rows = [{
-      title: "Collection",
-      values: () => ["all", ...collections].map((c) => `collection ${c}`),
-      value: () => `collection ${collection(stored)}`,
-      label: (v) => v === "collection all" ? "All" : v.slice(11),
-      describe: (v) => v === "collection all" ? "Every wallpaper" : wallpapers.filter((w) => collectionOf(w) === v.slice(11)).map((w) => w.name).join(", "),
-      set: (v) => apply(v.toLowerCase())
-    }, {
       title: "Wallpaper",
-      values: () => ["off", ...inCollection(stored).map((w) => w.id)],
+      values: () => ["off", ...wallpapers.map((w) => w.id)],
       value: () => shown() || "off",
       label: (v) => wallpapers.find((w) => w.id === v)?.name ?? "Off",
       describe: (v) => wallpapers.find((w) => w.id === v)?.description ?? "No wallpaper",
@@ -27326,30 +21946,6 @@ ${external.skipped.join(`
       value: timeSetting,
       label: (v) => v === "auto" ? `Auto (${timeAt(now())})` : capitalize(v),
       describe: (v) => v === "auto" ? "Follows your clock: day from 7am, sunset from 6pm, night from 8pm" : `Always ${v}`,
-      set: apply
-    }, {
-      title: "Season",
-      hidden: fixed,
-      values: () => ["season auto", ...SEASONS.map((s) => `season ${s}`)],
-      value: () => `season ${seasonSetting()}`,
-      label: (v) => v === "season auto" ? `Auto (${seasonAt(now(), south())})` : capitalize(v.slice(7)),
-      describe: (v) => v === "season auto" ? `Follows the calendar in the ${south() ? "southern" : "northern"} hemisphere: spring from ${south() ? "September" : "March"}, summer from ${south() ? "December" : "June"}, autumn from ${south() ? "March" : "September"}, winter from ${south() ? "June" : "December"}` : `Always ${v.slice(7)}. Farm, desert, jungle, beach and the zen garden change with the seasons`,
-      set: apply
-    }, {
-      title: "Weather",
-      hidden: fixed,
-      values: () => ["off", "local", "clear", "rain", "snow", "fog"].map((w) => `weather ${w}`),
-      value: () => `weather ${weatherSetting()}`,
-      label: (v) => v === "weather local" ? `Local (${location() ? local()?.weather ?? "checking" : "no location"})` : capitalize(v.slice(8)),
-      describe: (v) => {
-        if (v === "weather off")
-          return "Each wallpaper's own: snow on the tundra, winter flurries, showers in the jungle's rainy season, rain on the city at night";
-        if (v !== "weather local")
-          return `Always ${v.slice(8)} on outdoor wallpapers`;
-        if (!location())
-          return "Set a place first: /wallpaper location <city or lat,lon>, or WALLPAPER_LOCATION";
-        return `Real weather for ${location()} from Open-Meteo, checked every 30 minutes`;
-      },
       set: apply
     }, {
       title: "Brightness",
@@ -27580,9 +22176,7 @@ ${external.skipped.join(`
           const wallpaper = wallpapers.find((w) => w.id === (pinned ?? shown()));
           const level2 = ACTIVITIES.find((a) => a === pinnedActivity) ?? activity();
           const choice = timeChoice();
-          const seasonChoice = pinnedSeason ?? seasonSetting();
-          const weatherChoice = pinnedWeather ?? weatherSetting();
-          const key2 = `${wallpaper?.id} ${level2} ${choice} ${seasonChoice} ${weatherChoice}`;
+          const key2 = `${wallpaper?.id} ${level2} ${choice}`;
           const slow = key2 === chosen;
           chosen = key2;
           if (!wallpaper)
@@ -27591,9 +22185,7 @@ ${external.skipped.join(`
             engine.start(wallpaper, {
               activity: level2,
               time: choice === "auto" ? timeAt(now()) : choice,
-              brightness: brightness(),
-              season: season(),
-              weather: weather()
+              brightness: brightness()
             }, slow ? CLOCK_FADE : undefined);
           } catch (error) {
             notify(`${wallpaper.name} wallpaper failed to start: ${error instanceof Error ? error.message : String(error)}`, "error");
@@ -27605,21 +22197,12 @@ ${external.skipped.join(`
           if (shuffleSetting() === "hourly" && current(stored) && due(stored))
             shuffle();
         });
-        createEffect(() => {
-          const place = location();
-          if ((pinnedWeather ?? weatherSetting()) !== "local" || !place)
-            return;
-          const refresh = () => void forecast(place).then(setLocal);
-          refresh();
-          const timer = setInterval(refresh, REFRESH);
-          onCleanup(() => clearInterval(timer));
-        });
         context.keymap.layer(() => ({
           mode: "global",
           commands: [{
             id: "wallpapers.choose",
             title: "Choose wallpaper",
-            description: "Animated scene behind the UI. Args: wallpaper id, off, collection <name>, calm, lively, teeming, day, sunset, night, auto, a season, a weather, location <place>, subtle, normal, vivid, saver, smooth",
+            description: "Animated scene behind the UI. Args: wallpaper id, off, calm, lively, teeming, day, sunset, night, auto, subtle, normal, vivid, saver, smooth",
             group: "Wallpapers",
             palette: true,
             slash: {
@@ -27667,10 +22250,6 @@ function capitalize(text) {
   return text[0].toUpperCase() + text.slice(1);
 }
 var CLOCK_FADE = 45;
-var WEATHER_SETTINGS = ["off", "local", ...WEATHERS];
-function seasonAt(date, south) {
-  return SEASONS[(Math.floor((date.getMonth() + 10) % 12 / 3) + (south ? 2 : 0)) % 4];
-}
 function timeAt(date) {
   const hour = date.getHours() + date.getMinutes() / 60;
   if (hour >= 20 || hour < 6)
