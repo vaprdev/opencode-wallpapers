@@ -418,7 +418,6 @@ export const mystify: Wallpaper = {
   id: "mystify",
   name: "Mystify",
   description: "The old screensaver: bright polygons whose corners glide and bounce off the edges, trailing stacks of echoes",
-  collection: "Classics",
   fixedTime: "day",
   activity: {
     calm: "One polygon drifting slowly",

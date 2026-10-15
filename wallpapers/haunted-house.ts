@@ -8,7 +8,6 @@ import { TAU, clamp, fbm1, fbm2, hash, lerp, rand, smoothstep, type RGB } from "
 import { driftClouds, makeClouds, makeStars, makeStorm, paintClouds, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
 import { touch } from "../src/touched"
 import type { Activity, Settings, Time, Wallpaper } from "../src/wallpaper"
-import { WeatherLayer } from "../src/weather"
 import { gust } from "../src/wind"
 
 // The scene runs slower than real time, which keeps it calm behind text.
@@ -286,9 +285,7 @@ class HauntedHouse extends Canvas {
   private creatureTime = 0
   private readonly activity: Activity
   private readonly look: Look
-  private readonly weather: WeatherLayer
   private lighting: Lighting = { style: "front", dir: DAYLIGHT }
-  private light: RGB = [1, 1, 1]
   private readonly lights = new LightMap()
   private stars: Star[]
   private shown: Star[] = []
@@ -347,7 +344,6 @@ class HauntedHouse extends Canvas {
     this.activity = settings.activity
     this.look = LOOKS[settings.time]
     this.orb = this.look.orb
-    this.weather = new WeatherLayer(settings.weather ?? "clear", settings.time, HORIZON)
     this.stars = makeStars(this.look.stars, 0.5)
     this.clouds = makeClouds(settings.time === "day" ? 7 : 4, this.look.cloudKind, 0.05, 0.32)
     const n = { calm: 6, lively: 9, teeming: 12 }[settings.activity]
@@ -367,7 +363,6 @@ class HauntedHouse extends Canvas {
     const cdt = dt * CREATURE_SPEED
     this.creatureTime += cdt
     this.stepGloom(dt)
-    this.weather.step(dt)
     driftClouds(this.clouds, this.A, dt * 0.4)
     if (this.gloom > 0) driftClouds(this.storm, this.A, dt)
     for (const p of this.pumpkins) p.flare = Math.max(0, p.flare - dt * 0.35)
@@ -410,9 +405,8 @@ class HauntedHouse extends Canvas {
   render() {
     this.restore()
     const { W, H, look, hdr } = this
-    if (!this.weather.covered) paintStars(hdr, W, H, this.shown, this.time, 0.5, look.night ? 0.8 : 0.4, this.points)
-    const [top, bottom] = this.weather.scud ?? look.clouds
-    paintClouds(hdr, W, H, this.clouds, top, bottom, look.night ? 0.75 : 0.6, this.weather.covered ? undefined : this.orb)
+    paintStars(hdr, W, H, this.shown, this.time, 0.5, look.night ? 0.8 : 0.4, this.points)
+    paintClouds(hdr, W, H, this.clouds, ...look.clouds, look.night ? 0.75 : 0.6, this.orb)
     if (this.gloom > 0) paintStorm(hdr, W, H, this.storm, [0.16, 0.1, 0.22], [0.04, 0.02, 0.06], this.gloom)
     if (this.flash.t >= 0) this.drawLightning()
     this.unsky(0, 0, W - 1, Math.ceil(HORIZON * H))
@@ -443,7 +437,6 @@ class HauntedHouse extends Canvas {
     this.lights.apply(hdr)
     this.drawLeaves()
     for (const b of this.burst) this.drawBat(b.x, b.y, 0.026, b.phase, Math.sign(b.vx))
-    this.weather.draw(hdr, W, H)
     this.finish()
   }
 
@@ -483,10 +476,7 @@ class HauntedHouse extends Canvas {
     this.hx = A / 2 + 0.01
     this.hy = this.riseY(this.hx)
     this.orb = { ...look.orb, x: Math.max(0.12, this.hx + look.orb.x * this.S) / A }
-    // Under a cloud deck the hidden sun or moon only faintly rims things.
-    const veil = this.weather.covered ? 0.3 : 1
-    this.light = [look.light[0] * veil, look.light[1] * veil, look.light[2] * veil]
-    this.lighting = look.style === "front" ? { style: "front", dir: DAYLIGHT } : { style: "rim", color: this.light, x: this.orb.x * W, y: this.orb.y * H }
+    this.lighting = look.style === "front" ? { style: "front", dir: DAYLIGHT } : { style: "rim", color: look.light, x: this.orb.x * W, y: this.orb.y * H }
     this.pumpkins = []
     this.windows = []
     // The moon's own texture is drawn as a few soft dark seas; the shared one streaks at this size.
@@ -504,7 +494,6 @@ class HauntedHouse extends Canvas {
         [0.45, 0.45, 0.14],
       ]) this.ellipse(mx + u * R, my + v * R, r * R, r * R * 0.85, c[0] * 0.72, c[1] * 0.62, c[2] * 0.6, 0.55)
     }
-    this.weather.cover(hdr, W, H)
     const sky = hdr.slice()
     this.paintLand()
     this.paintForest()
@@ -562,7 +551,7 @@ class HauntedHouse extends Canvas {
         const rim = look.style === "rim" ? Math.exp(-((v - rise) * H) / (2 * px)) * (look.night ? 0.1 : 0.18) : 0
         for (let c = 0; c < 3; c++) {
           const ground = lerp(near[c], lerp(look.grass[c], look.dirt[c], patch * 0.6), smoothstep(0, 0.08, v - rise)) * tuft * (1 - 0.25 * depth)
-          hdr[o + c] += (ground + this.light[c] * rim - hdr[o + c]) * a2
+          hdr[o + c] += (ground + look.light[c] * rim - hdr[o + c]) * a2
         }
       }
     }
@@ -1362,7 +1351,7 @@ class HauntedHouse extends Canvas {
     if (look.style === "rim") {
       const r = this.thick(0.0011, 0.45)
       const k = look.night ? 0.12 : 0.2
-      const l: RGB = [this.light[0] * k, this.light[1] * k, this.light[2] * k]
+      const l: RGB = [look.light[0] * k, look.light[1] * k, look.light[2] * k]
       this.shape([cap(...R(-1, 0.1), ...R(-1, 0.8), r, r, l), cap(...R(-1, 0.8), ...R(0, 1.04), r, r, l)], this.lighting, 0)
     }
   }
@@ -2279,7 +2268,7 @@ class HauntedHouse extends Canvas {
     const r = this.thick(0.0022, 0.75)
     const lx = this.orb.x * this.W
     const k = this.look.night ? 0.35 : 0.4
-    const c: RGB = [this.light[0] * k, this.light[1] * k, this.light[2] * k]
+    const c: RGB = [this.look.light[0] * k, this.look.light[1] * k, this.look.light[2] * k]
     const parts: Part[] = []
     for (let i = 0; i + 1 < pts.length; i++) {
       const [ax, ay] = pts[i]
@@ -2349,7 +2338,6 @@ export const hauntedHouse: Wallpaper = {
   id: "haunted-house",
   name: "Haunted House",
   description: "A crooked Victorian haunted house on a rise above a foggy graveyard under a huge moon, with a witch flying by now and then",
-  collection: "Landscapes",
   activity: {
     calm: "The candle and jack-o'-lanterns flicker, fog creeps, a bat or two flits and the swing sways",
     lively: "Adds bats pouring from the turret, ghosts drifting by and a ghoul peeking out from behind a gravestone",

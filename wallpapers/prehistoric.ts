@@ -9,7 +9,6 @@ import { groundShadow, sunShade, type Shade } from "../src/shadow"
 import { driftClouds, makeClouds, makeShadows, makeStars, makeStorm, paintClouds, paintShadows, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
 import type { Activity, Settings, Time, Wallpaper } from "../src/wallpaper"
 import { reflect } from "../src/water"
-import { WeatherLayer } from "../src/weather"
 import { SwayLayer, gust, sway } from "../src/wind"
 
 // The scene runs slower than real time, which keeps it calm behind text.
@@ -205,7 +204,6 @@ class Prehistoric extends Canvas {
   // The lake's rows: which row each mirrors, how far its ripples wobble the reflection, and how much of it each pixel
   // shows (none outside the water or under the plants in front of it).
   private pool = { y0: 0, y1: 0, rows: new Float32Array(0), amp: new Float32Array(0), gloss: new Float32Array(0) }
-  private readonly weather: WeatherLayer
   private lights = new LightMap()
   private storm = makeStorm()
   private birds: Flier[] = []
@@ -218,8 +216,7 @@ class Prehistoric extends Canvas {
     this.look = LOOKS[settings.time]
     if (settings.time === "day") this.frame = 0.4
     this.night = settings.time === "night"
-    this.weather = new WeatherLayer(settings.weather ?? "clear", settings.time, HORIZON)
-    this.shade = sunShade(settings.time, this.look.orb, this.weather.covered)
+    this.shade = sunShade(settings.time, this.look.orb)
     this.allStars = makeStars(this.look.stars, 0.5)
     // Long thin streaks catch the low sun better than heaps of cumulus.
     this.clouds = settings.time === "sunset" ? makeClouds(4, "stratus", 0.08, 0.3) : makeClouds(3, "cumulus", 0.06, 0.28)
@@ -242,7 +239,6 @@ class Prehistoric extends Canvas {
       if (c.x > this.A + c.w) c.x = this.plumeTop()
     }
     this.stepGloom(dt)
-    this.weather.step(dt)
     this.birds = flyAway(this.birds, dt, this.A)
     this.stepDelorean(dt)
     for (const s of this.smoke) {
@@ -273,13 +269,12 @@ class Prehistoric extends Canvas {
   render() {
     this.restore()
     this.plants.draw(this.hdr, this.W, this.H, this.time)
-    if (!this.weather.covered) paintStars(this.hdr, this.W, this.H, this.stars, this.time, 0.5, this.look.stars > 50 ? 0.5 : 0.3, this.points)
+    paintStars(this.hdr, this.W, this.H, this.stars, this.time, 0.5, this.look.stars > 50 ? 0.5 : 0.3, this.points)
     const orange = this.look.lava[1]
     flowLava(this.hdr, this.lava.index, this.lava.k, this.lava.along, this.time, orange[0], orange[1], orange[2])
     this.touch(this.lava.box[0], this.lava.box[1], this.lava.box[2], this.lava.box[3])
-    const [top, bottom] = this.weather.scud ?? [this.look.clouds.top, this.look.clouds.bottom]
-    const orb = this.weather.covered ? undefined : this.look.orb
-    paintClouds(this.hdr, this.W, this.H, this.clouds, top, bottom, this.look.clouds.alpha, orb)
+    const orb = this.look.orb
+    paintClouds(this.hdr, this.W, this.H, this.clouds, this.look.clouds.top, this.look.clouds.bottom, this.look.clouds.alpha, orb)
     paintShadows(this.hdr, this.W, this.H, this.shadows, HORIZON + 0.02, orb)
     paintStorm(this.hdr, this.W, this.H, this.storm, this.look.clouds.top, this.look.clouds.bottom, this.gloom)
     // Ash takes the plume's cooled color, warmed underneath by the lava, and fades in as it leaves the plume.
@@ -315,7 +310,6 @@ class Prehistoric extends Canvas {
     if (this.activity === "teeming") for (const d of this.dragonflies) this.drawDragonfly(d)
     if (this.delorean.t >= 0) this.drawDelorean()
     for (const b of this.birds) this.shape(bird(b, this.H, 0.024 * this.H, this.paint([0.5, 0.3, 0.2])), this.lighting, 0.4)
-    this.weather.draw(this.hdr, this.W, this.H)
     this.finish()
   }
 
@@ -334,7 +328,6 @@ class Prehistoric extends Canvas {
     const { W, H, A, look, px } = this
     this.lighting = look.style === "front" ? { style: "front", dir: DAYLIGHT } : { style: "rim", color: look.light, x: look.orb.x * W, y: look.orb.y * H }
     paintSky(this.hdr, W, H, look.sky, look.orb, px)
-    this.weather.cover(this.hdr, W, H)
     const sky = this.hdr.slice()
     const day = look === LOOKS.day
     for (const [i, c] of this.ash.entries()) c.x = lerp(this.plumeTop(), A + c.w, (i + 0.3) / this.ash.length)
@@ -1224,7 +1217,6 @@ export const prehistoric: Wallpaper = {
   id: "prehistoric",
   name: "Prehistoric",
   description: "A smoking volcano over ferns and cycads, with a T. rex stomping by now and then",
-  collection: "Landscapes",
   activity: {
     calm: "Volcano, smoke, ferns and cycads",
     lively: "Adds a browsing sauropod and circling pterosaurs",

@@ -1,8 +1,7 @@
 import { Plugin } from "@opencode/plugin/tui"
 import { RGBA, TextAttributes } from "@opentui/core"
-import { For, createEffect, createSignal, onCleanup } from "solid-js"
-import { ACTIVITIES, BRIGHTNESSES, POWERS, SEASONS, TIMES, WEATHERS, collectionOf, createEngine, parseEvents, type Activity, type AgentEvent, type Brightness, type Power, type Season, type Time, type Weather } from "./src/engine"
-import { REFRESH, coordinatesOf, forecast, type Forecast } from "./src/forecast"
+import { For, createEffect, createSignal } from "solid-js"
+import { ACTIVITIES, BRIGHTNESSES, POWERS, TIMES, createEngine, parseEvents, type Activity, type AgentEvent, type Brightness, type Power, type Time } from "./src/engine"
 import { loadWallpapers } from "./src/load"
 import { WALLPAPERS } from "./wallpapers"
 
@@ -15,14 +14,11 @@ export default Plugin.define({
     const external = await loadWallpapers(context.options.wallpapers, WALLPAPERS)
     if (external.skipped.length) context.ui.toast.show({ message: `Skipped wallpapers:\n${external.skipped.join("\n")}`, variant: "error" })
     const wallpapers = [...WALLPAPERS, ...external.wallpapers]
-    const collections = [...new Set(wallpapers.map(collectionOf))]
     const engine = createEngine(context, { dump: process.env.WALLPAPER_DUMP, dumpFade: process.env.WALLPAPER_DUMP_FADE })
     // Environment overrides for development; they win over the stored choice.
     const pinned = process.env.WALLPAPER
     const pinnedActivity = process.env.WALLPAPER_ACTIVITY
     const pinnedTime = process.env.WALLPAPER_TIME
-    const pinnedSeason = SEASONS.find((s) => s === process.env.WALLPAPER_SEASON)
-    const pinnedWeather = WEATHER_SETTINGS.find((w) => w === process.env.WALLPAPER_WEATHER)
     // Settings saved before these options existed have none.
     const activity = () => stored.activity ?? "calm"
     const timeSetting = () => stored.time ?? "auto"
@@ -38,13 +34,10 @@ export default Plugin.define({
       else draft.wallpaper = id
       draft.changed = { ...draft.changed, [scope(draft)]: Date.now() }
     }
-    // A project without its own change time or collection yet counts from the global one.
+    // A project without its own change time yet counts from the global one.
     const due = (state: Stored) => Date.now() - (state.changed?.[scope(state)] ?? state.changed?.[""] ?? 0) >= HOUR
-    const collection = (state: Stored) => collections.find((c) => c === (state.collections?.[scope(state)] ?? state.collections?.[""])) ?? "all"
-    const inCollection = (state: Stored) => wallpapers.filter((w) => collection(state) === "all" || collectionOf(w) === collection(state))
-    // Shuffle stays within the chosen collection, and keeps the wallpaper when it is the collection's only one.
-    const other = (state: Stored, id: string) => {
-      const others = inCollection(state).filter((w) => w.id !== id)
+    const other = (id: string) => {
+      const others = wallpapers.filter((w) => w.id !== id)
       return others.length ? others[Math.floor(Math.random() * others.length)].id : id
     }
     // Switches to a different wallpaper once an hour has passed. The check repeats under the storage lock, so several
@@ -52,14 +45,14 @@ export default Plugin.define({
     const shuffle = () =>
       update((draft) => {
         const id = current(draft)
-        if (id && due(draft)) choose(draft, other(draft, id))
+        if (id && due(draft)) choose(draft, other(id))
       })
     // Every-session shuffle runs once per OpenCode start; memory storage outlives plugin hot reloads. It picks before
     // the first frame and shows the pick while it saves, so the previous wallpaper never appears.
     const [session, mark] = context.storage.memory("session", { initial: { shuffled: false } })
     const [picked, setPicked] = createSignal<string>()
     if (!session.shuffled && shuffleSetting() === "session" && current(stored)) {
-      const id = other(stored, current(stored))
+      const id = other(current(stored))
       setPicked(id)
       void update((draft) => choose(draft, id)).finally(() => setPicked(undefined))
     }
@@ -67,7 +60,7 @@ export default Plugin.define({
       draft.shuffled = true
     })
     const shown = () => picked() ?? current(stored)
-    // Wallpapers with one look ignore the time and season settings, so the menu hides those rows for them.
+    // Wallpapers with one look ignore the time setting, so the menu hides its row for them.
     const fixed = () => Boolean(wallpapers.find((w) => w.id === shown())?.fixedTime)
     // Auto follows the local clock, checked once a minute. WALLPAPER_CLOCK=HH:MM starts the clock there, for trying
     // auto's transitions.
@@ -76,24 +69,6 @@ export default Plugin.define({
     const [now, setNow] = createSignal(new Date(Date.now() + skew))
     const clock = setInterval(() => setNow(new Date(Date.now() + skew)), 60_000)
     const timeChoice = () => TIMES.find((t) => t === pinnedTime) ?? timeSetting()
-
-    const seasonSetting = () => stored.season ?? "auto"
-    const weatherSetting = () => stored.weather ?? "off"
-    // A place for local weather: "/wallpaper location <place>", else WALLPAPER_LOCATION.
-    const location = () => stored.location || process.env.WALLPAPER_LOCATION || ""
-    const [local, setLocal] = createSignal<Forecast>()
-    // Seasons flip in the southern hemisphere, once the location's latitude is known.
-    const south = () => (coordinatesOf(location())?.latitude ?? local()?.latitude ?? 0) < 0
-    const season = () => {
-      const setting = pinnedSeason ?? seasonSetting()
-      return setting === "auto" ? seasonAt(now(), south()) : setting
-    }
-    const weather = (): Weather | undefined => {
-      const setting = pinnedWeather ?? weatherSetting()
-      if (setting === "off") return undefined
-      if (setting === "local") return local()?.weather ?? "clear"
-      return setting
-    }
 
     // The scene follows the agent: busy while any session runs, then done, error or idle once the last one stops. A
     // subagent's failure is left to its parent; repeated end events for a session count once.
@@ -126,45 +101,12 @@ export default Plugin.define({
         await update((draft) => choose(draft, ""))
         return { message: "Wallpaper off" }
       }
-      if (arg.startsWith("collection ")) {
-        const name = arg.slice("collection ".length).trim()
-        const chosen = name === "all" ? "all" : collections.find((c) => c.toLowerCase() === name)
-        if (!chosen) return { message: `No collection "${name}". Available: all, ${collections.map((c) => c.toLowerCase()).join(", ")}`, error: true }
-        await update((draft) => {
-          draft.collections = { ...draft.collections, [scope(draft)]: chosen }
-          const members = inCollection(draft)
-          if (current(draft) && !members.some((w) => w.id === current(draft))) choose(draft, members[0].id)
-        })
-        return { message: chosen === "all" ? "Wallpapers from every collection" : `Wallpaper collection: ${chosen}` }
-      }
       const level = ACTIVITIES.find((a) => a === arg)
       if (level) {
         await update((draft) => {
           draft.activity = level
         })
         return { message: `Wallpaper activity: ${level}` }
-      }
-      if (arg === "location" || arg.startsWith("location ")) {
-        const place = arg.slice("location".length).trim()
-        await update((draft) => {
-          draft.location = place
-        })
-        return { message: place ? `Wallpaper location: ${place}` : "Wallpaper location cleared" }
-      }
-      const s = SEASONS.find((value) => value === arg || `season ${value}` === arg)
-      if (s || arg === "season auto") {
-        await update((draft) => {
-          draft.season = s ?? "auto"
-        })
-        return { message: s ? `Wallpaper season: ${s}` : `Wallpaper season follows the calendar (${seasonAt(new Date(), south())} now)` }
-      }
-      const w = WEATHER_SETTINGS.find((value) => (value === arg && value !== "off") || `weather ${value}` === arg)
-      if (w) {
-        await update((draft) => {
-          draft.weather = w
-        })
-        if (w === "local" && !location()) return { message: "Local weather needs a place: /wallpaper location <city or lat,lon>. Showing clear until then", error: true }
-        return { message: w === "off" ? "Wallpaper weather: the wallpaper's own" : `Wallpaper weather: ${w}` }
       }
       const t = TIMES.find((value) => value === arg)
       if (t || arg === "auto") {
@@ -189,11 +131,7 @@ export default Plugin.define({
       }
       const wallpaper = wallpapers.find((w) => w.id === arg)
       if (!wallpaper) return { message: `No wallpaper "${arg}". Available: ${wallpapers.map((w) => w.id).join(", ")}`, error: true }
-      // A wallpaper from outside the chosen collection switches to its collection.
-      await update((draft) => {
-        if (!inCollection(draft).includes(wallpaper)) draft.collections = { ...draft.collections, [scope(draft)]: collectionOf(wallpaper) }
-        choose(draft, arg)
-      })
+      await update((draft) => choose(draft, arg))
       return { message: `${wallpaper.name} wallpaper on` }
     }
     const run = async (input?: string) => {
@@ -206,22 +144,8 @@ export default Plugin.define({
     // keys change the highlighted row in place, and the dialog stays open until Escape.
     const rows: Row[] = [
       {
-        title: "Collection",
-        values: () => ["all", ...collections].map((c) => `collection ${c}`),
-        value: () => `collection ${collection(stored)}`,
-        label: (v) => (v === "collection all" ? "All" : v.slice(11)),
-        describe: (v) =>
-          v === "collection all"
-            ? "Every wallpaper"
-            : wallpapers
-                .filter((w) => collectionOf(w) === v.slice(11))
-                .map((w) => w.name)
-                .join(", "),
-        set: (v) => apply(v.toLowerCase()),
-      },
-      {
         title: "Wallpaper",
-        values: () => ["off", ...inCollection(stored).map((w) => w.id)],
+        values: () => ["off", ...wallpapers.map((w) => w.id)],
         value: () => shown() || "off",
         label: (v) => wallpapers.find((w) => w.id === v)?.name ?? "Off",
         describe: (v) => wallpapers.find((w) => w.id === v)?.description ?? "No wallpaper",
@@ -242,32 +166,6 @@ export default Plugin.define({
         value: timeSetting,
         label: (v) => (v === "auto" ? `Auto (${timeAt(now())})` : capitalize(v)),
         describe: (v) => (v === "auto" ? "Follows your clock: day from 7am, sunset from 6pm, night from 8pm" : `Always ${v}`),
-        set: apply,
-      },
-      {
-        title: "Season",
-        hidden: fixed,
-        values: () => ["season auto", ...SEASONS.map((s) => `season ${s}`)],
-        value: () => `season ${seasonSetting()}`,
-        label: (v) => (v === "season auto" ? `Auto (${seasonAt(now(), south())})` : capitalize(v.slice(7))),
-        describe: (v) =>
-          v === "season auto"
-            ? `Follows the calendar in the ${south() ? "southern" : "northern"} hemisphere: spring from ${south() ? "September" : "March"}, summer from ${south() ? "December" : "June"}, autumn from ${south() ? "March" : "September"}, winter from ${south() ? "June" : "December"}`
-            : `Always ${v.slice(7)}. Farm, desert, jungle, beach and the zen garden change with the seasons`,
-        set: apply,
-      },
-      {
-        title: "Weather",
-        hidden: fixed,
-        values: () => ["off", "local", "clear", "rain", "snow", "fog"].map((w) => `weather ${w}`),
-        value: () => `weather ${weatherSetting()}`,
-        label: (v) => (v === "weather local" ? `Local (${location() ? (local()?.weather ?? "checking") : "no location"})` : capitalize(v.slice(8))),
-        describe: (v) => {
-          if (v === "weather off") return "Each wallpaper's own: snow on the tundra, winter flurries, showers in the jungle's rainy season, rain on the city at night"
-          if (v !== "weather local") return `Always ${v.slice(8)} on outdoor wallpapers`
-          if (!location()) return "Set a place first: /wallpaper location <city or lat,lon>, or WALLPAPER_LOCATION"
-          return `Real weather for ${location()} from Open-Meteo, checked every 30 minutes`
-        },
         set: apply,
       },
       {
@@ -422,11 +320,8 @@ export default Plugin.define({
           const wallpaper = wallpapers.find((w) => w.id === (pinned ?? shown()))
           const level = ACTIVITIES.find((a) => a === pinnedActivity) ?? activity()
           const choice = timeChoice()
-          const seasonChoice = pinnedSeason ?? seasonSetting()
-          const weatherChoice = pinnedWeather ?? weatherSetting()
-          // With the same choices as last time, only the clock or the local forecast can have changed the look: that
-          // fades slowly.
-          const key = `${wallpaper?.id} ${level} ${choice} ${seasonChoice} ${weatherChoice}`
+          // With the same choices as last time, only the clock can have changed the look: that fades slowly.
+          const key = `${wallpaper?.id} ${level} ${choice}`
           const slow = key === chosen
           chosen = key
           if (!wallpaper) return engine.stop()
@@ -434,7 +329,7 @@ export default Plugin.define({
           try {
             engine.start(
               wallpaper,
-              { activity: level, time: choice === "auto" ? timeAt(now()) : choice, brightness: brightness(), season: season(), weather: weather() },
+              { activity: level, time: choice === "auto" ? timeAt(now()) : choice, brightness: brightness() },
               slow ? CLOCK_FADE : undefined,
             )
           } catch (error) {
@@ -446,15 +341,6 @@ export default Plugin.define({
           now()
           if (shuffleSetting() === "hourly" && current(stored) && due(stored)) void shuffle()
         })
-        // Local weather is fetched only while it is the chosen setting.
-        createEffect(() => {
-          const place = location()
-          if ((pinnedWeather ?? weatherSetting()) !== "local" || !place) return
-          const refresh = () => void forecast(place).then(setLocal)
-          refresh()
-          const timer = setInterval(refresh, REFRESH)
-          onCleanup(() => clearInterval(timer))
-        })
         context.keymap.layer(() => ({
           mode: "global",
           commands: [
@@ -462,7 +348,7 @@ export default Plugin.define({
               id: "wallpapers.choose",
               title: "Choose wallpaper",
               description:
-                "Animated scene behind the UI. Args: wallpaper id, off, collection <name>, calm, lively, teeming, day, sunset, night, auto, a season, a weather, location <place>, subtle, normal, vivid, saver, smooth",
+                "Animated scene behind the UI. Args: wallpaper id, off, calm, lively, teeming, day, sunset, night, auto, subtle, normal, vivid, saver, smooth",
               group: "Wallpapers",
               palette: true,
               slash: { name: "wallpaper", arguments: true },
@@ -514,14 +400,6 @@ function capitalize(text: string) {
 // Seconds auto takes to fade into the next time of day when the clock crosses into it.
 const CLOCK_FADE = 45
 
-const WEATHER_SETTINGS = ["off", "local", ...WEATHERS] as const
-type WeatherSetting = (typeof WEATHER_SETTINGS)[number]
-
-// Meteorological seasons: spring from March in the north, from September in the south.
-function seasonAt(date: Date, south: boolean): Season {
-  return SEASONS[(Math.floor(((date.getMonth() + 10) % 12) / 3) + (south ? 2 : 0)) % 4]
-}
-
 // Day from 7am, sunset around dawn and dusk, night from 8pm.
 function timeAt(date: Date): Time {
   const hour = date.getHours() + date.getMinutes() / 60
@@ -540,18 +418,12 @@ interface Stored {
   time?: Time | "auto"
   brightness?: Brightness
   power?: Power
-  season?: Season | "auto"
-  weather?: WeatherSetting
-  // A place for local weather: a name or "latitude,longitude".
-  location?: string
   shuffle?: Shuffle
   // Wallpapers by project directory, shown instead of the global one while perProject is on.
   perProject?: boolean
   projects?: Record<string, string>
   // When the wallpaper last changed, by scope, for hourly shuffle.
   changed?: Record<string, number>
-  // The collection the menu and shuffle pick from, by scope; missing is all.
-  collections?: Record<string, string>
 }
 
 // A setting in the picker: its values in order, how to show each, a line explaining the current one, and how to save one.

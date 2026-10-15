@@ -7,8 +7,7 @@ import { LightMap, firelight } from "../src/lightmap"
 import { TAU, clamp, fbm1, hash, hash2, lerp, rand, smoothstep, type RGB } from "../src/math"
 import { groundShadow, sunShade, type Shade } from "../src/shadow"
 import { driftClouds, makeClouds, makeShadows, makeStars, makeStorm, paintClouds, paintShadows, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
-import type { Activity, Season, Settings, Time, Wallpaper } from "../src/wallpaper"
-import { WeatherLayer } from "../src/weather"
+import type { Activity, Settings, Time, Wallpaper } from "../src/wallpaper"
 import { SwayLayer, gust, sway } from "../src/wind"
 
 // The scene runs slower than real time, which keeps it calm behind text.
@@ -102,55 +101,10 @@ const DAYLIGHT = (() => {
   return [0.5 / l, -0.6 / l, 0.6 / l] as const
 })()
 
-// Ground colors by season and time of day, where they differ from the summer look's hills.
-const GROUND: Partial<Record<Season, Partial<Record<Time, [far: RGB, near: RGB]>>>> = {
-  spring: {
-    day: [
-      [0.46, 0.68, 0.36],
-      [0.34, 0.64, 0.18],
-    ],
-  },
-  autumn: {
-    day: [
-      [0.6, 0.52, 0.28],
-      [0.56, 0.44, 0.17],
-    ],
-    sunset: [
-      [0.62, 0.34, 0.1],
-      [0.42, 0.22, 0.05],
-    ],
-  },
-  // Snow by day, gold at sunset, and deep blue at night, never white.
-  winter: {
-    day: [
-      [0.74, 0.79, 0.88],
-      [0.82, 0.86, 0.93],
-    ],
-    sunset: [
-      [0.6, 0.4, 0.26],
-      [0.5, 0.34, 0.24],
-    ],
-    night: [
-      [0.035, 0.07, 0.18],
-      [0.045, 0.1, 0.24],
-    ],
-  },
-}
-
-// Daytime colors. The corn sprouts in spring, ripens in summer, dries to gold in autumn and is stubble in winter.
-const CORN: Record<Season, { height: number; stalk: RGB; ear?: RGB; tassel?: RGB }> = {
-  spring: { height: 0.4, stalk: [0.3, 0.62, 0.14] },
-  summer: { height: 1, stalk: [0.25, 0.5, 0.12], ear: [0.95, 0.8, 0.25], tassel: [0.75, 0.6, 0.3] },
-  autumn: { height: 1, stalk: [0.62, 0.48, 0.2], ear: [0.72, 0.55, 0.26], tassel: [0.5, 0.36, 0.18] },
-  winter: { height: 0.18, stalk: [0.48, 0.38, 0.24] },
-}
-// Tree crowns and the specks in them: blossom in spring, leaves in summer and autumn; bare in winter.
-const CROWN: Record<Season, [crown: RGB, specks: RGB[]]> = {
-  spring: [[0.92, 0.6, 0.72], [[1, 0.88, 0.92], [0.85, 0.42, 0.6], [0.4, 0.62, 0.2]]],
-  summer: [[0.18, 0.4, 0.12], [[0.12, 0.3, 0.08], [0.28, 0.52, 0.16]]],
-  autumn: [[0.85, 0.42, 0.1], [[0.95, 0.68, 0.15], [0.7, 0.16, 0.06], [0.55, 0.3, 0.08]]],
-  winter: [[0, 0, 0], []],
-}
+// Daytime colors of the ripe corn.
+const CORN: { stalk: RGB; ear: RGB; tassel: RGB } = { stalk: [0.25, 0.5, 0.12], ear: [0.95, 0.8, 0.25], tassel: [0.75, 0.6, 0.3] }
+// Tree crowns in leaf and the specks in them.
+const CROWN: [crown: RGB, specks: RGB[]] = [[0.18, 0.4, 0.12], [[0.12, 0.3, 0.08], [0.28, 0.52, 0.16]]]
 // Daytime crops on the far fields, as multipliers of the far hill color.
 const CROPS: RGB[] = [
   [1, 1, 1],
@@ -201,16 +155,10 @@ class Farm extends Canvas {
   // The easter egg: a cow ambles in from the right, then a flying saucer beams it up. t counts scene seconds from
   // the cow settling down to graze.
   private egg: { wait: number; t: number; cow: Walker | undefined } = { wait: eggWait() * TIME_SCALE, t: -1, cow: undefined }
-  private readonly season: Season
-  private readonly weather: WeatherLayer
   private lights = new LightMap()
-  private hills: [far: RGB, near: RGB]
-  private treeTops: [number, number][] = []
   // The barn and windmill stand toward the edges, in screen heights from the left, clear of the text in the middle.
   private barnX = 0
   private millX = 0.25
-  // Blossom petals in spring and leaves in autumn, drifting down on the breeze.
-  private leaves: { x: number; y: number; phase: number; color: RGB }[] = []
   // The back corn rows are painted once but still bend as gusts pass, and the open pasture lightens under them.
   private corn = new SwayLayer()
   private pasture = new Int32Array(0)
@@ -223,14 +171,7 @@ class Farm extends Canvas {
     this.activity = settings.activity
     this.look = LOOKS[settings.time]
     if (settings.time === "day") this.frame = 0.4
-    this.season = settings.season ?? "summer"
-    this.hills = GROUND[this.season]?.[settings.time] ?? this.look.hills
-    // Without a weather setting, winter brings a light flurry.
-    this.weather = new WeatherLayer(settings.weather ?? (this.season === "winter" ? "snow" : "clear"), settings.time, HORIZON, !settings.weather)
-    this.shade = sunShade(settings.time, this.look.orb, this.weather.covered)
-    const drifting = { spring: 10, autumn: 22, summer: 0, winter: 0 }[this.season] * { calm: 1, lively: 1.3, teeming: 1.6 }[settings.activity]
-    const colors: RGB[] = this.season === "spring" ? [[1, 0.78, 0.86], [0.95, 0.6, 0.72]] : [[0.9, 0.45, 0.1], [0.75, 0.2, 0.07], [0.95, 0.7, 0.18]]
-    this.leaves = Array.from({ length: Math.round(drifting) }, (_, i) => ({ x: Math.random() * 2, y: 0.4 + Math.random() * 0.55, phase: Math.random() * TAU, color: colors[i % colors.length] }))
+    this.shade = sunShade(settings.time, this.look.orb)
     this.stars = makeStars(this.look.stars, 0.45)
     // Long thin streaks catch the low sun better than heaps of cumulus.
     this.clouds = settings.time === "sunset" ? makeClouds(5, "cirrus", 0.06, 0.3) : makeClouds(5, "cumulus", 0.08, 0.3)
@@ -240,7 +181,7 @@ class Farm extends Canvas {
       this.chickens = [walker(1.2, 0.69), walker(1.3, 0.7), walker(1.4, 0.685)]
     }
     if (settings.activity === "teeming") this.pigs = [walker(0.9, 0.9), walker(1.0, 0.92)]
-    const flies = this.look.fireflies && this.season === "summer" ? { calm: 12, lively: 20, teeming: 30 }[settings.activity] : 0
+    const flies = this.look.fireflies ? { calm: 12, lively: 20, teeming: 30 }[settings.activity] : 0
     this.fireflies = Array.from({ length: flies }, () => ({ x: Math.random() * 2, y: 0.6 + Math.random() * 0.35, vx: 0, vy: 0, phase: Math.random() * TAU }))
   }
 
@@ -253,18 +194,7 @@ class Farm extends Canvas {
     driftClouds(this.shadows, this.A, dt)
     driftClouds(this.storm, this.A, dt)
     this.stepGloom(dt)
-    this.weather.step(dt)
     this.fan += dt * (0.8 + 1.6 * gust(this.millX, this.time))
-    for (const l of this.leaves) {
-      l.y += (0.02 + Math.sin(this.time * 1.3 + l.phase) * 0.012) * dt
-      l.x += (0.025 + Math.sin(this.time * 0.7 + l.phase * 3) * 0.02 + gust(l.x, this.time) * 0.09) * dt
-      if (l.y < 0.99 && l.x < this.A + 0.05) continue
-      // Most come loose from one of the trees; some blow in from off to the left.
-      const tree = this.treeTops[Math.floor(Math.random() * this.treeTops.length)]
-      const fromTree = tree && Math.random() < 0.6
-      l.x = fromTree ? tree[0] + rand(-0.04, 0.04) : -0.03
-      l.y = fromTree ? tree[1] + rand(-0.02, 0.03) : rand(0.35, 0.75)
-    }
     for (const f of this.fireflies) {
       f.vx += (Math.random() - 0.5) * 0.02 * dt
       f.vy += (Math.random() - 0.5) * 0.02 * dt
@@ -304,11 +234,9 @@ class Farm extends Canvas {
     lightenGrass(this.hdr, this.W, this.H, this.pasture, this.gusts)
     if (x1 >= 0) this.touch(x0, this.pastureTop, x1, this.H - 1)
     this.corn.draw(this.hdr, this.W, this.H, this.time)
-    if (!this.weather.covered) paintStars(this.hdr, this.W, this.H, this.stars, this.time, 0.5, this.look.stars > 50 ? 0.5 : 0.3, this.points)
-    const [top, bottom] = this.weather.scud ?? [this.look.clouds.top, this.look.clouds.bottom]
-    const orb = this.weather.covered ? undefined : this.look.orb
-    paintClouds(this.hdr, this.W, this.H, this.clouds, top, bottom, this.look.clouds.alpha, orb)
-    paintShadows(this.hdr, this.W, this.H, this.shadows, HORIZON + 0.01, orb)
+    paintStars(this.hdr, this.W, this.H, this.stars, this.time, 0.5, this.look.stars > 50 ? 0.5 : 0.3, this.points)
+    paintClouds(this.hdr, this.W, this.H, this.clouds, this.look.clouds.top, this.look.clouds.bottom, this.look.clouds.alpha, this.look.orb)
+    paintShadows(this.hdr, this.W, this.H, this.shadows, HORIZON + 0.01, this.look.orb)
     paintStorm(this.hdr, this.W, this.H, this.storm, this.look.clouds.top, this.look.clouds.bottom, this.gloom)
     this.drawShadows()
     this.drawFan()
@@ -328,8 +256,6 @@ class Farm extends Canvas {
     this.lights.apply(this.hdr)
     this.drawCornRow(3)
     this.drawFireflies()
-    this.drawLeaves()
-    this.weather.draw(this.hdr, this.W, this.H)
     this.finish()
   }
 
@@ -342,15 +268,10 @@ class Farm extends Canvas {
     const { W, H, A, look } = this
     this.lighting = look.style === "front" ? { style: "front", dir: DAYLIGHT } : { style: "rim", color: look.light, x: look.orb.x * W, y: look.orb.y * H }
     paintSky(this.hdr, W, H, look.sky, look.orb, this.px)
-    this.weather.cover(this.hdr, W, H)
-    // Far hills with a patchwork of fields, then the nearer pasture hill. Autumn turns most fields gold; snow evens
-    // them out.
-    const [far, near] = this.hills
-    const season = this.season
-    const golden = season === "autumn" ? 0.45 : 0.85
-    const patchwork = season === "winter" ? 0.3 : 1
+    // Far hills with a patchwork of fields, a few of them gold, then the nearer pasture hill.
+    const [far, near] = look.hills
     // Blades are a pixel-fine texture, which terminal cells would turn into diagonal hatching.
-    const grass = this.cells ? 0 : season === "winter" ? 0.03 : 0.1
+    const grass = this.cells ? 0 : 0.1
     const farTop = new Float32Array(W)
     this.nearTop = new Float32Array(W)
     for (let x = 0; x < W; x++) {
@@ -364,10 +285,10 @@ class Farm extends Canvas {
       const fu = (x / H) * 5 + (y / H) * 9
       const fv = (y / H) * 22
       const field = hash2(Math.floor(fu), Math.floor(fv))
-      const k = 1 + (field < 0.33 ? -0.15 : field < 0.66 ? 0 : 0.12) * patchwork
-      const gold = field > golden && season !== "winter" ? 0.3 : 0
+      const k = 1 + (field < 0.33 ? -0.15 : field < 0.66 ? 0 : 0.12)
+      const gold = field > 0.85 ? 0.3 : 0
       const c: RGB = [far[0] * k + gold * far[0], far[1] * k + gold * 0.2 * far[1], far[2] * k * (1 - gold)]
-      if (!day || season === "winter") return this.rim(c, x, d, 1.5)
+      if (!day) return this.rim(c, x, d, 1.5)
       // By day each field takes its own crop, from deep green to ploughed ochre, edged by dark hedgerows.
       const crop = CROPS[Math.floor(hash2(Math.floor(fu) + 7.1, Math.floor(fv) + 3.3) * CROPS.length)]
       const hedge = Math.min(fu - Math.floor(fu), (fv - Math.floor(fv)) * 0.4) < 0.05 ? 0.5 : 1
@@ -380,7 +301,7 @@ class Farm extends Canvas {
       const depth = 1 - clamp((y / H - 0.6) * 0.6, 0, 0.25)
       return this.rim([near[0] * blades * depth, near[1] * blades * depth, near[2] * blades * depth], x, d, 2)
     })
-    if (day) mottle(this.hdr, W, H, 0.58, 1, 0.55, season === "winter" ? [1.03, 1, 0.92] : [1.14, 1.06, 0.7], season === "winter" ? [0.62, 0.74, 1] : [0.66, 0.84, 0.66])
+    if (day) mottle(this.hdr, W, H, 0.58, 1, 0.55, [1.14, 1.06, 0.7], [0.66, 0.84, 0.66])
     const field = this.hdr.slice()
     // A dirt road winding across the middle distance.
     for (let x = 0; x < W; x++) {
@@ -388,11 +309,10 @@ class Farm extends Canvas {
       for (let y = Math.floor(cy - 0.009 * H); y <= Math.ceil(cy + 0.009 * H); y++) {
         if (y < 0 || y >= H) continue
         const edge = clamp(0.009 * H - Math.abs(y + 0.5 - cy) + 0.5, 0, 1)
-        const c = season === "winter" ? lerpRGB(this.paint([0.5, 0.4, 0.26]), near, 0.6) : this.paint([0.5, 0.4, 0.26])
+        const c = this.paint([0.5, 0.4, 0.26])
         this.blend((y * W + x) * 3, c[0], c[1], c[2], edge)
       }
     }
-    if (season === "spring") this.drawWildflowers()
     this.barnX = A - 0.24
     const trees = [0.5, A - 0.04]
     const ground = (x: number, y: number, w: number, h: number, tip?: number) => groundShadow(this.hdr, W, H, this.shade, x * H, y * H, w * H, h * H, tip)
@@ -402,21 +322,11 @@ class Farm extends Canvas {
     ground(this.barnX, 0.655, 0.24, 0.19, 0.6)
     for (const [dx, by] of [[-0.28, 0.705], [-0.2, 0.712]]) ground(this.barnX + dx, by + 0.02, 0.045, 0.04)
     for (let x = 0.38 * A; x < A + 0.05; x += 0.07) ground(x, 0.725, 0.012, 0.045, 0.6)
-    this.treeTops = trees.map((x) => {
-      const base = this.nearTop[clamp(Math.round(x * H), 0, W - 1)] / H + 0.012
-      this.drawTree(x, base)
-      return [x, base - 0.12]
-    })
+    for (const x of trees) this.drawTree(x, this.nearTop[clamp(Math.round(x * H), 0, W - 1)] / H + 0.012)
     this.drawFarmhouse(0.08, this.nearTop[clamp(Math.round(0.08 * H), 0, W - 1)] / H + 0.006)
     this.drawWindmillTower(this.millX, 0.65)
     this.drawBarn(this.barnX, 0.655)
     for (const [dx, by] of [[-0.28, 0.705], [-0.2, 0.712]]) this.shape([ell((this.barnX + dx) * H, by * H, 0.022 * H, 0.02 * H, 0, this.paint([0.78, 0.62, 0.3]), 3)], this.lighting, 0.8)
-    // Pumpkins in front of the barn in autumn.
-    if (season === "autumn")
-      for (const [dx, r] of [[-0.062, 0.011], [-0.046, 0.008], [0.056, 0.01]]) {
-        const [px, py] = [(this.barnX + dx) * H, 0.664 * H]
-        this.shape([ell(px, py - r * H, r * 1.25 * H, r * H, 0, this.paint([0.92, 0.45, 0.06]), 3), cap(px, py - r * 1.9 * H, px + 0.003 * H, py - r * 2.4 * H, 0.0018 * H, 0.0012 * H, this.paint([0.3, 0.35, 0.1]))], this.lighting, 0.7)
-      }
     // A fence along the front of the pasture.
     const fy = 0.725 * H
     const posts: Part[] = []
@@ -525,12 +435,6 @@ class Farm extends Canvas {
     this.polygon(P([[c, b - 0.185], [c + 0.06, b - 0.198], [c + 0.135, b - 0.168], [c + 0.15, b - 0.115], [c + 0.09, b - 0.1], [c + 0.075, b - 0.155]]), this.paint([0.22, 0.07, 0.06]))
     this.polygon(P([[c - 0.08, b - 0.1], [c + 0.08, b - 0.1], [c + 0.08, b], [c - 0.08, b]]), this.paint([0.62, 0.12, 0.08]))
     this.polygon(P([[c - 0.09, b - 0.1], [c - 0.075, b - 0.155], [c, b - 0.185], [c + 0.075, b - 0.155], [c + 0.09, b - 0.1]]), this.paint([0.32, 0.1, 0.08]))
-    if (this.season === "winter") {
-      const snow = this.hills[1]
-      this.polygon(P([[c, b - 0.187], [c + 0.06, b - 0.2], [c + 0.135, b - 0.17], [c + 0.148, b - 0.12], [c + 0.09, b - 0.104], [c + 0.075, b - 0.157]]), snow)
-      this.polygon(P([[c - 0.077, b - 0.157], [c, b - 0.188], [c + 0.077, b - 0.157], [c + 0.072, b - 0.148], [c, b - 0.176], [c - 0.072, b - 0.148]]), snow)
-      this.shape([ell((c - 0.13) * H, (b - 0.175) * H, 0.023 * H, 0.013 * H, 0, snow)], this.lighting, 0.4)
-    }
     this.polygon(P([[c - 0.035, b - 0.065], [c + 0.035, b - 0.065], [c + 0.035, b], [c - 0.035, b]]), this.look.windows === 1 ? [1.1, 0.6, 0.18] : this.paint([0.42, 0.07, 0.05]))
     const trim = this.paint([0.88, 0.86, 0.8])
     const t = 0.0025 * H
@@ -555,7 +459,6 @@ class Farm extends Canvas {
     this.polygon(P([[h + 0.028, hb - 0.062], [h + 0.036, hb - 0.062], [h + 0.036, hb - 0.045], [h + 0.028, hb - 0.045]]), this.paint([0.4, 0.2, 0.15]))
     this.polygon(P([[h - 0.035, hb - 0.035], [h + 0.035, hb - 0.035], [h + 0.035, hb], [h - 0.035, hb]]), this.paint([0.85, 0.82, 0.72]))
     this.polygon(P([[h - 0.043, hb - 0.034], [h, hb - 0.066], [h + 0.043, hb - 0.034]]), this.paint([0.35, 0.15, 0.12]))
-    if (this.season === "winter") this.polygon(P([[h - 0.04, hb - 0.037], [h, hb - 0.067], [h + 0.04, hb - 0.037], [h + 0.03, hb - 0.04], [h, hb - 0.058], [h - 0.03, hb - 0.04]]), this.hills[1])
     this.window(h - 0.024, hb - 0.026, h - 0.012, hb - 0.014)
     this.window(h + 0.012, hb - 0.026, h + 0.024, hb - 0.014)
   }
@@ -598,12 +501,11 @@ class Farm extends Canvas {
   // A row of corn stalks: rows 0 to 2 are painted once; the front row (3) sways and is drawn every frame.
   private drawCornRow(row: number) {
     const { A, H } = this
-    const corn = CORN[this.season]
     const base = [0.79, 0.87, 0.96, 1.05][row] * H
-    const height = (0.12 + row * 0.045) * H * corn.height
+    const height = (0.12 + row * 0.045) * H
     // Stalks stand at least a few cells apart, so in the terminal the field reads as plants rather than stripes.
     const spacing = this.cells ? Math.max(0.026 + row * 0.006, (9 * this.px) / H) : 0.026 + row * 0.006
-    const stalk = this.paint(corn.stalk)
+    const stalk = this.paint(CORN.stalk)
     // The row's shaded mass of leaves, so the field reads as rows rather than a tangle of thin strokes.
     const end = (0.36 * A + 0.03) * H
     const px = this.px
@@ -627,27 +529,22 @@ class Farm extends Canvas {
         parts.push(cap(lx, ly, ...mid, this.thick(0.006, 1.3), this.thick(0.004, 1.1), stalk), cap(...mid, lx + side * reach + bend * reach * 1.5, ly + reach * 0.15 + bend * reach, this.thick(0.004, 1.1), this.thick(0.0015, 0.6), stalk))
       }
       const [ex, ey] = at(0.55)
-      if (corn.ear) parts.push(ell(ex + 0.008 * H, ey, this.thick(0.007, 1.6), this.thick(0.016, 3), 0.25 + bend, this.paint(corn.ear)))
-      if (corn.tassel && !this.cells) parts.push(cap(...top, top[0] + 0.012 * H, top[1] - 0.012 * H, 0.002 * H, 0.001 * H, this.paint(corn.tassel)), cap(...top, top[0] - 0.01 * H, top[1] - 0.014 * H, 0.002 * H, 0.001 * H, this.paint(corn.tassel)))
+      parts.push(ell(ex + 0.008 * H, ey, this.thick(0.007, 1.6), this.thick(0.016, 3), 0.25 + bend, this.paint(CORN.ear)))
+      if (!this.cells) parts.push(cap(...top, top[0] + 0.012 * H, top[1] - 0.012 * H, 0.002 * H, 0.001 * H, this.paint(CORN.tassel)), cap(...top, top[0] - 0.01 * H, top[1] - 0.014 * H, 0.002 * H, 0.001 * H, this.paint(CORN.tassel)))
       // Rim light on every thin leaf would turn the field into a wireframe, so the corn only catches a little of it, and
       // on terminal cells less still.
       this.shape(parts, this.lighting, this.look.style === "rim" ? (this.cells ? 0.08 : 0.2) : 0.6)
     }
   }
 
-  // A round orchard tree on the pasture hill: in blossom, in leaf, turning, or bare with snow along its branches.
+  // A round orchard tree in leaf on the pasture hill.
   private drawTree(x: number, base: number) {
     const H = this.H
     const bark = this.paint([0.3, 0.2, 0.12])
     const fork = base - 0.06
     const limbs = [[-0.04, -0.13], [0.035, -0.135], [-0.005, -0.155], [0.05, -0.1], [-0.055, -0.095]]
     this.shape([cap(x * H, base * H, x * H, fork * H, 0.006 * H, 0.0045 * H, bark), ...limbs.map(([dx, dy]) => cap(x * H, fork * H, (x + dx) * H, (base + dy) * H, 0.0035 * H, 0.0012 * H, bark))], this.lighting, 0.6)
-    if (this.season === "winter") {
-      const snow = this.hills[1]
-      this.shape(limbs.map(([dx, dy]) => cap((x + dx * 0.3) * H, (fork + (base + dy - fork) * 0.3) * H - 0.003 * H, (x + dx * 0.85) * H, (fork + (base + dy - fork) * 0.85) * H - 0.003 * H, 0.0016 * H, 0.0008 * H, snow)), this.lighting, 0.3)
-      return
-    }
-    const [crown, specks] = CROWN[this.season]
+    const [crown, specks] = CROWN
     const blobs = [[0, -0.12, 0.05, 0.04], [-0.038, -0.1, 0.034, 0.03], [0.038, -0.104, 0.034, 0.03], [-0.016, -0.148, 0.034, 0.027], [0.022, -0.142, 0.03, 0.025]]
     this.shape(blobs.map(([dx, dy, rx, ry]) => ell((x + dx) * H, (base + dy) * H, rx * H, ry * H, 0, this.paint(crown))), this.lighting, 0.8)
     for (let i = 0; i < 46; i++) {
@@ -655,30 +552,6 @@ class Farm extends Canvas {
       const r = Math.sqrt(hash(i * 2.9 + x))
       const c = this.paint(specks[i % specks.length])
       this.disc((x + Math.cos(a) * r * 0.06) * H, (base - 0.122 + Math.sin(a) * r * 0.045) * H, 0.004 * H, c[0], c[1], c[2], 0.9)
-    }
-  }
-
-  // Spring wildflowers dotted over the pasture.
-  private drawWildflowers() {
-    const { W, H } = this
-    const colors: RGB[] = [[0.95, 0.85, 0.2], [0.95, 0.92, 0.85], [0.6, 0.35, 0.85], [0.95, 0.45, 0.55]]
-    for (let i = 0; i < Math.round(this.A * 160); i++) {
-      const x = hash(i * 3.3) * W
-      const top = this.nearTop[clamp(Math.round(x), 0, W - 1)] / H
-      const y = (top + 0.01 + hash(i * 5.1) * (0.95 - top)) * H
-      const c = this.paint(colors[i % colors.length])
-      this.disc(x, y, 0.0025 * H, c[0], c[1], c[2], 0.85)
-    }
-  }
-
-  // Petals or leaves tumbling as they fall.
-  private drawLeaves() {
-    const H = this.H
-    const size = this.season === "spring" ? 0.0045 : 0.0065
-    for (const l of this.leaves) {
-      const spin = Math.sin(this.time * 2 + l.phase) * 1.3
-      const flat = 0.35 + 0.65 * Math.abs(Math.cos(this.time * 1.6 + l.phase))
-      this.shape([ell(l.x * H, l.y * H, size * H, size * 0.55 * flat * H, spin, this.paint(l.color))], this.lighting, 0.5)
     }
   }
 
@@ -1066,10 +939,6 @@ class Farm extends Canvas {
   }
 }
 
-function lerpRGB(a: RGB, b: RGB, t: number): RGB {
-  return [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)]
-}
-
 // A gust flattens the grass as it passes, turning up the paler side of the blades in soft streaks.
 function lightenGrass(hdr: Float32Array, W: number, H: number, pasture: Int32Array, gusts: Float32Array) {
   for (let k = 0; k < pasture.length; k++) {
@@ -1089,7 +958,6 @@ export const farm: Wallpaper = {
   id: "farm",
   name: "Farm",
   description: "Rolling fields with a red barn, a turning windmill and swaying corn, and a tractor now and then",
-  collection: "Landscapes",
   activity: {
     calm: "Barn, windmill, fields and corn",
     lively: "Adds grazing cows and pecking chickens",

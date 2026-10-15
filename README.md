@@ -23,11 +23,8 @@ Type `/wallpaper` to open the menu and pick a wallpaper; none shows until you do
 
 ![The wallpaper menu](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/menu.png)
 
-- **Collection:** Landscapes, Akira, Classics, Arcade or all: which wallpapers the menu and shuffle pick from.
 - **Activity:** calm, lively or teeming: how much moves behind your work.
-- **Time, season and weather:** for Landscapes and Arcade. Time follows your clock or stays fixed, seasons follow the
-  calendar, and weather can be the real weather where you are (`/wallpaper location Berlin`). Akira and Classics keep
-  one look.
+- **Time of day:** day, sunset or night, or auto to follow your clock. Wallpapers with one look keep it.
 - **Brightness, shuffle, per project and power:** subtle to vivid, a new wallpaper every hour, one per project, and
   slowing down when idle.
 
@@ -36,16 +33,8 @@ an error. With mouse support, clicking empty background nudges the scene, and ea
 
 ## Wallpapers
 
-- **Landscapes:** `ocean` · `desert` · `jungle` · `space` · `farm` · `tundra` · `beach` · `city` · `zen` · `prehistoric` · `haunted-house`
-- **Akira:** `rider` · `megacity` · `dome`
-- **Classics:** `flowerbox` · `maze` · `pipes` · `mystify` · `flying-opencode` · `matrix`
-- **Arcade:** `wings` · `wings-flight` · `wings-bridge`
-
-| Spring | Summer | Autumn | Winter |
-| --- | --- | --- | --- |
-| ![Farm in spring](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/farm-spring.png) | ![Farm in summer](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/farm-summer.png) | ![Farm in autumn](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/farm-autumn.png) | ![Farm in winter](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/farm-winter.png) |
-
-![Farm in the rain](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/farm-rain.png)
+`ocean` · `desert` · `jungle` · `space` · `farm` · `tundra` · `beach` · `city` · `zen` · `prehistoric` · `haunted-house` ·
+`rider` · `megacity` · `dome` · `flowerbox` · `maze` · `pipes` · `mystify` · `flying-opencode` · `universe` · `matrix`
 
 ## Terminals
 
@@ -57,7 +46,6 @@ Any truecolor terminal works. Ghostty and kitty get finer octant characters; oth
 | `WALLPAPER_SUPERSAMPLE=2` | Smoother edges, at about 2.5x the CPU |
 | `WALLPAPER_OCTANTS=0` or `1` | Force quadrant or octant characters |
 | `WALLPAPER_SMOOTH=0` | Octants without wedges and eighth blocks |
-| `WALLPAPER_LOCATION` | A place or `latitude,longitude` for local weather |
 
 ## Make a wallpaper
 
@@ -66,8 +54,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 ## Gallery
 
 At teeming; the GIFs play at 3x speed.
-
-### Landscapes
 
 | | |
 | --- | --- |
@@ -92,38 +78,18 @@ At teeming; the GIFs play at 3x speed.
 | Prehistoric | ![Prehistoric by day](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/prehistoric.png) | ![Prehistoric at sunset](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/prehistoric-sunset.png) | ![Prehistoric at night](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/prehistoric-night.png) |
 | Haunted house | ![Haunted house by day](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/haunted-house.png) | ![Haunted house at sunset](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/haunted-house-sunset.png) | ![Haunted house at night](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/haunted-house-night.png) |
 
-### Akira
-
 | | Still | In motion |
 | --- | --- | --- |
 | Rider | ![Rider](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/rider.png) | ![Rider in motion](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/rider.gif) |
 | Megacity | ![Megacity](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/megacity.png) | ![Megacity in motion](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/megacity.gif) |
 | Dome | ![Dome](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/dome.png) | ![Dome in motion](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/dome.gif) |
-
-### Classics
-
-| | Still | In motion |
-| --- | --- | --- |
 | Flower Box | ![Flower Box](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/flowerbox.png) | ![Flower Box in motion](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/flowerbox.gif) |
 | 3D Maze | ![3D Maze](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/maze.png) | ![3D Maze in motion](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/maze.gif) |
 | 3D Pipes | ![3D Pipes](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/pipes.png) | ![3D Pipes in motion](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/pipes.gif) |
 | Mystify | ![Mystify](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/mystify.png) | ![Mystify in motion](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/mystify.gif) |
 | Flying OpenCode | ![Flying OpenCode](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/flying-opencode.png) | ![Flying OpenCode in motion](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/flying-opencode.gif) |
+| Universe | ![Universe](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/universe.png) | ![Universe in motion](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/universe.gif) |
 | Matrix | ![Matrix](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/matrix.png) | ![Matrix in motion](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/matrix.gif) |
-
-### Arcade
-
-| | Day | Sunset | Night |
-| --- | --- | --- | --- |
-| Wings | ![Wings by day](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/wings.png) | ![Wings at sunset](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/wings-sunset.png) | ![Wings at night](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/wings-night.png) |
-| Wings: Flight | ![Wings: Flight by day](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/wings-flight.png) | ![Wings: Flight at sunset](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/wings-flight-sunset.png) | ![Wings: Flight at night](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/wings-flight-night.png) |
-| Wings: Bridge | ![Wings: Bridge by day](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/wings-bridge.png) | ![Wings: Bridge at sunset](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/wings-bridge-sunset.png) | ![Wings: Bridge at night](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/wings-bridge-night.png) |
-
-![Wings in motion](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/wings.gif)
-
-![Wings: Flight in motion](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/wings-flight.gif)
-
-![Wings: Bridge in motion](https://raw.githubusercontent.com/vaprdev/opencode-wallpapers/assets/wings-bridge.gif)
 
 ## License
 

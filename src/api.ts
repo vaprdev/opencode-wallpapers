@@ -12,21 +12,16 @@ export { STAR_TINTS, driftClouds, makeClouds, makeShadows, makeStars, makeStorm,
 export {
   ACTIVITIES,
   AGENT_EVENTS,
-  SEASONS,
   TIMES,
-  WEATHERS,
   type Activity,
   type AgentEvent,
   type Brightness,
   type Scene,
   type Scrim,
-  type Season,
   type Settings,
   type TextMap,
   type Time,
   type Wallpaper,
-  type Weather,
 } from "./wallpaper"
 export { reflect } from "./water"
-export { WeatherLayer } from "./weather"
 export { SwayLayer, gust, sway } from "./wind"

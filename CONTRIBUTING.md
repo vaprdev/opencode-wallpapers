@@ -14,7 +14,7 @@ WALLPAPER_MODULES=$PWD/wallpapers/meadow.ts bun dev/snap.ts meadow teeming night
 ```
 
 `wallpapers/template.ts` is a short, commented wallpaper with hills, a tree, a balloon and birds. It covers the
-basics below. `wallpapers/farm.ts` is a complete outdoor wallpaper with seasons, weather, agent reactions, clicks and
+basics below. `wallpapers/farm.ts` is a complete outdoor wallpaper with times of day, agent reactions, clicks and
 an easter egg. `WALLPAPER_MODULES` (comma-separated absolute paths) adds
 wallpapers that aren't registered in `wallpapers/index.ts` to the dev tools.
 
@@ -27,14 +27,13 @@ export const meadow: Wallpaper = {
   id: "meadow", // what /wallpaper takes: lowercase letters, digits and dashes
   name: "Meadow",
   description: "Rolling hills with a tree under drifting clouds",
-  collection: "Landscapes", // the menu's group; see Collections and fixed looks
   activity: { calm: "…", lively: "…", teeming: "…" }, // what each level shows, for the menu
   scrim: { day: [top, middle, bottom], sunset: […], night: […] }, // see Scrim
-  create: (settings) => new Meadow(settings), // activity and time, and optionally season and weather
+  create: (settings) => new Meadow(settings), // activity and time of day
 }
 ```
 
-A new scene is created whenever the wallpaper, activity, time of day, season or weather changes, so a scene never has
+A new scene is created whenever the wallpaper, activity or time of day changes, so a scene never has
 to switch looks on its own; while the old scene crossfades into the new one, both run. Up to 15 times a second the
 engine calls `resize(W, H)` with the grid it needs, then `step(dt)` with the elapsed seconds (several times per frame
 when idle at 5 fps, never more than 0.1 s at a time), then `render()`, and reads `pixels`. Extend `Canvas` (from
@@ -111,7 +110,7 @@ pixel (space's nebula) can be worked out once per real pixel.
 The engine also refits only the terminal cells that can have changed since the last frame. `restore()` starts the
 frame's `touched` list of boxes, and every drawing method below adds the box it drew in. A scene that writes `hdr` in
 its own loop during `render()` must call `touch(x0, y0, x1, y1)` (pixels, inclusive) for that area; the shared helpers
-(sky, weather, shadows, light, water, wind) record their own. Anything left untouched keeps last frame's cells, so a missed loop
+(sky, shadows, light, water, wind) record their own. Anything left untouched keeps last frame's cells, so a missed loop
 shows as a smear; `bun dev/check.ts --verify-dirty <id>` catches it. A scene that never calls `restore()` is refitted
 in full every frame.
 
@@ -194,8 +193,7 @@ noise (`noise1`, `noise2`, `fbm1`, `fbm2`), `hsv` and the `RGB` type.
 
 ### Shadows
 
-`src/shadow.ts` grounds things standing on the ground. Make one `Shade` with `sunShade(time, look.orb,
-weather.covered)`, then call `groundShadow(hdr, W, H, shade, x, y, w, h, tip?, lift?)` with the ground point under a
+`src/shadow.ts` grounds things standing on the ground. Make one `Shade` with `sunShade(time, look.orb)`, then call `groundShadow(hdr, W, H, shade, x, y, w, h, tip?, lift?)` with the ground point under a
 thing, its width and height in pixels, before drawing it: static things in `layout()`, moving ones each frame. It draws a
 soft contact shadow and a cast shadow away from the light: short by day, long and spreading from the low sun at sunset,
 faint at night, contact only under cloud. `lift` (pixels off the ground) fades the contact shadow and slides the cast one
@@ -241,28 +239,12 @@ single `node()`s into its coarse grid, then `apply()` it once after the things i
 areas and dims itself behind the middle of the screen; `firelight()` there gives a slow flicker. Keep the area behind
 text no brighter or busier than before, and keep flicker slow.
 
-## Collections and fixed looks
-
-`collection` puts a wallpaper in one of the menu's groups: `Landscapes`, `Akira`, `Classics`, `Arcade`, or a name of
-your own for a new group. The menu's Collection row picks one, and shuffle stays within it. Without one, a wallpaper
-joins Landscapes, or Classics if it has a fixed look. The time, season and weather rows follow `fixedTime`, not the
-collection.
+## Fixed looks
 
 A wallpaper that only makes sense at one time of day, such as an old screensaver, sets `fixedTime: "night"` (or `day`
-or `sunset`). It then always gets that time with no season or weather, whatever the settings, the menu hides its time,
-season and weather rows, auto's crossfades pass it by, and the README and dev tools show it at that one time (`screenshots/<id>.png`).
-`scrim` still needs all three times, though only the fixed one is used.
-
-## Seasons and weather
-
-`settings.season` is spring, summer, autumn or winter, or missing for the classic look. Change what the season would
-really change (blossom, leaves, snow, crowds) and nothing for indoor or timeless scenes.
-
-`settings.weather` is clear, overcast, rain, snow or fog, or missing for the wallpaper's own weather. Outdoor scenes
-make one `WeatherLayer` (from `src/weather.ts`) with the weather, time of day and horizon, and call its `cover()` in
-`layout()` right after painting the sky, `step(dt)` in `step`, and `draw()` at the end of `render()` before `finish()`.
-Skip stars when `covered` is set, and color clouds with `scud` when it is. Passing `light` as the last argument gives a
-seasonal shower or flurry without the cloud deck, as the farm does in winter. `wallpapers/farm.ts` shows all of it.
+or `sunset`). It then always gets that time, whatever the settings, the menu hides its time row, auto's crossfades pass
+it by, and the README and dev tools show it at that one time (`screenshots/<id>.png`). `scrim` still needs all three
+times, though only the fixed one is used.
 
 ## Wind
 
@@ -352,10 +334,10 @@ a lot with machine load, so compare against an existing wallpaper measured back 
 
 ```sh
 bun run typecheck
-bun dev/check.ts [id...] [season] [weather]       # every activity and time: errors, ms/frame, flicker
+bun dev/check.ts [id...]                          # every activity and time: errors, ms/frame, flicker
 bun dev/check.ts --verify-dirty [id...]           # also checks that refitting only changed cells matches a full refit
-bun dev/snap.ts <id> [activity] [time] [season] [weather] [seconds...] # scene PNGs in dev/out/, and ms per render
-bun dev/preview.ts <id> [activity] [time] [season] [weather] [home|session] [WxH] [seconds] # terminal cells behind text, as a PNG
+bun dev/snap.ts <id> [activity] [time] [seconds...] # scene PNGs in dev/out/, and ms per render
+bun dev/preview.ts <id> [activity] [time] [home|session] [WxH] [seconds] # terminal cells behind text, as a PNG
 bun dev/pixel-check.ts [id] [activity] [time]     # real-pixel mode against a mock kitty terminal
 bun dev/poke.ts <id> [activity] [time] <fx> <fy> [seconds...] # click at a point (fractions of the screen)
 bun dev/fade.ts <id>:day <id>:night 50            # a frame halfway through a crossfade, and its cost
@@ -385,8 +367,7 @@ bun dev/gif.ts all                                # re-renders the README's GIFs
 - `WALLPAPER_EVENTS="busy@2,done@12,error@30"` plays agent events at those seconds, in OpenCode or `dev/snap.ts`.
   `WALLPAPER_EGG=1` brings every easter egg on a few seconds in. `WALLPAPER_CLOCK=17:59` starts auto's clock there,
   to watch a time-of-day fade, and `WALLPAPER_DUMP_FADE=<file>` dumps the first frame past the middle of a crossfade.
-- `WALLPAPER=<id>`, `WALLPAPER_ACTIVITY`, `WALLPAPER_TIME`, `WALLPAPER_SEASON` and `WALLPAPER_WEATHER` pin a
-  wallpaper inside OpenCode without changing the
+- `WALLPAPER=<id>`, `WALLPAPER_ACTIVITY` and `WALLPAPER_TIME` pin a wallpaper inside OpenCode without changing the
   saved choice, and `WALLPAPER_DEBUG=<file>` logs engine errors and stats.
 
 ## Adding a wallpaper to this repository
@@ -394,7 +375,7 @@ bun dev/gif.ts all                                # re-renders the README's GIFs
 1. Put it in `wallpapers/<id>.ts` as a named export, and add it to `wallpapers/index.ts`.
 2. Run `bun run typecheck` and `bun dev/check.ts <id>`, and look at `dev/snap.ts` and `dev/preview.ts` output at every
    time of day.
-3. Add it to its collection's line in the README's wallpaper list and to that collection's gallery. Unless it has a
+3. Add it to the README's wallpaper list and gallery. Unless it has a
    fixed time, add its best-looking time of day to `BEST` in `dev/gif.ts`. CI publishes its screenshots once it's merged; a maintainer adds its GIF (see below).
 
 ## README images
@@ -405,7 +386,7 @@ ignored on `main`) the first time they need it.
 
 - **Screenshots** update themselves: CI renders every wallpaper, and when a pull request changes one it warns and
   attaches the fresh renders as an artifact for review. Once the change is on `main`, CI commits them to `assets`.
-- **GIFs and the rest** (`hero.gif`, `menu.png`, the farm's seasons and rain) are updated by hand, by anyone who can
+- **GIFs and the rest** (`hero.gif` and `menu.png`) are updated by hand, by anyone who can
   push to `assets`:
 
   ```sh
@@ -426,7 +407,7 @@ OpenCode instead, put its absolute path in `plugins` in `~/.config/opencode/cli.
 ## Your own package
 
 A wallpaper package imports the API from `opencode-wallpapers/api`, which has `Canvas`, `cap`, `ell`, `blade`, the
-sky, grade, shadow, light, water, creature, wind, weather, flock, egg and math helpers, and the `Wallpaper` types,
+sky, grade, shadow, light, water, creature, wind, flock, egg and math helpers, and the `Wallpaper` types,
 with no OpenCode or OpenTUI dependency. It isn't on npm yet, so build a clone of this repository and depend on it by
 path:
 

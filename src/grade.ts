@@ -3,7 +3,7 @@
 import { fbm2, lerp, smoothstep, type RGB } from "./math"
 
 // Aerial perspective: whatever was painted between rows `top` and y1 fades toward the sky behind it, by `far` down to
-// row y0 (the horizon), easing to `near` at y1. `sky` is a copy of hdr taken right after the sky (and weather) was
+// row y0 (the horizon), easing to `near` at y1. `sky` is a copy of hdr taken right after the sky was
 // painted, so open sky is unchanged and distant shapes melt into the exact color around them. Below the horizon the
 // sky copy holds the horizon color, which is what distant ground fades to. Call it after each layer to haze the
 // farther ones more.

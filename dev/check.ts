@@ -1,12 +1,12 @@
 // Runs every wallpaper (or the named ones) at every activity level and time of day through the engine on a mock screen and reports errors, frame cost and
 // flicker (cells whose glyph changes per frame; lower is calmer). Exits non-zero on errors, on flicker above --max-flicker (default 150 of 7200 cells)
-// and, only when given, on frame cost above --max-ms: bun dev/check.ts [--quiet] [--max-ms=N] [--max-flicker=N] [--verify-dirty] [wallpaper...] [season] [weather]
+// and, only when given, on frame cost above --max-ms: bun dev/check.ts [--quiet] [--max-ms=N] [--max-flicker=N] [--verify-dirty] [wallpaper...]
 // --verify-dirty plays each combination twice, refitting every cell every frame (WALLPAPER_DIRTY=0) and then only the
 // cells that changed, with text edits, redraws between frames and agent events mixed in, and fails on any cell that
 // differs between the two, and on any pixel a scene draws outside its touched boxes.
 import { mkdirSync, rmSync } from "node:fs"
 import { parseArgs } from "node:util"
-import { ACTIVITIES, SEASONS, TIMES, WEATHERS, type Activity, type Engine, type Time, type Wallpaper } from "../src/engine"
+import { ACTIVITIES, TIMES, type Activity, type Engine, type Time, type Wallpaper } from "../src/engine"
 import { H, W, mockScreen, text } from "./mock"
 import { seed } from "./seed"
 import { wallpapers } from "./wallpapers"
@@ -21,9 +21,7 @@ const args = parseArgs({ allowPositionals: true, options: { quiet: { type: "bool
 const maxMs = Number(args.values["max-ms"] ?? Infinity)
 const maxFlicker = Number(args.values["max-flicker"])
 const verify = args.values["verify-dirty"]
-const season = SEASONS.find((s) => args.positionals.includes(s))
-const weather = WEATHERS.find((w) => args.positionals.includes(w))
-const ids = args.positionals.filter((arg) => arg !== season && arg !== weather)
+const ids = args.positionals
 const unknown = ids.filter((id) => !wallpapers.some((w) => w.id === id))
 if (unknown.length) throw new Error(`unknown wallpaper ${unknown.join(", ")}; available: ${wallpapers.map((w) => w.id).join(", ")}`)
 // Holding the clock makes the next frame a redraw that doesn't advance the scene, as when OpenCode repaints for typing.
@@ -77,7 +75,7 @@ function play(wallpaper: Wallpaper, activity: Activity, time: Time, dirty: strin
   let uncovered = 0
   let where = ""
   const watched = verify && dirty === "1" ? watch(wallpaper, (n, at) => ((uncovered += n), (where ||= at))) : wallpaper
-  screen.engine.start(watched, { activity, time, season, weather })
+  screen.engine.start(watched, { activity, time })
   let previous = new Uint32Array(W * H)
   let changes = 0
   let total = 0
@@ -128,10 +126,10 @@ function script(f: number, engine: Engine, wallpaper: Wallpaper, activity: Activ
   if (f === 130) engine.react("done")
   if (f === 150) engine.react("error")
   if (f === 200) engine.react("idle")
-  if (f === 180) engine.start(wallpaper, { activity, time, season, weather, brightness: "vivid" })
-  if (f === 205 && !wallpaper.fixedTime) engine.start(wallpaper, { activity, time: time === "night" ? "day" : "night", season, weather, brightness: "vivid" })
+  if (f === 180) engine.start(wallpaper, { activity, time, brightness: "vivid" })
+  if (f === 205 && !wallpaper.fixedTime) engine.start(wallpaper, { activity, time: time === "night" ? "day" : "night", brightness: "vivid" })
   // A wallpaper with a fixed time ignores a new time, so it crossfades to another activity instead.
-  if (f === 205 && wallpaper.fixedTime) engine.start(wallpaper, { activity: activity === "calm" ? "teeming" : "calm", time, season, weather, brightness: "vivid" })
+  if (f === 205 && wallpaper.fixedTime) engine.start(wallpaper, { activity: activity === "calm" ? "teeming" : "calm", time, brightness: "vivid" })
 }
 
 // A wallpaper whose scenes check, after every render, that each pixel that differs from the cached background lies in

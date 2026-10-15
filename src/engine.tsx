@@ -13,10 +13,7 @@ export {
   AGENT_EVENTS,
   BRIGHTNESSES,
   POWERS,
-  SEASONS,
   TIMES,
-  WEATHERS,
-  collectionOf,
   settingsFor,
   type Activity,
   type AgentEvent,
@@ -24,12 +21,10 @@ export {
   type Power,
   type Scene,
   type Scrim,
-  type Season,
   type Settings,
   type TextMap,
   type Time,
   type Wallpaper,
-  type Weather,
 } from "./wallpaper"
 
 // Parses WALLPAPER_EVENTS ("busy@2,done@12,error@40"): agent events to play at those seconds, for testing reactions.
@@ -725,7 +720,7 @@ function createLayer(renderer: Context["renderer"], draw: (buffer: OptimizedBuff
 export interface Engine {
   readonly wallpaper: Wallpaper | undefined
   // While running, the old scene crossfades into the new one over `fade` seconds. A wallpaper with a fixed time gets
-  // it in place of settings' time and season (see settingsFor).
+  // it in place of settings' time (see settingsFor).
   start(wallpaper: Wallpaper, settings: Settings, fade?: number): void
   stop(): void
   react(event: AgentEvent): void
@@ -1323,7 +1318,7 @@ export function createEngine(
     },
     start(next, requested, seconds = FADE) {
       const chosen = settingsFor(next, requested)
-      const shows = (w?: Wallpaper, s?: Settings) => w === next && s?.activity === chosen.activity && s.time === chosen.time && s.season === chosen.season && s.weather === chosen.weather
+      const shows = (w?: Wallpaper, s?: Settings) => w === next && s?.activity === chosen.activity && s.time === chosen.time
       // Only brightness changed: restyle the running scene.
       if (shows(wallpaper, settings)) {
         settings = chosen

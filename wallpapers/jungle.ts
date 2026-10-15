@@ -6,7 +6,6 @@ import { fireflyLight } from "../src/light"
 import { TAU, clamp, fbm1, hash, lerp, rand, smoothstep, type RGB } from "../src/math"
 import { groundShadow, sunShade, type Shade } from "../src/shadow"
 import type { Activity, Settings, Time, Wallpaper } from "../src/wallpaper"
-import { WeatherLayer } from "../src/weather"
 import { SwayLayer, gust, sway } from "../src/wind"
 
 // The scene runs slower than real time, which keeps it calm behind text.
@@ -79,10 +78,6 @@ const LOOKS: Record<Time, Look> = {
   },
 }
 
-// The rainy season (summer and autumn) thickens the mist toward these colors, dims the light shafts and swells the
-// waterfall.
-const RAINY_MIST: Record<Time, RGB> = { day: [0.36, 0.46, 0.42], sunset: [0.3, 0.16, 0.16], night: [0.01, 0.04, 0.07] }
-
 // Daytime colors.
 const TRUNK: RGB = [0.24, 0.17, 0.1]
 const CANOPY: RGB = [0.1, 0.28, 0.09]
@@ -134,8 +129,6 @@ class Jungle extends Canvas {
   private creatureTime = 0
   private readonly activity: Activity
   private readonly look: Look
-  private readonly weather: WeatherLayer
-  private readonly rainy: boolean
   private lighting: Lighting = { style: "front", dir: DAYLIGHT }
   private readonly shade: Shade
   private leaves: Leaf[] = []
@@ -162,16 +155,10 @@ class Jungle extends Canvas {
   constructor(settings: Settings) {
     super()
     this.activity = settings.activity
-    const rainy = settings.season === "summer" || settings.season === "autumn"
-    this.rainy = rainy
-    const look = LOOKS[settings.time]
     // Under the canopy the light is diffuse, so things on the floor get contact shadows but cast none.
     this.shade = sunShade(settings.time, { x: 0.85, y: -0.15 }, true)
-    const wet = RAINY_MIST[settings.time]
-    this.look = rainy ? { ...look, mist: [mixRGB(look.mist[0], wet, 0.55), mixRGB(look.mist[1], wet, 0.4), look.mist[2]], far: mixRGB(look.far, wet, 0.4), shafts: look.shafts * 0.25 } : look
+    this.look = LOOKS[settings.time]
     if (settings.time === "day") this.frame = 0.3
-    // Without a weather setting, the rainy season brings a light shower.
-    this.weather = new WeatherLayer(settings.weather ?? (rainy ? "rain" : "clear"), settings.time, 0.66, !settings.weather)
     const count = this.look.night ? 0 : { calm: 0, lively: 2, teeming: 4 }[settings.activity]
     this.butterflies = Array.from({ length: count }, (_, i) => ({ x: 0.3 + i * 0.3, y: 0.5, wx: 0.3 + i * 0.3, wy: 0.5, wanderT: 0, phase: i * 2.3 }))
     const flies = this.look.night ? { calm: 16, lively: 30, teeming: 48 }[settings.activity] : 0
@@ -198,7 +185,6 @@ class Jungle extends Canvas {
       f.y = clamp(f.y + f.vy * dt, 0.25, 0.95)
     }
     this.stepToucan(dt)
-    this.weather.step(dt)
     for (const b of this.butterflies) this.stepButterfly(b, cdt)
     this.stepGloom(dt)
     this.chorus = Math.max(0, this.chorus - dt)
@@ -241,7 +227,7 @@ class Jungle extends Canvas {
     this.drawShafts()
     this.drawFalls()
     const mist = this.look.mist[1]
-    driftMist(this.hdr, this.W, this.H, this.mist, mist[0], mist[1], mist[2], this.rainy ? 0.3 : 0.22)
+    driftMist(this.hdr, this.W, this.H, this.mist, mist[0], mist[1], mist[2], 0.22)
     this.touch(0, Math.floor(0.5 * this.H), this.W - 1, Math.ceil(0.96 * this.H))
     if (this.toucan.x > -5) this.drawToucan(this.toucan)
     if (this.sloth.t >= 0) this.drawSloth()
@@ -255,7 +241,6 @@ class Jungle extends Canvas {
     for (const b of this.butterflies) this.drawButterfly(b)
     this.drawMotes()
     for (const l of this.leaves) this.drawLeaf(l)
-    this.weather.draw(this.hdr, this.W, this.H)
     this.finish()
   }
 
@@ -280,7 +265,7 @@ class Jungle extends Canvas {
     if (look.style === "front") haze(this.hdr, mist, W, H, 1, 1.01, 0.3)
     // A rocky cliff with the waterfall pouring over it, on the left; the animals' tree stands on the right.
     const fx = 0.32
-    this.falls = { x: fx * H, top: 0.27 * H, bottom: 0.66 * H, half: (this.rainy ? 0.026 : 0.018) * H }
+    this.falls = { x: fx * H, top: 0.27 * H, bottom: 0.66 * H, half: 0.018 * H }
     const rock = mixRGB(this.paint(ROCK), look.far, 0.35)
     const boulders: [number, number, number, number][] = [
       [0, 0.47, 0.085, 0.2],
@@ -799,7 +784,6 @@ export const jungle: Wallpaper = {
   id: "jungle",
   name: "Jungle",
   description: "A misty rainforest with a waterfall, light through the canopy, and a toucan flying by now and then",
-  collection: "Landscapes",
   activity: {
     calm: "Trees, vines, a waterfall and swaying leaves",
     lively: "Adds a swinging spider monkey and blue morpho butterflies",

@@ -503,7 +503,6 @@ export const matrix: Wallpaper = {
   id: "matrix",
   name: "Matrix",
   description: "The digital rain: streams of mirrored katakana and digits falling down a black screen, pale mint heads trailing green",
-  collection: "Classics",
   fixedTime: "night",
   activity: {
     calm: "A few slow streams falling through the dark",

@@ -765,7 +765,6 @@ export const space: Wallpaper = {
   id: "space",
   name: "Space",
   description: "A ringed planet turning slowly below a nebula and drifting stars, with a comet now and then",
-  collection: "Landscapes",
   activity: {
     calm: "The planet, its rings, a moon and the stars",
     lively: "Adds an orbiting space station and a satellite",

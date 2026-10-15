@@ -6,7 +6,6 @@ import { TAU, clamp, fbm2, hash2, lerp, rand, smoothstep, type RGB } from "../sr
 import { fillShadow, groundShadow, sunShade, type Shade } from "../src/shadow"
 import { touch } from "../src/touched"
 import type { Activity, Settings, Time, Wallpaper } from "../src/wallpaper"
-import { WeatherLayer } from "../src/weather"
 import { gust } from "../src/wind"
 
 // The scene runs slower than real time, which keeps it calm behind text.
@@ -196,7 +195,6 @@ class Rider extends Canvas {
   private readonly look: Look
   private lighting: Lighting = { style: "front", dir: LOOKS.day.dir }
   private readonly shade: Shade
-  private readonly weather: WeatherLayer
   // Scale for narrow screens, and where things stand, in screen heights.
   private k = 1
   private cx = 1
@@ -220,9 +218,8 @@ class Rider extends Canvas {
     super()
     this.activity = settings.activity
     this.look = LOOKS[settings.time]
-    this.weather = new WeatherLayer(settings.weather ?? "clear", settings.time, 0)
     // Seen from above, the shadows lie spread out on the pale ground, deeper than in the side-on scenes.
-    const shade = sunShade(settings.time, this.look.sun, this.weather.covered)
+    const shade = sunShade(settings.time, this.look.sun)
     this.shade = { ...shade, cast: Math.min(0.9, shade.cast * 1.3) }
     this.lamps = this.look.lamps
     const motes = { calm: 5, lively: 8, teeming: 12 }[settings.activity]
@@ -240,7 +237,6 @@ class Rider extends Canvas {
     const cdt = dt * CREATURE_SPEED
     this.creatureTime += cdt
     this.stepGloom(dt)
-    this.weather.step(dt)
     this.stepScript(cdt)
     this.stepTrails(cdt)
     this.stepVisitor(cdt)
@@ -277,7 +273,6 @@ class Rider extends Canvas {
     this.drawRider()
     if (this.visitor) this.drawVisitor()
     if (this.psychic.t >= 0) this.drawChunks()
-    this.weather.draw(this.hdr, W, H)
     this.finish()
   }
 
@@ -327,7 +322,6 @@ class Rider extends Canvas {
     const { W, H, look, hdr, px } = this
     const grain = this.cells ? 2 : 1
     const seamW = Math.max(0.0013 * H * this.k, (this.cells ? 0.9 : 0.6) * px)
-    const covered = this.weather.covered ? 0.85 : 1
     for (let y = 0; y < H; y++) {
       const v = (y + 0.5) / H
       const seamX = this.cx - 0.006 * this.k + 0.0015 * Math.sin(v * 9)
@@ -339,7 +333,7 @@ class Rider extends Canvas {
         const pool = Math.exp(-(dx * dx + dy * dy) * 1.6)
         const stain = 1 + (fbm2(u * 2.2, v * 2.2, 3) - 0.5) * 0.1 + (fbm2(u * 9 + 3, v * 9, 2) - 0.5) * 0.04
         const g = 1 + (hash2(Math.floor(x / px / grain), Math.floor(y / px / grain)) - 0.5) * 0.03
-        const m = stain * g * covered
+        const m = stain * g
         const o = (y * W + x) * 3
         hdr[o] = lerp(look.ground[0], look.halo[0], pool) * m
         hdr[o + 1] = lerp(look.ground[1], look.halo[1], pool) * m
@@ -925,7 +919,6 @@ export const rider: Wallpaper = {
   id: "rider",
   name: "Rider",
   description: "A red capsule bike on pale cracked concrete, its rider walking up to it, with another of the gang speeding by now and then",
-  collection: "Akira",
   fixedTime: "day",
   activity: {
     calm: "The bike, the rider standing by it, and drifting dust",

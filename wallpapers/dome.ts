@@ -5,7 +5,6 @@ import { TAU, clamp, fbm1, fbm2, hash, hash2, lerp, rand, smoothstep, type RGB }
 import { driftClouds, makeClouds, makeStorm, paintClouds, paintStorm, type Cloud } from "../src/sky"
 import { touch } from "../src/touched"
 import type { Activity, Settings, Time, Wallpaper } from "../src/wallpaper"
-import { WeatherLayer } from "../src/weather"
 
 // The scene runs slower than real time, which keeps it calm behind text.
 const TIME_SCALE = 0.35
@@ -168,7 +167,6 @@ class Dome extends Canvas {
   private creatureTime = 0
   private readonly activity: Activity
   private readonly look: Look
-  private readonly weather: WeatherLayer
   private lighting: Lighting = { style: "rim", color: [0, 1, 0], x: 0, y: 0 }
   private cx = 1
   private R = RADIUS
@@ -203,7 +201,6 @@ class Dome extends Canvas {
     super()
     this.activity = settings.activity
     this.look = LOOKS[settings.time]
-    this.weather = new WeatherLayer(settings.weather ?? "clear", settings.time, HORIZON)
     this.flash.wait = rand(6, 14)
     // A broad shaft straight toward the viewer, a few beside it, and thinner rays fanning out all round, fewer and
     // fainter toward the back.
@@ -239,7 +236,6 @@ class Dome extends Canvas {
     const cdt = dt * CREATURE_SPEED
     this.creatureTime += cdt
     this.stepGloom(dt)
-    this.weather.step(dt)
     driftClouds(this.clouds, this.A, dt * 0.5)
     if (this.gloom > 0) driftClouds(this.storm, this.A, dt)
     for (const r of this.rings) r.r += 0.055 * dt
@@ -287,8 +283,7 @@ class Dome extends Canvas {
     this.drawRipples()
     const dark = look.bank[1]
     if (this.gloom > 0) paintStorm(hdr, W, H, this.storm, [dark[0] * 1.6, dark[1] * 1.6, dark[2] * 1.6], dark, this.gloom)
-    const [top, bottom] = this.weather.scud ?? look.clouds
-    paintClouds(hdr, W, H, this.clouds, top, bottom, 0.55)
+    paintClouds(hdr, W, H, this.clouds, ...look.clouds, 0.55)
     if (this.flash.t >= 0) this.drawFlash()
     if (this.visitor) this.drawVisitor()
     for (const c of this.chunks) if (Math.sin(c.a) < 0) this.drawChunk(c)
@@ -296,8 +291,6 @@ class Dome extends Canvas {
     const g = look.glow
     for (const t of this.thrown) this.drawRubble(t.x, t.y, t.size * clamp((5 - t.age) / 1.5, 0, 1), t.spin, { style: "rim", color: g, x: t.x * H, y: (t.y + 0.05) * H })
     if (this.bike.t >= 0) this.drawBike()
-    this.weather.draw(hdr, W, H)
-    // The dome stands clear of fog and rain, a clean black silhouette in any weather.
     fillDome(hdr, W, H, this.cx * H, BASE * H, this.R * (1 + 0.05 * swell) * H, FOOT, look.dome, look.rim, look.glow, level, this.px)
     for (const c of this.chunks) if (Math.sin(c.a) >= 0) this.drawChunk(c)
     this.finish()
@@ -338,7 +331,6 @@ class Dome extends Canvas {
     this.rho = new Float32Array(W * H)
     this.phases = new Float32Array(W * H)
     this.paintSky()
-    this.weather.cover(hdr, W, H)
     this.skyRows = Math.ceil(HORIZON * H)
     this.tex = new Float32Array(W * this.skyRows)
     this.dist = new Float32Array(W * this.skyRows)
@@ -417,7 +409,7 @@ class Dome extends Canvas {
   // clusters, nearer ones lower and in front, each shaded as a ball lit from above and darkening down into the haze.
   private paintBank() {
     const { W, H, A, look, hdr, px } = this
-    const [lit, shade] = this.weather.scud ?? look.bank
+    const [lit, shade] = look.bank
     const balls: [number, number, number][] = []
     for (let x = -0.15, k = 0; x < A + 0.15; k++) {
       const big = 0.6 + 0.8 * smoothstep(this.R * 0.6, Math.max(this.R + 0.2, A / 2), Math.abs(x - this.cx))
@@ -751,7 +743,6 @@ export const dome: Wallpaper = {
   id: "dome",
   name: "Dome",
   description: "A vast black energy dome over a ruined city, its foot blazing with light under a ring of clouds, with a gunship crossing now and then",
-  collection: "Akira",
   fixedTime: "night",
   activity: {
     calm: "The dome, its slowly breathing light and the creeping cloud ring",

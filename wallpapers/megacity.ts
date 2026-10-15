@@ -3,7 +3,6 @@ import { eggWait } from "../src/egg"
 import { clamp, hash, hash2, lerp, rand, smoothstep, type RGB } from "../src/math"
 import { driftClouds, makeStorm, paintSky, paintStorm, type Orb } from "../src/sky"
 import type { Activity, Settings, Time, Wallpaper } from "../src/wallpaper"
-import { WeatherLayer } from "../src/weather"
 
 // The scene runs slower than real time, which keeps it calm behind text.
 const TIME_SCALE = 0.35
@@ -310,7 +309,6 @@ class Megacity extends Canvas {
   private readonly activity: Activity
   private readonly look: Look
   private lighting: Lighting = { style: "front", dir: DAYLIGHT }
-  private readonly weather: WeatherLayer
   private readonly city = buildCity()
   private storm = makeStorm()
   // Depth of what each pixel shows (Infinity for sky), and which lit window it shows, if any, as a hash from 0 to 1.
@@ -335,7 +333,6 @@ class Megacity extends Canvas {
     super()
     this.activity = settings.activity
     this.look = LOOKS[settings.time]
-    this.weather = new WeatherLayer(settings.weather ?? "clear", settings.time, HORIZON)
     this.gap = rand(...TRAFFIC[this.activity]) * 0.3
   }
 
@@ -345,7 +342,6 @@ class Megacity extends Canvas {
     const cdt = dt * CREATURE_SPEED
     this.creatureTime += cdt
     this.stepGloom(dt)
-    this.weather.step(dt)
     driftClouds(this.storm, this.A, dt)
     this.stepBikes(dt, cdt)
     this.bursts = this.bursts.filter((b) => this.time - b.t < 5)
@@ -365,7 +361,6 @@ class Megacity extends Canvas {
     this.drawBeacons()
     this.drawTrails()
     for (const b of [...this.bikes].sort((a, c) => c.z - a.z)) this.drawBike(b)
-    this.weather.draw(this.hdr, W, H)
     this.finish()
   }
 
@@ -388,7 +383,6 @@ class Megacity extends Canvas {
     const { W, H, look } = this
     this.lighting = look.style === "front" ? { style: "front", dir: DAYLIGHT } : { style: "rim", color: look.light, x: (this.A / 2) * H, y: (HORIZON - 0.15) * H }
     paintSky(this.hdr, W, H, look.sky, look.orb, this.px)
-    this.weather.cover(this.hdr, W, H)
     const real = this.px === 1
     const depth = new Float32Array(W * H)
     const win = new Float32Array(real ? W * H : 0)
@@ -1279,7 +1273,6 @@ export const megacity: Wallpaper = {
   id: "megacity",
   name: "Megacity",
   description: "A canyon of towers over a neon avenue, where motorbikes ride off into the haze trailing red light",
-  collection: "Akira",
   fixedTime: "night",
   activity: {
     calm: "The glowing city, windows coming and going, and a distant bike now and then",

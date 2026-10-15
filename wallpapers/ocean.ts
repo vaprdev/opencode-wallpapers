@@ -1562,7 +1562,6 @@ export const ocean: Wallpaper = {
   id: "ocean",
   name: "Ocean",
   description: "Deep water, god rays, marine snow, and a whale that drifts past now and then",
-  collection: "Landscapes",
   activity: {
     calm: "Water, light and the whale",
     lively: "Adds a fish and an octopus",

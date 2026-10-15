@@ -52,7 +52,6 @@ function problem(value: unknown, taken: Set<string>) {
   if (typeof w.create !== "function") return `${w.id}: create must be a function`
   const activity = w.activity as Record<string, unknown> | undefined
   if (!ACTIVITIES.every((a) => typeof activity?.[a] === "string")) return `${w.id}: activity needs a description for each of ${ACTIVITIES.join(", ")}`
-  if (w.collection !== undefined && (typeof w.collection !== "string" || !w.collection.trim())) return `${w.id}: collection must be a name`
   if (w.fixedTime !== undefined && !TIMES.some((t) => t === w.fixedTime)) return `${w.id}: fixedTime must be one of ${TIMES.join(", ")}`
   const scrim = w.scrim as Record<string, unknown> | undefined
   const isScrim = (s: unknown) => Array.isArray(s) && s.length === 3 && s.every((c) => Array.isArray(c) && c.length === 3 && c.every((v) => typeof v === "number"))

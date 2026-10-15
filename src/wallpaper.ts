@@ -49,11 +49,8 @@ export interface Wallpaper {
   readonly id: string
   readonly name: string
   readonly description: string
-  // The menu's group for it, such as "Landscapes" or "Classics". Defaults to Classics for a wallpaper with a fixed
-  // time and Landscapes otherwise.
-  readonly collection?: string
-  // For a wallpaper with one look: the time of day it always renders at, whatever the time setting, without seasons
-  // or weather. The menu hides its time, season and weather rows.
+  // For a wallpaper with one look: the time of day it always renders at, whatever the time setting. The menu hides
+  // its time row.
   readonly fixedTime?: Time
   // For each time of day, colors (0-255) that text scrims fade the scene toward at the top, middle and bottom of the
   // screen. Darker, more saturated versions of the scene's own colors at those depths read better than black.
@@ -65,13 +62,9 @@ export interface Wallpaper {
 
 export type Scrim = readonly [RGB, RGB, RGB]
 
-export function collectionOf(wallpaper: Wallpaper) {
-  return wallpaper.collection ?? (wallpaper.fixedTime ? "Classics" : "Landscapes")
-}
-
-// The settings a wallpaper renders with: one with a fixed time ignores the time, season and weather settings.
+// The settings a wallpaper renders with: one with a fixed time ignores the time setting.
 export function settingsFor(wallpaper: Wallpaper, settings: Settings): Settings {
-  return wallpaper.fixedTime ? { ...settings, time: wallpaper.fixedTime, season: undefined, weather: undefined } : settings
+  return wallpaper.fixedTime ? { ...settings, time: wallpaper.fixedTime } : settings
 }
 
 export interface Settings {
@@ -80,9 +73,6 @@ export interface Settings {
   // Defaults to normal. The engine applies it, and changing only this restyles the running scene instead of
   // restarting it.
   readonly brightness?: Brightness
-  // Without a season a wallpaper shows its classic look; without weather it picks its own (see src/weather.ts).
-  readonly season?: Season
-  readonly weather?: Weather
 }
 
 // How much is going on in the scene. calm is scenery with rare events; teeming is the full cast.
@@ -91,12 +81,6 @@ export type Activity = (typeof ACTIVITIES)[number]
 
 export const TIMES = ["day", "sunset", "night"] as const
 export type Time = (typeof TIMES)[number]
-
-export const SEASONS = ["spring", "summer", "autumn", "winter"] as const
-export type Season = (typeof SEASONS)[number]
-
-export const WEATHERS = ["clear", "overcast", "rain", "snow", "fog"] as const
-export type Weather = (typeof WEATHERS)[number]
 
 export const BRIGHTNESSES = ["subtle", "normal", "vivid"] as const
 export type Brightness = (typeof BRIGHTNESSES)[number]

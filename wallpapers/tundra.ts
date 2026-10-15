@@ -8,7 +8,6 @@ import { groundShadow, sunShade, type Shade } from "../src/shadow"
 import { driftClouds, makeClouds, makeShadows, makeStars, makeStorm, paintClouds, paintShadows, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
 import type { Activity, Settings, Time, Wallpaper } from "../src/wallpaper"
 import { reflect } from "../src/water"
-import { WeatherLayer } from "../src/weather"
 import { SwayLayer, gust } from "../src/wind"
 
 // The scene runs slower than real time, which keeps it calm behind text.
@@ -155,7 +154,6 @@ class Tundra extends Canvas {
   // The easter egg: a yeti looms out of the snow on the far field, looks about, waves and fades away. t is creature
   // time since it began.
   private yeti = { wait: eggWait() * TIME_SCALE, t: -1, x: 0 }
-  private readonly weather: WeatherLayer
   // The big pines framing the edges, painted once, bend a little as gusts pass.
   private pines = new SwayLayer()
   private lights = new LightMap()
@@ -167,10 +165,9 @@ class Tundra extends Canvas {
     if (settings.time === "day") this.frame = 0.4
     this.stars = makeStars(this.look.stars, 0.45)
     this.clouds = makeClouds(3, "stratus", 0.26, 0.4)
-    // Its own gentle snowfall under a clear sky, unless weather is chosen.
-    this.weather = new WeatherLayer(settings.weather ?? "clear", settings.time, HORIZON)
-    this.shade = sunShade(settings.time, this.look.orb, this.weather.covered)
-    this.flakes = Array.from({ length: settings.weather ? 0 : { calm: 70, lively: 100, teeming: 130 }[settings.activity] }, () => ({ x: Math.random() * 4, y: Math.random(), z: Math.random(), s: Math.random() }))
+    this.shade = sunShade(settings.time, this.look.orb)
+    // A gentle snowfall under a clear sky.
+    this.flakes = Array.from({ length: { calm: 70, lively: 100, teeming: 130 }[settings.activity] }, () => ({ x: Math.random() * 4, y: Math.random(), z: Math.random(), s: Math.random() }))
     const walker = (x: number, y: number): Walker => ({ x, y, wx: x, wy: y, wanderT: 0, face: 1, phase: Math.random() * TAU, rest: 0, moving: false, hop: Infinity, g: gait(1, hash(x * 7 + y)) })
     if (settings.activity !== "calm") {
       this.penguins = Array.from({ length: settings.activity === "teeming" ? 5 : 3 }, (_, i) => walker(0.6 + i * 0.12, 0.81 + (i % 2) * 0.015))
@@ -188,7 +185,6 @@ class Tundra extends Canvas {
     driftClouds(this.shadows, this.A, dt)
     driftClouds(this.storm, this.A, dt)
     this.stepGloom(dt)
-    this.weather.step(dt)
     for (const f of this.flakes) {
       f.y += (0.02 + f.z * 0.035) * dt
       f.x += (Math.sin(this.time * 0.6 + f.s * 20) * 0.006 + 0.004 + gust(f.x, this.time) * (0.06 + f.z * 0.06)) * dt
@@ -238,11 +234,10 @@ class Tundra extends Canvas {
     this.restore()
     this.pines.draw(this.hdr, this.W, this.H, this.time)
     // Before the stars: anything drawn over a star afterwards keeps it a plain pixel rather than a dot on cells.
-    if (this.look.aurora > 0 && !this.weather.covered) this.drawAurora()
-    if (!this.weather.covered) paintStars(this.hdr, this.W, this.H, this.stars, this.time, 0.5, this.look.stars > 50 ? 0.5 : 0.3, this.points)
-    const [top, bottom] = this.weather.scud ?? [this.look.clouds.top, this.look.clouds.bottom]
-    const orb = this.weather.covered ? undefined : this.look.orb
-    paintClouds(this.hdr, this.W, this.H, this.clouds, top, bottom, this.look.clouds.alpha, orb)
+    if (this.look.aurora > 0) this.drawAurora()
+    paintStars(this.hdr, this.W, this.H, this.stars, this.time, 0.5, this.look.stars > 50 ? 0.5 : 0.3, this.points)
+    const orb = this.look.orb
+    paintClouds(this.hdr, this.W, this.H, this.clouds, this.look.clouds.top, this.look.clouds.bottom, this.look.clouds.alpha, orb)
     paintShadows(this.hdr, this.W, this.H, this.shadows, 0.61, orb)
     paintStorm(this.hdr, this.W, this.H, this.storm, this.look.clouds.top, this.look.clouds.bottom, this.gloom)
     this.drawShadows()
@@ -255,7 +250,7 @@ class Tundra extends Canvas {
     // The aurora's light ripples over the snow and ice below it, and at night the igloo doors' firelight flickers
     // across the snow and anything passing them.
     this.lights.clear(this.W, this.H)
-    if (this.look.aurora > 0 && !this.weather.covered) this.lightSnow()
+    if (this.look.aurora > 0) this.lightSnow()
     if (this.look.glow === 1)
       for (const [i, [x, base, R]] of this.igloos().entries()) {
         const k = firelight(this.time, i)
@@ -264,7 +259,6 @@ class Tundra extends Canvas {
       }
     this.lights.apply(this.hdr)
     this.drawFlakes()
-    this.weather.draw(this.hdr, this.W, this.H)
     this.finish()
   }
 
@@ -277,7 +271,6 @@ class Tundra extends Canvas {
     const { W, H, A, look, px } = this
     this.lighting = look.style === "front" ? { style: "front", dir: DAYLIGHT } : { style: "rim", color: look.light, x: look.orb.x * W, y: look.orb.y * H }
     paintSky(this.hdr, W, H, look.sky, look.orb, px)
-    this.weather.cover(this.hdr, W, H)
     const sky = this.hdr.slice()
     this.drawMountains()
     // Gentle drifts near the horizon, then the snowfield sweeping to the bottom of the screen.
@@ -816,7 +809,6 @@ export const tundra: Wallpaper = {
   id: "tundra",
   name: "Tundra",
   description: "Snowy peaks, a frozen lake, igloos and a snowman under falling snow, with a snowy owl now and then",
-  collection: "Landscapes",
   activity: {
     calm: "Peaks, igloos, a snowman and falling snow",
     lively: "Adds waddling penguins and an arctic fox",

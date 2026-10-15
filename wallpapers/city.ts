@@ -9,7 +9,6 @@ import { TAU, clamp, fbm1, hash, hash2, lerp, noise1, rand, smoothstep, type RGB
 import { groundShadow, sunShade, type Shade } from "../src/shadow"
 import { driftClouds, makeClouds, makeStars, makeStorm, paintClouds, paintHaze, paintSky, paintStars, paintStorm, type Cloud, type Orb, type Star } from "../src/sky"
 import type { Activity, Settings, Time, Wallpaper } from "../src/wallpaper"
-import { WeatherLayer } from "../src/weather"
 import { gust, sway } from "../src/wind"
 
 // The scene runs slower than real time, which keeps it calm behind text.
@@ -259,8 +258,6 @@ class City extends Canvas {
   ]
   private walkers: Walker[] = []
   private rain: { x: number; y: number; speed: number }[] = []
-  // Rain or snow from the weather setting; the city's own night rain only falls without one.
-  private readonly weather: WeatherLayer
   private lights = new LightMap()
   private readonly wet: boolean
   private storm = makeStorm()
@@ -275,13 +272,12 @@ class City extends Canvas {
     if (settings.time === "day") this.frame = 0.4
     this.stars = makeStars(this.look.stars, 0.45)
     this.clouds = makeClouds(2, "stratus", 0.05, 0.12)
-    this.weather = new WeatherLayer(settings.weather ?? "clear", settings.time, BANK)
-    this.shade = sunShade(settings.time, this.look.orb, this.weather.covered)
-    this.wet = settings.weather ? settings.weather === "rain" || settings.weather === "snow" : this.look.night && settings.activity === "teeming"
+    this.shade = sunShade(settings.time, this.look.orb)
+    this.wet = this.look.night && settings.activity === "teeming"
     if (settings.activity !== "teeming") return
     const umbrellas: RGB[] = [[0.1, 0.55, 0.6], [0.6, 0.1, 0.4], [0.65, 0.35, 0.05], [0.3, 0.15, 0.6], [0.6, 0.1, 0.08]]
     this.walkers = Array.from({ length: 5 }, (_, i) => ({ x: 0.15 + i * 0.37, dir: i % 2 ? -1 : 1, phase: Math.random(), size: [1, 0.92, 1.06, 0.97, 1.03][i], coat: PAINT[(i * 3) % PAINT.length], hair: HAIR[i % HAIR.length], umbrella: umbrellas[i] }))
-    if (this.look.night && !settings.weather) this.rain = Array.from({ length: 30 }, () => ({ x: Math.random() * 2, y: Math.random(), speed: rand(0.9, 1.3) }))
+    if (this.look.night) this.rain = Array.from({ length: 30 }, () => ({ x: Math.random() * 2, y: Math.random(), speed: rand(0.9, 1.3) }))
   }
 
   step(dt: number) {
@@ -291,7 +287,6 @@ class City extends Canvas {
     driftClouds(this.clouds, this.A, dt)
     driftClouds(this.storm, this.A, dt)
     this.stepGloom(dt)
-    this.weather.step(dt)
     this.pigeons = flyAway(this.pigeons, dt, this.A)
     this.stepHero(dt)
     this.stepTraffic(dt)
@@ -321,9 +316,8 @@ class City extends Canvas {
     const { W, H, look } = this
     this.restore()
     this.lights.clear(W, H)
-    if (!this.weather.covered) paintStars(this.hdr, W, H, this.visibleStars, this.time, BANK, 0.4, this.points)
-    const [top, bottom] = this.weather.scud ?? [look.clouds.top, look.clouds.bottom]
-    paintClouds(this.hdr, W, H, this.clouds, top, bottom, look.clouds.alpha, this.weather.covered ? undefined : look.orb)
+    paintStars(this.hdr, W, H, this.visibleStars, this.time, BANK, 0.4, this.points)
+    paintClouds(this.hdr, W, H, this.clouds, look.clouds.top, look.clouds.bottom, look.clouds.alpha, look.orb)
     paintStorm(this.hdr, W, H, this.storm, look.clouds.top, look.clouds.bottom, this.gloom)
     if (this.hero.t >= 0) this.drawHero()
     this.drawBlimp()
@@ -346,7 +340,6 @@ class City extends Canvas {
     this.lights.apply(this.hdr)
     for (const b of this.pigeons) this.shape(bird(b, H, 0.022 * H, this.paint([0.42, 0.44, 0.5])), this.lighting, 0.4)
     this.drawRain()
-    this.weather.draw(this.hdr, W, H)
     this.finish()
   }
 
@@ -364,7 +357,6 @@ class City extends Canvas {
     const { W, H, A, look } = this
     this.lighting = look.style === "front" ? { style: "front", dir: DAYLIGHT } : { style: "rim", color: look.light, x: look.orb.x * W, y: look.orb.y * H }
     paintSky(this.hdr, W, H, look.sky, look.orb, this.px)
-    this.weather.cover(this.hdr, W, H)
     const sky = this.hdr.slice()
     this.beacons = []
     this.flickers = []
@@ -1088,8 +1080,8 @@ class City extends Canvas {
     )
     if (!this.wet) return
     const [cx, cy] = P(0.08, -1.08)
-    // Lit by the street at night, plain colored canopies by day.
-    const u: RGB = look.glow > 0 ? [w.umbrella[0] * look.glow * 0.9, w.umbrella[1] * look.glow * 0.9, w.umbrella[2] * look.glow * 0.9] : this.paint(w.umbrella.map((c) => c * 1.4) as RGB)
+    // Lit by the street at night.
+    const u: RGB = [w.umbrella[0] * look.glow * 0.9, w.umbrella[1] * look.glow * 0.9, w.umbrella[2] * look.glow * 0.9]
     this.polygon(Array.from({ length: 11 }, (_, i) => [cx + Math.cos(Math.PI + (i / 10) * Math.PI) * 0.26 * S, cy + Math.sin(Math.PI + (i / 10) * Math.PI) * 0.13 * S + (i % 2 ? 0 : 0.02 * S)] as const), u)
     this.shape([cap(cx, cy, ...P(0.12, -0.85), 0.012 * S, 0.012 * S, this.paint([0.3, 0.3, 0.32]))], this.lighting, 0)
   }
@@ -1113,7 +1105,6 @@ export const city: Wallpaper = {
   id: "city",
   name: "City",
   description: "A skyline over a river, traffic on an elevated highway, and a blimp drifting over now and then",
-  collection: "Landscapes",
   activity: {
     calm: "Skyline, river and light traffic on the highway",
     lively: "Adds a train crossing the bridge and more traffic",

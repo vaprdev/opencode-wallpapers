@@ -60,7 +60,7 @@ export abstract class Canvas {
   hdr = new Float32Array(0)
   pixels = new Uint8Array(0)
   // Boxes [x0, y0, x1, y1, ...] in pixels, inclusive, around what render() drew this frame over the cached background.
-  // restore() clears it; the drawing methods and the shared helpers (sky, weather, shadows, light, water, wind) add to
+  // restore() clears it; the drawing methods and the shared helpers (sky, shadows, light, water, wind) add to
   // it; scenes touch() what their own pixel loops write.
   readonly touched: number[] = []
   // Boxes around every pixel whose `pixels` value may differ from last frame's, for the engine to refit only the cells
